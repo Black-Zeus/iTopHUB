@@ -1,0 +1,287 @@
+name: ${PROJECT_NAME}
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+x-restart-policy: &restart-policy
+  restart: unless-stopped
+
+x-common-env: &common-env
+  TZ: ${TZ}
+  ENV_NAME: ${ENV_NAME}
+
+services:
+  mariadb:
+    image: mariadb:11.4
+    container_name: ${PROJECT_NAME}-mariadb
+    environment:
+      <<: *common-env
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
+      MARIADB_DATABASE: ${APP_DB_NAME}
+      MARIADB_USER: ${MARIADB_USER}
+      MARIADB_PASSWORD: ${MARIADB_PASSWORD}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - ${DATA_ROOT}/mariadb_data:/var/lib/mysql
+      - ${SETTINGS_ROOT}/mariadb/init:/docker-entrypoint-initdb.d:ro
+      - ${LOGS_ROOT}/mariadb:/var/log/mysql
+    ports:
+      - "${MARIADB_PORT}:3306"
+    healthcheck:
+      test: ["CMD", "mariadb-admin", "ping", "-h", "127.0.0.1", "-u${MARIADB_USER}", "-p${MARIADB_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    networks:
+      - internal
+    logging: *default-logging
+    <<: *restart-policy
+
+  redis:
+    image: redis:7-alpine
+    container_name: ${PROJECT_NAME}-redis
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    environment:
+      <<: *common-env
+    volumes:
+      - ${DATA_ROOT}/redis_data:/data
+      - ${SETTINGS_ROOT}/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+      - ${LOGS_ROOT}/redis:/var/log/redis
+    ports:
+      - "${REDIS_PORT}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 30
+    networks:
+      - internal
+    logging: *default-logging
+    <<: *restart-policy
+
+  mailpit:
+    image: axllent/mailpit:v1.29
+    container_name: ${PROJECT_NAME}-mailpit
+    environment:
+      <<: *common-env
+    ports:
+      - "${MAILPIT_UI_PORT}:8025"
+      - "${MAILPIT_SMTP_PORT}:1025"
+    networks:
+      - internal
+    logging: *default-logging
+    <<: *restart-policy
+
+  itop:
+    build:
+      context: .
+      dockerfile: ./Data/dokerFile/dev_qa/Dockerfile.itop
+      args:
+        ITOP_BASE_IMAGE: ${ITOP_BASE_IMAGE}
+    image: ${PROJECT_NAME}/itop:dev
+    container_name: ${PROJECT_NAME}-itop
+    environment:
+      <<: *common-env
+      ITOP_DB_HOST: mariadb
+      ITOP_DB_PORT: 3306
+      ITOP_DB_NAME: ${ITOP_DB_NAME}
+      ITOP_DB_USER: ${MARIADB_USER}
+      ITOP_DB_PASSWORD: ${MARIADB_PASSWORD}
+      ITOP_ADMIN_USER: ${ITOP_ADMIN_USER}
+      ITOP_ADMIN_PASSWORD: ${ITOP_ADMIN_PASSWORD}
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    ports:
+      - "${ITOP_PORT}:80"
+    volumes:
+      - ${VOLUMES_ROOT}/itop:/opt/itophub/itop
+      - ${LOGS_ROOT}/itop:/var/log/apache2
+    networks:
+      - internal
+    logging: *default-logging
+    <<: *restart-policy
+
+  frontend:
+    build:
+      context: .
+      dockerfile: ./Data/dokerFile/dev_qa/Dockerfile.frontend
+    image: ${PROJECT_NAME}/frontend:dev
+    container_name: ${PROJECT_NAME}-frontend
+    working_dir: /app
+    environment:
+      <<: *common-env
+      NODE_ENV: development
+      CHOKIDAR_USEPOLLING: "true"
+      WATCHPACK_POLLING: "true"
+      VITE_APP_NAME: ${VITE_APP_NAME}
+      VITE_API_URL: ${VITE_API_URL}
+      VITE_ITOP_URL: ${VITE_ITOP_URL}
+    volumes:
+      - ${VOLUMES_ROOT}/frontend:/app
+      - frontend_node_modules:/app/node_modules
+      - ${LOGS_ROOT}/frontend:/var/log/app
+    command: >
+      sh -c "if [ -f package.json ];
+      then npm install && npm run dev -- --host 0.0.0.0 --port 5173;
+      else tail -f /dev/null; fi"
+    ports:
+      - "${FRONTEND_PORT}:5173"
+    depends_on:
+      - backend
+      - itop
+    networks:
+      - internal
+    logging: *default-logging
+    <<: *restart-policy
+
+  backend:
+    build:
+      context: .
+      dockerfile: ./Data/dokerFile/dev_qa/Dockerfile.backend
+    image: ${PROJECT_NAME}/backend:dev
+    container_name: ${PROJECT_NAME}-backend
+    working_dir: /app
+    environment:
+      <<: *common-env
+      APP_HOST: 0.0.0.0
+      APP_PORT: 8000
+      APP_DB_HOST: mariadb
+      APP_DB_PORT: 3306
+      APP_DB_NAME: ${APP_DB_NAME}
+      APP_DB_USER: ${MARIADB_USER}
+      APP_DB_PASSWORD: ${MARIADB_PASSWORD}
+      ITOP_URL: http://itop
+      ITOP_DB_HOST: mariadb
+      ITOP_DB_PORT: 3306
+      ITOP_DB_NAME: ${ITOP_DB_NAME}
+      ITOP_DB_USER: ${MARIADB_USER}
+      ITOP_DB_PASSWORD: ${MARIADB_PASSWORD}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: ${REDIS_DB}
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL}
+      PDF_WORKER_QUEUE: ${PDF_WORKER_QUEUE}
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
+      JWT_SECRET: ${JWT_SECRET}
+    volumes:
+      - ${VOLUMES_ROOT}/backend/app:/app
+      - ${DATA_ROOT}/backend_data:/app/data
+      - ${LOGS_ROOT}/backend:/var/log/app
+    command: >
+      sh -c "if [ -f requirements.txt ]; then pip install --user --no-cache-dir -r requirements.txt; fi &&
+      if [ -f pyproject.toml ]; then pip install --user --no-cache-dir -e .; fi &&
+      if [ -f main.py ]; then uvicorn main:app --host 0.0.0.0 --port 8000 --reload;
+      else tail -f /dev/null; fi"
+    ports:
+      - "${BACKEND_PORT}:8000"
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      itop:
+        condition: service_started
+      mailpit:
+        condition: service_started
+    networks:
+      - internal
+    logging: *default-logging
+    <<: *restart-policy
+
+  worker:
+    build:
+      context: .
+      dockerfile: ./Data/dokerFile/dev_qa/Dockerfile.worker
+    image: ${PROJECT_NAME}/worker:dev
+    container_name: ${PROJECT_NAME}-worker
+    working_dir: /app
+    environment:
+      <<: *common-env
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: ${REDIS_DB}
+      BACKEND_INTERNAL_URL: http://backend:8000
+      MAIL_HOST: mailpit
+      MAIL_PORT: 1025
+      PDF_WORKER_QUEUE: ${PDF_WORKER_QUEUE}
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
+    volumes:
+      - ${VOLUMES_ROOT}/worker/app:/app
+      - ${SETTINGS_ROOT}/worker/temp:/app/assets/temp
+      - ${LOGS_ROOT}/worker:/var/log/app
+    command: >
+      sh -c "if [ -f requirements.txt ]; then pip install --user --no-cache-dir -r requirements.txt; fi &&
+      if [ -f worker.py ]; then watchmedo auto-restart --patterns='*.py' --recursive -- python worker.py;
+      else tail -f /dev/null; fi"
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    networks:
+      - internal
+    logging: *default-logging
+    <<: *restart-policy
+
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    container_name: ${PROJECT_NAME}-gotenberg
+    command:
+      - gotenberg
+      - --chromium-disable-javascript=true
+    networks:
+      - internal
+    logging: *default-logging
+    <<: *restart-policy
+
+  pdf-worker:
+    build:
+      context: .
+      dockerfile: ./Data/dokerFile/dev_qa/Dockerfile.pdf-worker
+    image: ${PROJECT_NAME}/pdf-worker:dev
+    container_name: ${PROJECT_NAME}-pdf-worker
+    working_dir: /app
+    environment:
+      <<: *common-env
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: ${REDIS_DB}
+      BACKEND_INTERNAL_URL: http://backend:8000
+      GOTENBERG_URL: http://gotenberg:3000
+      PDF_STORAGE_DIR: /app/output
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
+    volumes:
+      - ${VOLUMES_ROOT}/pdf-worker/app:/app
+      - ${LOGS_ROOT}/pdf-worker:/var/log/app
+    command: >
+      sh -c "if [ -f requirements.txt ]; then pip install --user --no-cache-dir -r requirements.txt; fi &&
+      if [ -f main.py ]; then watchmedo auto-restart --patterns='*.py;*.html' --recursive -- python main.py;
+      else tail -f /dev/null; fi"
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+      gotenberg:
+        condition: service_started
+    networks:
+      - internal
+    logging: *default-logging
+    <<: *restart-policy
+
+networks:
+  internal:
+    driver: bridge
+    name: ${PROJECT_NAME}_internal
+
+volumes:
+  frontend_node_modules:
+    name: ${PROJECT_NAME}_frontend_node_modules

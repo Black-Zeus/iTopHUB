@@ -1,0 +1,2 @@
+-- Reserved preamble slot.
+-- Use this file only for SQL that must run before the schema blocks.

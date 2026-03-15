@@ -1,0 +1,2 @@
+-- Schema alterations block.
+-- Add ALTER TABLE statements that depend on the base schema here.

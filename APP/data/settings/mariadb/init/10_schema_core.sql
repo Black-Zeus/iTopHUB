@@ -1,0 +1,2 @@
+-- Base schema block.
+-- Add core CREATE TABLE statements here.

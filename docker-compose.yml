@@ -1,0 +1,140 @@
+# PRD: exponer SOLO 80/443 (nginx). Servicios internos sin puertos host.
+name: ${PROJECT_NAME}
+
+services:
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: ${PROJECT_NAME}-nginx
+    restart: unless-stopped
+    depends_on:
+      - frontend
+      - backend
+      - minio
+    ports:
+      - "${NGINX_HTTP_PORT}:80"
+      # - "${NGINX_HTTPS_PORT}:443"  # habilitar cuando tengas certificados
+    volumes:
+      - ./APP/data/settings/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./APP/data/settings/nginx/certs:/etc/nginx/certs:ro
+    labels:
+      - "stack=${PROJECT_NAME}"
+      - "env=${ENV_NAME}"
+
+  mariadb:
+    image: mariadb:11.4
+    container_name: ${PROJECT_NAME}-mariadb
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
+      MARIADB_DATABASE: ${MARIADB_DATABASE}
+      MARIADB_USER: ${MARIADB_USER}
+      MARIADB_PASSWORD: ${MARIADB_PASSWORD}
+    volumes:
+      - ./APP/data/mariadb_data:/var/lib/mysql
+      - ./APP/data/settings/mariadb/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mariadb-admin", "ping", "-h", "127.0.0.1", "-p${MARIADB_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    labels:
+      - "stack=${PROJECT_NAME}"
+      - "env=${ENV_NAME}"
+
+  redis:
+    image: redis:7-alpine
+    container_name: ${PROJECT_NAME}-redis
+    restart: unless-stopped
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    volumes:
+      - ./APP/data/redis_data:/data
+      - ./APP/data/settings/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 30
+    labels:
+      - "stack=${PROJECT_NAME}"
+      - "env=${ENV_NAME}"
+
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    container_name: ${PROJECT_NAME}-minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      # Si publicas por PATH, define URLs públicas según tu dominio real:
+      # MINIO_SERVER_URL: "https://app.tu-dominio.tld/minio"
+      # MINIO_BROWSER_REDIRECT_URL: "https://app.tu-dominio.tld/minio-console"
+    command: server /data --console-address ":9001"
+    volumes:
+      - ./APP/data/minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    labels:
+      - "stack=${PROJECT_NAME}"
+      - "env=${ENV_NAME}"
+
+  backend:
+    build:
+      context: .
+      dockerfile: ./Data/dokerFile/Dockerfile.backend
+    container_name: ${PROJECT_NAME}-backend
+    restart: unless-stopped
+    environment:
+      ENV_NAME: ${ENV_NAME}
+      MARIADB_HOST: ${MARIADB_HOST}
+      MARIADB_PORT: ${MARIADB_PORT}
+      MARIADB_DATABASE: ${MARIADB_DATABASE}
+      MARIADB_USER: ${MARIADB_USER}
+      MARIADB_PASSWORD: ${MARIADB_PASSWORD}
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      MINIO_HOST: ${MINIO_HOST}
+      MINIO_PORT: ${MINIO_PORT}
+      JWT_SECRET: ${JWT_SECRET}
+    volumes:
+      - ./APP/data/backend_data:/app/_data
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    labels:
+      - "stack=${PROJECT_NAME}"
+      - "env=${ENV_NAME}"
+
+  worker:
+    build:
+      context: .
+      dockerfile: ./Data/dokerFile/Dockerfile.worker
+    container_name: ${PROJECT_NAME}-worker
+    restart: unless-stopped
+    environment:
+      ENV_NAME: ${ENV_NAME}
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+    depends_on:
+      redis:
+        condition: service_healthy
+    labels:
+      - "stack=${PROJECT_NAME}"
+      - "env=${ENV_NAME}"
+
+  # Frontend prod: se construye una imagen estática y se sirve en 80 interno
+  frontend:
+    build:
+      context: .
+      dockerfile: ./Data/dokerFile/Dockerfile.frontend
+    container_name: ${PROJECT_NAME}-frontend
+    restart: unless-stopped
+    labels:
+      - "stack=${PROJECT_NAME}"
+      - "env=${ENV_NAME}"

@@ -1,0 +1,2 @@
+ARG ITOP_BASE_IMAGE=combodo/itop:latest
+FROM ${ITOP_BASE_IMAGE}

@@ -1,0 +1,11 @@
+FROM node:22-alpine AS build
+
+WORKDIR /app
+
+COPY APP/volumes/frontend/ /app/
+
+RUN if [ -f package.json ]; then npm install && npm run build; else mkdir -p dist && printf '%s\n' 'frontend pending' > dist/index.html; fi
+
+FROM nginx:1.25-alpine
+
+COPY --from=build /app/dist /usr/share/nginx/html
