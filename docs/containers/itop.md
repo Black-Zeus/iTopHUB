@@ -9,13 +9,15 @@ Runs the iTop platform used as the ITSM/CMDB base of the solution.
 - Service name: `itop`
 - Main port in dev: `ITOP_PORT -> 80`
 - Volume mount: `APP/volumes/itop`
-- Logs mount: `APP/logs/itop`
+- Logs mount: `APP/logs/<env>/itop`
 - Shared MariaDB server with dedicated application database name: `ITOP_DB_NAME`
 
 ## Current Intent
 
 - iTop is a platform dependency, not the place for all custom business logic.
 - The custom Hub should sit beside it, not inside it unless extension work is truly needed.
+- In `dev`, it is exposed behind `nginx` as a temporary local dependency.
+- In `qa` and `prd`, the target is the original iTop site, not a local iTop container.
 
 ## Notes
 

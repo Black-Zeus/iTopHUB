@@ -8,7 +8,7 @@ Generates PDFs and document outputs without loading that responsibility into the
 
 - Service name: `pdf-worker`
 - Source mount: `APP/volumes/pdf-worker/app`
-- Logs mount: `APP/logs/pdf-worker`
+- Logs mount: `APP/logs/<env>/pdf-worker`
 - Dependencies: `redis`, `backend`, `gotenberg`
 
 ## Current Intent

@@ -1,25 +1,27 @@
-# Documentation Index
+# Indice De Documentacion
 
-This folder centralizes operational notes for the Docker-based architecture.
+Esta carpeta centraliza notas operativas y tecnicas de la arquitectura basada en Docker.
 
-## Governance
+## Gobernanza
 
 - `../AGENTS.md`
 - `../REGENERATE.md`
 
-## Containers
+## Contenedores
 
 - `containers/frontend.md`
 - `containers/backend.md`
 - `containers/worker.md`
 - `containers/pdf-worker.md`
 - `containers/itop.md`
+- `containers/nginx.md`
 - `containers/mariadb.md`
 - `containers/redis.md`
+- `containers/redis.md` (incluye nota sobre `redisinsight`)
 - `containers/mailpit.md`
 - `containers/gotenberg.md`
 
-## Domains
+## Dominios
 
 - `domains/cmdb.md`
 - `domains/handover.md`
@@ -27,12 +29,12 @@ This folder centralizes operational notes for the Docker-based architecture.
 - `domains/laboratory.md`
 - `domains/reporting.md`
 
-## Operations
+## Operacion
 
 - `operations/runtime-workflow.md`
 
-## Documentation Rule
+## Regla De Documentacion
 
-When a decision affects one container more than the others, document it in that container file first.
-When a decision affects workflows, business rules, records, or user-facing processes, document it in the matching domain file.
-When a decision affects execution boundaries, environment usage, or operational responsibilities, document it in `docs/operations/`.
+Cuando una decision afecta principalmente a un contenedor, documentarla primero en ese archivo de `containers/`.
+Cuando una decision afecta flujos, reglas de negocio, entidades o procesos de usuario, documentarla en el dominio correspondiente.
+Cuando una decision afecta limites de ejecucion, uso de entornos, bootstrap o responsabilidades operativas, documentarla en `docs/operations/`.

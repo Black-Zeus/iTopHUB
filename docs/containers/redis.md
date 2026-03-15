@@ -8,11 +8,16 @@ Provides transient state and queue coordination for background processing.
 
 - Service name: `redis`
 - Main port in dev: `REDIS_PORT -> 6379`
-- Data mount: `APP/data/redis_data`
-- Config mount: `APP/data/settings/redis/redis.conf`
-- Logs mount: `APP/logs/redis`
+- Data mount: `APP/data/<env>/redis_data`
+- Config mount: `APP/config/redis/redis.conf`
+- Logs mount: `APP/logs/<env>/redis`
 
 ## Current Intent
 
 - Use Redis for async coordination and short-lived operational state.
 - Avoid turning it into a source of truth for business data.
+
+## Tooling
+
+- `redisinsight` is available as an optional tooling container in `dev` and `qa`.
+- It is exposed through the `tools` profile so it does not start by default.

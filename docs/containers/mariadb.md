@@ -8,9 +8,9 @@ Provides the relational database server shared by the custom backend and iTop, u
 
 - Service name: `mariadb`
 - Main port in dev: `MARIADB_PORT -> 3306`
-- Data mount: `APP/data/mariadb_data`
-- Init scripts: `APP/data/settings/mariadb/init`
-- Logs mount: `APP/logs/mariadb`
+- Data mount: `APP/data/<env>/mariadb_data`
+- Init scripts: `APP/config/mariadb/init`
+- Logs mount: `APP/logs/<env>/mariadb`
 
 ## Security Rules
 

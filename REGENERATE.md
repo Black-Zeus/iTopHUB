@@ -85,6 +85,7 @@ Before considering a regeneration complete, verify:
 - the new rules do not duplicate an existing rule without need
 - the file paths mentioned actually exist
 - the updated structure still reflects the active project phase
+- non-active phases are either aligned intentionally or explicitly marked as deferred scaffolds
 - the guidance does not require host tools the user does not want the agent to rely on
 - the result makes the next agent more effective, not more constrained for no reason
 
@@ -129,8 +130,9 @@ Use this pattern:
 2. detect active structure
 3. identify contradictions or gaps
 4. update the smallest correct source of truth
-5. repair links and references
-6. summarize what changed and what remains intentionally deferred
+5. mark deferred or future-phase items explicitly when they are not being aligned yet
+6. repair links and references
+7. summarize what changed and what remains intentionally deferred
 
 ## Non-Goals
 

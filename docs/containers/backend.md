@@ -9,14 +9,15 @@ Hosts the custom application API and integration layer between the frontend, iTo
 - Service name: `backend`
 - Main port in dev: `BACKEND_PORT -> 8000`
 - Source mount: `APP/volumes/backend/app`
-- Data mount: `APP/data/backend_data`
-- Logs mount: `APP/logs/backend`
+- Data mount: `APP/data/<env>/backend_data`
+- Logs mount: `APP/logs/<env>/backend`
 
 ## Current Intent
 
 - Centralize business logic outside iTop.
 - Use non-root database credentials.
 - Coordinate asynchronous work through Redis and worker services.
+- Serve the Hub API behind `nginx`, currently under `/api/`.
 
 ## Notes
 

@@ -8,8 +8,8 @@ Executes asynchronous jobs that should not block the backend request cycle.
 
 - Service name: `worker`
 - Source mount: `APP/volumes/worker/app`
-- Temp/settings mount: `APP/data/settings/worker/temp`
-- Logs mount: `APP/logs/worker`
+- Temp/settings mount: `APP/config/worker/temp`
+- Logs mount: `APP/logs/<env>/worker`
 - Dependencies: `redis`, `backend`
 
 ## Current Intent

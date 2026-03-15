@@ -6,6 +6,7 @@ Esta carpeta sigue la convención que ya usa `docker-compose-dev.yml`.
 
 El stack activo en esta fase es:
 
+- `nginx`
 - `itop`
 - `frontend`
 - `backend`
@@ -16,6 +17,8 @@ El stack activo en esta fase es:
 - `mailpit`
 - `gotenberg`
 
+Las carpetas `APP/data/qa`, `APP/logs/qa`, `APP/data/prd` y `APP/logs/prd` se dejan preparadas por portabilidad, pero la referencia activa hoy sigue siendo `dev`.
+
 ## Mapa rápido
 
 - `APP/volumes/itop`: espacio reservado para personalizaciones y artefactos de iTop.
@@ -24,18 +27,23 @@ El stack activo en esta fase es:
 - `APP/volumes/worker/app`: worker principal.
 - `APP/volumes/pdf-worker/app`: worker de PDFs.
 - `APP/volumes/android_app`: espacio reservado para la app Android.
-- `APP/data`: persistencia y configuraciones montadas por Docker para `dev`.
-- `APP/logs`: logs por servicio para `dev`.
-- `APP/data-qa` y `APP/logs-qa`: paths reservados para QA.
-- `APP/data-prd` y `APP/logs-prd`: paths reservados para PRD.
+- `APP/data/dev` y `APP/logs/dev`: persistencia activa de desarrollo.
+- `APP/data/qa` y `APP/logs/qa`: persistencia reservada para QA.
+- `APP/data/prd` y `APP/logs/prd`: persistencia reservada para PRD.
+- `APP/config/`: configuraciones persistentes de MariaDB, Redis, Nginx y worker.
 
 ## Convención
 
 - `volumes/`: código fuente vivo para desarrollo con bind mounts.
-- `data/`: datos persistentes y archivos de configuración.
-- `logs/`: salida persistida por contenedor.
-- `data-qa` / `logs-qa`: equivalente para QA.
-- `data-prd` / `logs-prd`: equivalente para PRD.
+- `data/`: datos persistentes por entorno.
+- `logs/`: logs persistentes por entorno.
+- `APP/config/`: configuraciones de arranque y runtime compartidas.
+
+Notas de fase:
+
+- `nginx` es parte del stack para centralizar el reverse proxy.
+- `itop` se mantiene solo como dependencia temporal en `dev`.
+- `mailpit` se considera herramienta de soporte para `dev` y `qa`.
 
 ## Próxima integración sugerida
 
