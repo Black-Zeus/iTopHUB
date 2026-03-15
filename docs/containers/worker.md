@@ -1,0 +1,23 @@
+# Worker Container
+
+## Role
+
+Executes asynchronous jobs that should not block the backend request cycle.
+
+## Runtime
+
+- Service name: `worker`
+- Source mount: `APP/volumes/worker/app`
+- Temp/settings mount: `APP/data/settings/worker/temp`
+- Logs mount: `APP/logs/worker`
+- Dependencies: `redis`, `backend`
+
+## Current Intent
+
+- Process queued tasks with minimal privileges.
+- Keep job orchestration separate from API request handling.
+
+## Notes
+
+- Runs as a non-root user.
+- Prompt-based or AI-specific behavior is intentionally out of scope for the current phase.
