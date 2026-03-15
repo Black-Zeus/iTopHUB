@@ -6,7 +6,7 @@ La idea del proyecto es agregar una capa funcional adicional para resolver neces
 
 ## Estado actual
 
-La fase activa hoy es `dev`, usando [docker-compose-dev.yml](/home/vsoto/Proyectos/itopHub/docker-compose-dev.yml) como stack principal.
+La fase activa hoy es `dev`, usando [docker-compose-dev.yml](/docker-compose-dev.yml) como stack principal.
 
 Servicios considerados en esta etapa:
 
@@ -53,38 +53,92 @@ Este enfoque reduce riesgo de mantenimiento, evita personalizaciones invasivas y
 
 ## Estructura principal
 
-- [APP](/home/vsoto/Proyectos/itopHub/APP): código montado, datos persistentes y logs por entorno.
-- [Data/dokerFile](/home/vsoto/Proyectos/itopHub/Data/dokerFile): Dockerfiles del proyecto.
-- [docs](/home/vsoto/Proyectos/itopHub/docs): documentación por contenedor, dominio y operación.
-- [Draft](/home/vsoto/Proyectos/itopHub/Draft): maqueta base de referencia visual.
+- [APP](/APP): código montado, datos persistentes y logs por entorno.
+- [Data/dokerFile](/Data/dokerFile): Dockerfiles del proyecto.
+- [docs](/docs): documentación por contenedor, dominio y operación.
+- [Draft](/Draft): maqueta base de referencia visual.
 
 ## Gobernanza del proyecto
 
-- [AGENTS.md](/home/vsoto/Proyectos/itopHub/AGENTS.md): reglas generales de trabajo, convenciones, buenas prácticas y criterios técnicos.
-- [REGENERATE.md](/home/vsoto/Proyectos/itopHub/REGENERATE.md): guía para regenerar o extender documentación y reglas sin duplicaciones ni contradicciones.
-- [docs/README.md](/home/vsoto/Proyectos/itopHub/docs/README.md): índice general de documentación.
+- [AGENTS.md](/AGENTS.md): reglas generales de trabajo, convenciones, buenas prácticas y criterios técnicos.
+- [REGENERATE.md](/REGENERATE.md): guía para regenerar o extender documentación y reglas sin duplicaciones ni contradicciones.
+- [docs/README.md](/docs/README.md): índice general de documentación.
 
 ## Operación
 
 La operación de runtime está pensada para ser gestionada por el usuario mediante `docker_tools_v2.sh`.
 El repositorio debe quedar preparado mediante archivos, configuración y documentación, evitando depender de ejecuciones manuales ad hoc desde el host.
 
+## Levantar el proyecto
+
+Para iniciar el stack usando tu flujo habitual:
+
+1. Dar permisos al script si todavía no los tiene:
+
+```bash
+chmod +x docker_tools_v2.sh
+```
+
+2. Ejecutar el menú:
+
+```bash
+bash docker_tools_v2.sh
+```
+
+3. Desde el menú principal:
+   `1) MANEJADOR DE CONTENEDORES`
+
+4. Luego:
+   `1) Iniciar contenedores y construir imágenes`
+
+Con esa secuencia se levanta el proyecto usando la lógica del script y los labels `stack=${PROJECT_NAME}` definidos en el `docker-compose-dev.yml`.
+
+Menú principal:
+
+![Menú principal de Docker Tools](/docs/assets/principal_menu.png)
+
+Submenú para iniciar contenedores:
+
+![Submenú de manejo de contenedores](/docs/assets/meu_contenedores_principal.png)
+
+## Ver logs
+
+Para revisar logs desde el mismo flujo:
+
+1. Ejecutar:
+
+```bash
+bash docker_tools_v2.sh
+```
+
+2. En el menú principal entrar a:
+   `2) MONITOREO Y DIAGNÓSTICO`
+
+3. En el submenú `DOCKER TOOLS - MONITOREO Y DIAGNÓSTICO` seleccionar:
+   `1) Ver logs`
+
+Ese camino usa el agrupamiento por stack que necesita `docker_tools_v2.sh`.
+
+Submenú para revisión de logs:
+
+![Submenú de monitoreo y diagnóstico](/docs/assets/menu_monitoreo_principal.png)
+
 ## Variables de entorno
 
-- [.env](/home/vsoto/Proyectos/itopHub/.env): valores comunes.
-- [.env.dev](/home/vsoto/Proyectos/itopHub/.env.dev): sobrescrituras de desarrollo.
-- [.env.qa](/home/vsoto/Proyectos/itopHub/.env.qa): sobrescrituras de QA.
-- [.env.prd](/home/vsoto/Proyectos/itopHub/.env.prd): sobrescrituras de producción.
+- [.env](/.env): valores comunes.
+- [.env.dev](/.env.dev): sobrescrituras de desarrollo.
+- [.env.qa](/.env.qa): sobrescrituras de QA.
+- [.env.prd](/.env.prd): sobrescrituras de producción.
 
 ## Base de datos
 
-La inicialización de MariaDB se organiza en bloques dentro de [APP/data/settings/mariadb/init](/home/vsoto/Proyectos/itopHub/APP/data/settings/mariadb/init), separando bootstrap, schema, índices, seeds y postamble.
+La inicialización de MariaDB se organiza en bloques dentro de [APP/data/settings/mariadb/init](/APP/data/settings/mariadb/init), separando bootstrap, schema, índices, seeds y postamble.
 
 ## Documentación útil
 
-- [docs/containers/mariadb.md](/home/vsoto/Proyectos/itopHub/docs/containers/mariadb.md)
-- [docs/containers/itop.md](/home/vsoto/Proyectos/itopHub/docs/containers/itop.md)
-- [docs/containers/backend.md](/home/vsoto/Proyectos/itopHub/docs/containers/backend.md)
-- [docs/containers/frontend.md](/home/vsoto/Proyectos/itopHub/docs/containers/frontend.md)
-- [docs/domains/cmdb.md](/home/vsoto/Proyectos/itopHub/docs/domains/cmdb.md)
-- [docs/operations/runtime-workflow.md](/home/vsoto/Proyectos/itopHub/docs/operations/runtime-workflow.md)
+- [docs/containers/mariadb.md](/docs/containers/mariadb.md)
+- [docs/containers/itop.md](/docs/containers/itop.md)
+- [docs/containers/backend.md](/docs/containers/backend.md)
+- [docs/containers/frontend.md](/docs/containers/frontend.md)
+- [docs/domains/cmdb.md](/docs/domains/cmdb.md)
+- [docs/operations/runtime-workflow.md](/docs/operations/runtime-workflow.md)
