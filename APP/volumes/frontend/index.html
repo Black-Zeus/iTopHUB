@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>iTop Hub | En construccion</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #07111a;
+        --panel: rgba(9, 24, 35, 0.86);
+        --line: rgba(73, 226, 255, 0.34);
+        --text: #e7fbff;
+        --muted: #8ec7d1;
+        --accent: #2de2ff;
+        --accent-2: #68ffb3;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background:
+          radial-gradient(circle at top, rgba(45, 226, 255, 0.16), transparent 30%),
+          linear-gradient(160deg, #02070c 0%, var(--bg) 52%, #03090f 100%);
+        color: var(--text);
+      }
+
+      main {
+        width: min(780px, 100%);
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 24px;
+        padding: 40px 32px;
+        box-shadow: 0 24px 80px rgba(0, 0, 0, 0.34);
+        backdrop-filter: blur(10px);
+      }
+
+      .eyebrow {
+        margin: 0 0 12px;
+        font-size: 0.8rem;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+
+      h1 {
+        margin: 0 0 12px;
+        font-size: clamp(2rem, 5vw, 3.5rem);
+        line-height: 1.05;
+      }
+
+      p {
+        margin: 0;
+        font-size: 1rem;
+        line-height: 1.7;
+        color: var(--muted);
+      }
+
+      .status {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 28px;
+        padding: 12px 16px;
+        border-radius: 999px;
+        background: rgba(104, 255, 179, 0.08);
+        border: 1px solid rgba(104, 255, 179, 0.28);
+        color: var(--accent-2);
+        font-weight: 600;
+      }
+
+      .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--accent-2);
+        box-shadow: 0 0 12px rgba(104, 255, 179, 0.7);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">iTop Hub</p>
+      <h1>Frontend en construccion</h1>
+      <p>
+        El contenedor de frontend esta levantado correctamente y mostrando esta pagina de espera
+        mientras se implementa la aplicacion principal.
+      </p>
+      <div class="status">
+        <span class="dot" aria-hidden="true"></span>
+        Servicio disponible sin errores de arranque
+      </div>
+    </main>
+  </body>
+</html>

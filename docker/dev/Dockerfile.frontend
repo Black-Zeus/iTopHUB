@@ -1,0 +1,19 @@
+FROM node:22-alpine
+
+WORKDIR /app
+
+RUN apk add --no-cache bash curl \
+    && mkdir -p /app/node_modules \
+    && chown -R node:node /app
+
+COPY docker/dev/frontend-entrypoint.sh /usr/local/bin/frontend-entrypoint.sh
+COPY docker/dev/placeholder-server.mjs /opt/frontend/placeholder-server.mjs
+
+RUN chmod +x /usr/local/bin/frontend-entrypoint.sh \
+    && chown node:node /usr/local/bin/frontend-entrypoint.sh /opt/frontend/placeholder-server.mjs
+
+USER node
+
+EXPOSE 5173
+
+CMD ["tail", "-f", "/dev/null"]

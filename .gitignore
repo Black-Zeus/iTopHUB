@@ -30,12 +30,12 @@ coverage/
 **/secrets.*
 
 # Runtime data
-APP/data/*_data/
-APP/data-qa/*_data/
-APP/data-prd/*_data/
+APP/data/dev/*/
+APP/data/qa/*/
+APP/data/prd/*/
 
 # Local certs
-APP/data/settings/nginx/certs/
+APP/config/nginx/certs/
 
 # Generated test artifacts
 APP/volumes/backend/app/assets/test/*.pdf
@@ -43,14 +43,14 @@ APP/volumes/backend/app/assets/test/*.pdf
 # Runtime temp files
 APP/volumes/backend/app/assets/temp/*
 !APP/volumes/backend/app/assets/temp/.gitkeep
-APP/data/settings/worker/temp/*
-!APP/data/settings/worker/temp/.gitkeep
+APP/config/worker/temp/*
+!APP/config/worker/temp/.gitkeep
 
 # Logs
 *.log
-APP/logs/
-APP/logs-qa/
-APP/logs-prd/
+APP/logs/dev/*/
+APP/logs/qa/*/
+APP/logs/prd/*/
 
 # OS
 .DS_Store
