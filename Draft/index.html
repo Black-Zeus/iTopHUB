@@ -1,0 +1,1866 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>iTop Hub | Base Operacional</title>
+  <link rel="stylesheet" href="assets/css/variables.css">
+  <link rel="stylesheet" href="assets/css/main.css">
+  <link rel="stylesheet" href="assets/css/layout.css">
+  <link rel="stylesheet" href="assets/css/components.css">
+  <link rel="stylesheet" href="assets/css/dashboard.css">
+  <link rel="stylesheet" href="assets/css/handover.css">
+  <link rel="stylesheet" href="assets/css/reception.css">
+  <link rel="stylesheet" href="assets/css/lab.css">
+  <link rel="stylesheet" href="assets/css/assets.css">
+  <link rel="stylesheet" href="assets/css/users.css">
+  <link rel="stylesheet" href="assets/css/reports.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand-block">
+        <button id="brand-trigger" class="brand-trigger" type="button" aria-label="Ver presentación de iTop Hub">
+          <div class="brand-mark">IH</div>
+          <div class="brand-copy">
+            <p class="eyebrow">Gestión TI</p>
+            <h1>iTop Hub</h1>
+          </div>
+        </button>
+        <button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-label="Colapsar sidebar">
+          <span class="sidebar-toggle-icon" aria-hidden="true">
+            <svg class="sidebar-toggle-svg" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+              <path d="M14.5 5.5L8 12l6.5 6.5" />
+            </svg>
+          </span>
+        </button>
+      </div>
+
+      <nav class="sidebar-nav" aria-label="Navegación principal">
+        <button class="nav-link is-active" data-view="dashboard" data-title="Dashboard" data-breadcrumb="Inicio / Dashboard" title="Dashboard">
+          <span class="nav-link-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z"/></svg>
+          </span>
+          <span class="nav-link-label">Dashboard</span>
+        </button>
+        <button class="nav-link" data-view="handover" data-title="Actas de Entrega" data-breadcrumb="Operación / Actas de Entrega" title="Actas de Entrega">
+          <span class="nav-link-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M5 12h10M11 6l6 6-6 6M4 5h5v14H4z"/></svg>
+          </span>
+          <span class="nav-link-label">Actas de Entrega</span>
+        </button>
+        <button class="nav-link" data-view="reception" data-title="Actas de Recepción" data-breadcrumb="Laboratorio / Actas de Recepción" title="Actas de Recepción">
+          <span class="nav-link-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M19 12H9M13 6l-6 6 6 6M15 5h5v14h-5z"/></svg>
+          </span>
+          <span class="nav-link-label">Actas de Recepción</span>
+        </button>
+        <button class="nav-link" data-view="lab" data-title="Registro de Laboratorio" data-breadcrumb="Laboratorio / Registro" title="Registro de Laboratorio">
+          <span class="nav-link-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M9 3h6M10 3v5l-5 8a4 4 0 0 0 3.4 6h7.2A4 4 0 0 0 19 16l-5-8V3"/></svg>
+          </span>
+          <span class="nav-link-label">Registro de Laboratorio</span>
+        </button>
+        <button class="nav-link" data-view="assets" data-title="Activos CMDB" data-breadcrumb="CMDB / Activos" title="Activos CMDB">
+          <span class="nav-link-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3zm0 0v18"/></svg>
+          </span>
+          <span class="nav-link-label">Activos CMDB</span>
+        </button>
+        <button class="nav-link" data-view="people" data-title="Personas" data-breadcrumb="Consultas / Personas" title="Personas">
+          <span class="nav-link-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M16 19a4 4 0 0 0-8 0M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm7 7a4 4 0 0 0-3-3.87M17 4.13a4 4 0 0 1 0 7.75M5 19a4 4 0 0 1 3-3.87M7 4.13a4 4 0 0 0 0 7.75"/></svg>
+          </span>
+          <span class="nav-link-label">Personas</span>
+        </button>
+        <button class="nav-link" data-view="users" data-title="Usuarios del sistema" data-breadcrumb="Administración / Usuarios del sistema" title="Usuarios del sistema">
+          <span class="nav-link-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M12 3l7 4v6c0 4.5-3 7-7 8-4-1-7-3.5-7-8V7l7-4zm0 6v4m0 4h.01"/></svg>
+          </span>
+          <span class="nav-link-label">Usuarios</span>
+        </button>
+        <button class="nav-link" data-view="reports" data-title="Informes" data-breadcrumb="Analítica / Informes" title="Informes">
+          <span class="nav-link-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M5 19V9m7 10V5m7 14v-8M3 19h18"/></svg>
+          </span>
+          <span class="nav-link-label">Informes</span>
+        </button>
+        <button class="nav-link" data-view="checklists" data-title="Checklist" data-breadcrumb="Operación / Checklist" title="Checklist">
+          <span class="nav-link-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M9 7h10M9 12h10M9 17h10M5 7h.01M5 12h.01M5 17h.01"/></svg>
+          </span>
+          <span class="nav-link-label">Checklist</span>
+        </button>
+        <button class="nav-link" data-view="settings" data-title="Configuración" data-breadcrumb="Sistema / Configuración" title="Configuración">
+          <span class="nav-link-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M12 8.5A3.5 3.5 0 1 0 12 15.5 3.5 3.5 0 0 0 12 8.5zm8 3.5-.9-.5a7.9 7.9 0 0 0-.5-1.3l.5-.9-1.8-1.8-.9.5c-.4-.2-.9-.4-1.3-.5L14 4h-4l-.5.9c-.4.1-.9.3-1.3.5l-.9-.5-1.8 1.8.5.9c-.2.4-.4.9-.5 1.3L4 12l.9.5c.1.4.3.9.5 1.3l-.5.9 1.8 1.8.9-.5c.4.2.9.4 1.3.5L10 20h4l.5-.9c.4-.1.9-.3 1.3-.5l.9.5 1.8-1.8-.5-.9c.2-.4.4-.9.5-1.3z"/></svg>
+          </span>
+          <span class="nav-link-label">Configuración</span>
+        </button>
+      </nav>
+    </aside>
+
+    <div class="content-shell">
+      <header class="topbar">
+        <div>
+          <p id="breadcrumb" class="breadcrumb">Inicio / Dashboard</p>
+          <h2 id="module-title">Dashboard</h2>
+        </div>
+
+        <div class="topbar-actions">
+          <label class="searchbox" for="global-search-input">
+            <span>Buscar</span>
+            <input id="global-search-input" type="search" placeholder="Activo, usuario, acta o serie" autocomplete="off">
+          </label>
+          <button id="theme-toggle" class="btn btn-secondary" type="button" aria-label="Alternar tema">Tema</button>
+          <div class="user-chip-wrap">
+            <button id="user-chip-toggle" class="user-chip" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Seleccionar usuario activo">
+              <div id="active-user-avatar" class="avatar">VS</div>
+              <div class="user-chip-copy">
+                <strong id="active-user-name">Victor Soto</strong>
+                <span id="active-user-role">Administrador</span>
+              </div>
+              <span class="user-chip-caret" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M7 10l5 5 5-5" /></svg>
+              </span>
+            </button>
+            <div id="user-chip-menu" class="user-chip-menu" role="menu" aria-hidden="true"></div>
+          </div>
+        </div>
+      </header>
+
+      <main class="page-content">
+        <!-- Vistas principales desacopladas para facilitar una futura integración con backend -->
+        <section class="view is-active" id="view-dashboard" aria-labelledby="module-title">
+          <div class="dashboard-grid">
+            <div class="kpi-grid" id="kpi-grid"></div>
+
+            <article class="panel">
+              <div class="panel-header">
+                <div>
+                  <p class="eyebrow">Resumen operativo</p>
+                  <h3>Actas emitidas</h3>
+                </div>
+                <span class="badge badge-info">Últimos 30 días</span>
+              </div>
+              <div class="stat-list" id="document-summary"></div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-header">
+                <div>
+                  <p class="eyebrow">Últimos movimientos</p>
+                  <h3>Equipos entregados recientemente</h3>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Activo</th>
+                      <th>Usuario</th>
+                      <th>Fecha</th>
+                      <th>Acta</th>
+                    </tr>
+                  </thead>
+                  <tbody id="recent-handovers"></tbody>
+                </table>
+              </div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-header">
+                <div>
+                  <p class="eyebrow">Laboratorio</p>
+                  <h3>Equipos recepcionados recientemente</h3>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Activo</th>
+                      <th>Origen</th>
+                      <th>Estado recibido</th>
+                      <th>Fecha</th>
+                    </tr>
+                  </thead>
+                  <tbody id="recent-receptions"></tbody>
+                </table>
+              </div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-header">
+                <div>
+                  <p class="eyebrow">Seguimiento</p>
+                  <h3>Alertas y pendientes</h3>
+                </div>
+              </div>
+              <div id="alerts-list" class="stack-list"></div>
+            </article>
+
+          </div>
+        </section>
+
+        <section class="view" id="view-global-search">
+          <div class="module-grid global-search-page">
+            <article class="panel panel-wide">
+              <div class="panel-header global-search-page-header">
+                <div>
+                  <p class="eyebrow">Búsqueda global</p>
+                  <h3 id="global-search-page-title">Resultados agrupados</h3>
+                  <p id="global-search-page-description" class="report-page-description">Ingresa un término en la barra superior y presiona Enter para consultar información transversal del mockup.</p>
+                </div>
+                <div class="global-search-query-chip" id="global-search-query-chip">Sin consulta</div>
+              </div>
+            </article>
+
+            <div class="kpi-grid" id="global-search-kpi-grid"></div>
+
+            <article class="panel panel-wide">
+              <div class="panel-header">
+                <div>
+                  <p class="eyebrow">Consolidado</p>
+                  <h3>Coincidencias encontradas</h3>
+                </div>
+              </div>
+              <div id="global-search-groups" class="global-search-page-groups"></div>
+            </article>
+          </div>
+        </section>
+
+        <section class="view" id="view-handover">
+          <div class="module-grid">
+            <div class="kpi-grid" id="handover-kpi-grid"></div>
+
+            <article class="panel panel-wide" id="handover-filters-panel">
+              <div class="panel-header panel-header-inline">
+                <div class="form-grid four-columns form-grid-inline">
+                  <label class="field">
+                    <span>Número de acta</span>
+                    <input id="handover-filter-document" type="search" placeholder="ENT-2026-0317">
+                  </label>
+                  <label class="field">
+                    <span>Usuario receptor</span>
+                    <input id="handover-filter-user" type="search" placeholder="Nombre o identificador">
+                  </label>
+                  <label class="field">
+                    <span>Activo</span>
+                    <input id="handover-filter-asset" type="search" placeholder="Código o nombre">
+                  </label>
+                  <label class="field">
+                    <span>Tipo de entrega</span>
+                    <select id="handover-filter-type">
+                      <option value="">Todos</option>
+                    </select>
+                  </label>
+                </div>
+                <button id="handover-create-button" class="btn btn-primary handover-toolbar-button js-handover-create" type="button">Nueva acta</button>
+              </div>
+            </article>
+
+            <article class="panel panel-wide" id="handover-list-panel">
+              <div class="panel-header">
+                <div>
+                  <p class="eyebrow">Consulta</p>
+                  <h3>Listado de actas emitidas</h3>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Número</th>
+                      <th>Fecha</th>
+                      <th>Tipo</th>
+                      <th>Activo</th>
+                      <th>Usuario receptor</th>
+                      <th>Responsable</th>
+                      <th>Estado</th>
+                      <th>Acción</th>
+                    </tr>
+                  </thead>
+                  <tbody id="handover-table-body"></tbody>
+                </table>
+              </div>
+            </article>
+
+            <section class="handover-workspace" id="handover-workspace">
+              <article class="panel panel-wide">
+                <div class="panel-header">
+                  <div class="report-heading">
+                    <button id="handover-back-button" class="report-back-button" type="button" title="Volver a actas de entrega" aria-label="Volver a actas de entrega">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M14.5 5.5L8 12l6.5 6.5" />
+                      </svg>
+                    </button>
+                    <div>
+                      <p class="eyebrow">Actas de entrega</p>
+                      <h3 id="handover-page-title">Nueva acta</h3>
+                      <p id="handover-page-description" class="report-page-description"></p>
+                    </div>
+                  </div>
+                  <div class="report-result-actions">
+                    <button id="handover-save-button" class="btn btn-primary" type="button">Guardar acta</button>
+                  </div>
+                </div>
+              </article>
+
+              <article class="panel panel-wide">
+                <div class="panel-header">
+                  <div>
+                    <p class="eyebrow">Formulario</p>
+                    <h3>Datos de emisión</h3>
+                  </div>
+                  <button id="handover-form-toggle" class="report-toggle-button is-collapsed" type="button" title="Expandir datos de emisión" aria-label="Expandir datos de emisión">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M7 10l5 5 5-5" />
+                    </svg>
+                  </button>
+                </div>
+                <div id="handover-form-content" class="handover-section-content is-collapsed">
+                  <form class="form-grid two-columns">
+                    <label class="field">
+                      <span>Fecha y hora de generación</span>
+                      <input id="handover-record-generated-at" type="datetime-local">
+                    </label>
+                    <label class="field">
+                      <span>Encargado de generar acta</span>
+                      <input id="handover-record-owner" type="text" value="Marina Sosa" readonly>
+                    </label>
+                    <label class="field">
+                      <span>Estado del acta</span>
+                      <select id="handover-record-status">
+                        <option>Borrador</option>
+                        <option>Emitida</option>
+                        <option>Confirmada</option>
+                      </select>
+                    </label>
+                    <label class="field">
+                      <span>Tipo de entrega</span>
+                      <select id="handover-record-type">
+                        <option>Asignación inicial</option>
+                        <option>Reasignación</option>
+                        <option>Reposición</option>
+                      </select>
+                    </label>
+                    <label class="field field-double-row">
+                      <span>Motivo de ingreso</span>
+                      <textarea id="handover-record-reason" rows="2"></textarea>
+                    </label>
+                    <label class="field field-full">
+                      <span>Observación</span>
+                      <textarea id="handover-record-notes" rows="4" placeholder="Condiciones de entrega, accesorios incluidos y observaciones relevantes."></textarea>
+                    </label>
+                  </form>
+                </div>
+              </article>
+
+              <article class="panel panel-wide">
+                <div class="panel-header">
+                  <div>
+                    <p class="eyebrow">Destino</p>
+                    <h3>Usuario destino</h3>
+                  </div>
+                  <button id="handover-user-toggle" class="report-toggle-button is-collapsed" type="button" title="Expandir usuario destino" aria-label="Expandir usuario destino">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M7 10l5 5 5-5" />
+                    </svg>
+                  </button>
+                </div>
+                <div id="handover-user-content" class="handover-section-content is-collapsed">
+                  <form class="form-grid">
+                    <label class="field">
+                      <span>Persona que recibe</span>
+                      <input id="handover-record-user" type="search" list="handover-user-list" placeholder="Escribe nombre, identificador o correo">
+                      <datalist id="handover-user-list"></datalist>
+                    </label>
+                  </form>
+                  <div id="handover-user-summary" class="summary-card handover-user-summary"></div>
+                </div>
+              </article>
+
+              <article class="panel panel-wide">
+                <div class="panel-header">
+                  <div>
+                    <p class="eyebrow">Activos</p>
+                    <h3>Activos incluidos en el acta</h3>
+                  </div>
+                </div>
+                <div class="handover-checklist-toolbar">
+                  <label class="field">
+                    <span>Agregar activo</span>
+                    <select id="handover-record-asset"></select>
+                  </label>
+                  <button id="handover-asset-add" class="btn btn-secondary" type="button">Agregar activo</button>
+                </div>
+                <p class="handover-checklist-helper">Cada activo agregado permite asociar sus propios checklists activos. Un mismo activo puede aparecer una sola vez en el acta y dentro de ese activo no se puede repetir una plantilla.</p>
+                <div id="handover-selected-assets" class="handover-checklist-list"></div>
+              </article>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="view-reception">
+          <div class="module-grid">
+            <div class="kpi-grid" id="reception-kpi-grid"></div>
+
+            <article class="panel panel-wide" id="reception-filters-panel">
+              <div class="panel-header panel-header-inline">
+                <div class="form-grid four-columns form-grid-inline">
+                  <label class="field">
+                    <span>Número de acta</span>
+                    <input id="reception-filter-document" type="search" placeholder="REC-2026-0142">
+                  </label>
+                  <label class="field">
+                    <span>Activo</span>
+                    <input id="reception-filter-asset" type="search" placeholder="Código o nombre">
+                  </label>
+                  <label class="field">
+                    <span>Origen</span>
+                    <input id="reception-filter-origin" type="search" placeholder="Usuario, sede u origen">
+                  </label>
+                  <label class="field">
+                    <span>Estado recibido</span>
+                    <select id="reception-filter-status">
+                      <option value="">Todos</option>
+                    </select>
+                  </label>
+                </div>
+                <button id="reception-create-button" class="btn btn-primary js-reception-create" type="button">Nueva recepción</button>
+              </div>
+            </article>
+
+            <article class="panel panel-wide" id="reception-list-panel">
+              <div class="panel-header">
+                <div>
+                  <p class="eyebrow">Consulta</p>
+                  <h3>Listado de recepciones emitidas</h3>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Número</th>
+                      <th>Fecha</th>
+                      <th>Activo</th>
+                      <th>Origen</th>
+                      <th>Motivo</th>
+                      <th>Responsable</th>
+                      <th>Estado</th>
+                      <th>Acción</th>
+                    </tr>
+                  </thead>
+                  <tbody id="reception-table-body"></tbody>
+                </table>
+              </div>
+            </article>
+
+            <section class="handover-workspace" id="reception-workspace">
+              <article class="panel panel-wide">
+                <div class="panel-header">
+                  <div class="report-heading">
+                    <button id="reception-back-button" class="report-back-button" type="button" title="Volver a actas de recepción" aria-label="Volver a actas de recepción">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M14.5 5.5L8 12l6.5 6.5" />
+                      </svg>
+                    </button>
+                    <div>
+                      <p class="eyebrow">Actas de recepción</p>
+                      <h3 id="reception-page-title">Nueva acta de recepción</h3>
+                      <p id="reception-page-description" class="report-page-description"></p>
+                    </div>
+                  </div>
+                  <div class="report-result-actions">
+                    <button id="reception-save-button" class="btn btn-primary" type="button">Guardar acta</button>
+                  </div>
+                </div>
+              </article>
+
+              <article class="panel panel-wide">
+                <div class="panel-header">
+                  <div>
+                    <p class="eyebrow">Formulario</p>
+                    <h3>Datos de emisión</h3>
+                  </div>
+                  <button id="reception-form-toggle" class="report-toggle-button is-collapsed" type="button" title="Expandir datos de emisión" aria-label="Expandir datos de emisión">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M7 10l5 5 5-5" />
+                    </svg>
+                  </button>
+                </div>
+                <div id="reception-form-content" class="handover-section-content is-collapsed">
+                  <form class="form-grid two-columns">
+                    <label class="field"><span>Fecha y hora de generación</span><input id="reception-record-generated-at" type="datetime-local"></label>
+                    <label class="field"><span>Encargado de generar acta</span><input id="reception-record-owner" type="text" readonly></label>
+                    <label class="field"><span>Estado del acta</span><select id="reception-record-status"><option>Borrador</option><option>Emitida</option><option>En análisis</option><option>Pendiente de diagnóstico</option><option>Ingresado a laboratorio</option></select></label>
+                    <label class="field"><span>Origen / referencia</span><input id="reception-record-origin" type="text"></label>
+                    <label class="field field-double-row"><span>Motivo de ingreso</span><textarea id="reception-record-reason" rows="2"></textarea></label>
+                    <label class="field field-full"><span>Observación</span><textarea id="reception-record-notes" rows="4"></textarea></label>
+                  </form>
+                </div>
+              </article>
+
+              <article class="panel panel-wide">
+                <div class="panel-header">
+                  <div>
+                    <p class="eyebrow">Origen</p>
+                    <h3>Usuario origen</h3>
+                  </div>
+                  <button id="reception-user-toggle" class="report-toggle-button is-collapsed" type="button" title="Expandir usuario origen" aria-label="Expandir usuario origen">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M7 10l5 5 5-5" />
+                    </svg>
+                  </button>
+                </div>
+                <div id="reception-user-content" class="handover-section-content is-collapsed">
+                  <form class="form-grid">
+                    <label class="field">
+                      <span>Persona que entrega</span>
+                      <input id="reception-record-deliverer" type="search" list="reception-user-list" placeholder="Escribe nombre, identificador o correo">
+                      <datalist id="reception-user-list"></datalist>
+                    </label>
+                  </form>
+                  <div id="reception-user-summary" class="summary-card handover-user-summary"></div>
+                </div>
+              </article>
+
+              <article class="panel panel-wide">
+                <div class="panel-header">
+                  <div>
+                    <p class="eyebrow">Activos</p>
+                    <h3>Activos incluidos en la recepción</h3>
+                  </div>
+                </div>
+                <div class="handover-checklist-toolbar">
+                  <label class="field">
+                    <span>Agregar activo</span>
+                    <select id="reception-record-asset"></select>
+                  </label>
+                  <button id="reception-asset-add" class="btn btn-secondary" type="button">Agregar activo</button>
+                </div>
+                <p class="handover-checklist-helper">Cada activo agregado permite asociar sus checklists activos de recepción. El mismo activo y el mismo checklist no se pueden repetir.</p>
+                <div id="reception-selected-assets" class="handover-checklist-list"></div>
+              </article>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="view-assets">
+          <!-- Módulo CMDB con tabla de consulta y panel lateral de detalle -->
+          <div class="module-grid">
+            <div class="kpi-grid" id="assets-kpi-grid"></div>
+
+            <article class="panel panel-wide" id="assets-filters-panel">
+              <div class="panel-header panel-header-inline">
+                <div class="form-grid three-columns form-grid-inline">
+                  <label class="field"><span>HostName</span><input id="asset-filter-hostname" type="search" placeholder="Buscar por HostName"></label>
+                  <label class="field"><span>Clase</span><select id="asset-filter-class"><option value="">Todas</option></select></label>
+                  <label class="field"><span>Marca</span><select id="asset-filter-brand"><option value="">Todas</option></select></label>
+                  <label class="field"><span>Modelo</span><select id="asset-filter-model"><option value="">Todos</option></select></label>
+                  <label class="field"><span>Serie</span><input id="asset-filter-serial" type="search" placeholder="Número de serie"></label>
+                  <label class="field"><span>Estado</span><select id="asset-filter-status"><option value="">Todos</option></select></label>
+                </div>
+                <button id="asset-create-button" class="btn btn-primary" type="button">Nuevo activo</button>
+              </div>
+            </article>
+
+            <article class="panel panel-wide" id="assets-list-panel">
+              <div class="panel-header">
+                <div>
+                  <p class="eyebrow">Consulta CMDB</p>
+                  <h3>Lista de activos</h3>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>HostName</th>
+                      <th>Clase</th>
+                      <th>Marca</th>
+                      <th>Modelo</th>
+                      <th>Serie</th>
+                      <th>Usuario Responsable</th>
+                      <th>Estado</th>
+                      <th>Acción</th>
+                    </tr>
+                  </thead>
+                  <tbody id="assets-table-body"></tbody>
+                </table>
+              </div>
+            </article>
+
+            <section class="handover-workspace" id="assets-workspace">
+              <article class="panel panel-wide">
+                <div class="panel-header">
+                  <div class="report-heading">
+                    <button id="assets-back-button" class="report-back-button" type="button" title="Volver a activos CMDB" aria-label="Volver a activos CMDB">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M14.5 5.5L8 12l6.5 6.5" />
+                      </svg>
+                    </button>
+                    <div>
+                      <p class="eyebrow">Activos CMDB</p>
+                      <h3 id="assets-page-title">Nuevo activo</h3>
+                      <p id="assets-page-description" class="report-page-description"></p>
+                    </div>
+                  </div>
+                  <div class="report-result-actions">
+                    <button id="assets-save-button" class="btn btn-primary" type="button">Guardar activo</button>
+                  </div>
+                </div>
+              </article>
+
+              <article class="panel panel-wide">
+                <div class="panel-header">
+                  <div>
+                    <p class="eyebrow">Formulario</p>
+                    <h3>Datos del activo</h3>
+                  </div>
+                </div>
+                <form class="form-grid two-columns">
+                  <label class="field"><span>HostName</span><input id="asset-record-code" type="text" placeholder="NB-24025"></label>
+                  <label class="field"><span>Clase</span><select id="asset-record-class"></select></label>
+                  <label class="field"><span>Marca</span><select id="asset-record-brand"></select></label>
+                  <label class="field"><span>Modelo</span><select id="asset-record-model"></select></label>
+                  <label class="field"><span>Serie</span><input id="asset-record-serial" type="text" placeholder="DL5440-22A91"></label>
+                  <label class="field"><span>Fecha de alta</span><input id="asset-record-onboarding-date" type="date"></label>
+                  <label class="field"><span>Usuario actual</span><input id="asset-record-current-user" type="text" placeholder="Nombre del custodio o usuario"></label>
+                  <label class="field"><span>Locación</span><select id="asset-record-location"></select></label>
+                  <label class="field"><span>Estado operativo</span><select id="asset-record-status"></select></label>
+                  <label class="field"><span>Estado CMDB</span><select id="asset-record-cmdb-status"></select></label>
+                  <label class="field field-full"><span>Condición técnica</span><select id="asset-record-state"></select></label>
+                  <label class="field field-full"><span>Observaciones</span><textarea id="asset-record-observations" rows="4" placeholder="Notas relevantes del activo, accesorios o contexto operativo."></textarea></label>
+                </form>
+              </article>
+
+              <article class="panel panel-wide">
+                <div class="panel-header">
+                  <div>
+                    <p class="eyebrow">Trazabilidad</p>
+                    <h3>Historial del activo</h3>
+                  </div>
+                </div>
+                <div class="table-wrap">
+                  <table class="data-table compact-table">
+                    <thead>
+                      <tr>
+                        <th>Fecha</th>
+                        <th>Movimiento</th>
+                        <th>Origen</th>
+                        <th>Destino</th>
+                        <th>Estado previo</th>
+                        <th>Estado nuevo</th>
+                        <th>Acta</th>
+                        <th>Operador</th>
+                      </tr>
+                    </thead>
+                    <tbody id="asset-workspace-history-body"></tbody>
+                  </table>
+                </div>
+              </article>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="view-lab">
+          <div class="module-grid">
+            <div class="kpi-grid" id="lab-kpi-grid"></div>
+
+            <article class="panel panel-wide" id="lab-filters-panel">
+              <div class="panel-header panel-header-inline">
+                <div class="form-grid four-columns form-grid-inline">
+                  <label class="field">
+                    <span>Acta recepción</span>
+                    <input id="lab-filter-document" type="search" placeholder="REC-2026-0142">
+                  </label>
+                  <label class="field">
+                    <span>Activo</span>
+                    <input id="lab-filter-asset" type="search" placeholder="Código o nombre">
+                  </label>
+                  <label class="field">
+                    <span>Prioridad</span>
+                    <select id="lab-filter-priority">
+                      <option value="">Todas</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>Estado</span>
+                    <select id="lab-filter-status">
+                      <option value="">Todos</option>
+                    </select>
+                  </label>
+                </div>
+                <button id="lab-create-button" class="btn btn-primary js-lab-create" type="button">Nuevo registro</button>
+              </div>
+            </article>
+
+            <article class="panel panel-wide" id="lab-list-panel">
+              <div class="panel-header">
+                <div>
+                  <p class="eyebrow">Ingreso técnico</p>
+                  <h3>Lista de equipos recepcionados</h3>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Folio interno</th>
+                      <th>Activo</th>
+                      <th>Motivo</th>
+                      <th>Resultado técnico</th>
+                      <th>Estado</th>
+                      <th>Encargado</th>
+                      <th>Acción</th>
+                    </tr>
+                  </thead>
+                  <tbody id="lab-queue-body"></tbody>
+                </table>
+              </div>
+            </article>
+
+            <section class="handover-workspace" id="lab-workspace">
+              <article class="panel panel-wide">
+                <div class="panel-header">
+                  <div class="report-heading">
+                    <button id="lab-back-button" class="report-back-button" type="button" title="Volver a laboratorio" aria-label="Volver a laboratorio">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M14.5 5.5L8 12l6.5 6.5" />
+                      </svg>
+                    </button>
+                    <div>
+                      <p class="eyebrow">Registro de laboratorio</p>
+                      <h3 id="lab-page-title">Nuevo registro técnico</h3>
+                      <p id="lab-page-description" class="report-page-description"></p>
+                    </div>
+                  </div>
+                  <div class="report-result-actions">
+                    <button id="lab-save-button" class="btn btn-primary" type="button">Guardar registro</button>
+                  </div>
+                </div>
+              </article>
+
+              <article class="panel panel-wide">
+                <div class="panel-header">
+                  <div>
+                    <p class="eyebrow">Formulario</p>
+                    <h3>Datos del registro</h3>
+                  </div>
+                  <button id="lab-form-toggle" class="report-toggle-button is-collapsed" type="button" title="Expandir datos del registro" aria-label="Expandir datos del registro">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M7 10l5 5 5-5" />
+                    </svg>
+                  </button>
+                </div>
+                <div id="lab-form-content" class="handover-section-content is-collapsed">
+                  <form class="form-grid two-columns">
+                    <label class="field"><span>Fecha de ingreso</span><input id="lab-record-entry-at" type="date"></label>
+                    <label class="field"><span>Fecha y hora de cierre</span><input id="lab-record-closed-at" type="datetime-local"></label>
+                    <label class="field"><span>Encargado de generar registro</span><input id="lab-record-owner" type="text" readonly></label>
+                    <label class="field"><span>Estado del registro</span><select id="lab-record-status"></select></label>
+                    <label class="field"><span>Motivos de ingreso</span><select id="lab-record-reason"></select></label>
+                    <label class="field"><span>Resultado técnico</span><select id="lab-record-result"><option>Diagnóstico emitido</option><option>Reparación requerida</option><option>Listo para devolución</option><option>Listo para Asignacion</option></select></label>
+                    <label class="field field-full"><span>Descripción técnica</span><textarea id="lab-record-description" rows="4"></textarea></label>
+                  </form>
+                </div>
+              </article>
+
+              <article class="panel panel-wide">
+                <div class="panel-header">
+                  <div>
+                    <p class="eyebrow">Equipo</p>
+                    <h3>Equipo incluido en el registro</h3>
+                  </div>
+                  <button id="lab-asset-section-toggle" class="report-toggle-button" type="button" title="Colapsar equipo incluido en el registro" aria-label="Colapsar equipo incluido en el registro">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M7 10l5 5 5-5" />
+                    </svg>
+                  </button>
+                </div>
+                <div id="lab-asset-section-content" class="handover-section-content">
+                  <div class="handover-checklist-toolbar">
+                    <label class="field">
+                      <span>Seleccionar equipo</span>
+                      <select id="lab-record-asset"></select>
+                    </label>
+                    <button id="lab-asset-add" class="btn btn-secondary" type="button">Agregar equipo</button>
+                  </div>
+                  <p class="handover-checklist-helper">Cada acta de laboratorio admite un solo equipo. Sobre ese equipo puedes asociar sus checklists activos de laboratorio sin repetir plantillas.</p>
+                  <div id="lab-selected-assets" class="handover-checklist-list"></div>
+                </div>
+              </article>
+
+              <article class="panel panel-wide">
+                <div class="panel-header panel-header-inline">
+                  <div>
+                    <p class="eyebrow">Evidencias</p>
+                    <h3>Fotos y descripciones del registro</h3>
+                  </div>
+                  <button id="lab-evidence-add" class="btn btn-secondary" type="button">Agregar evidencia</button>
+                </div>
+                <p class="handover-checklist-helper">Las evidencias son opcionales. Puedes agregar ninguna, una o multiples, y cada una permite arrastrar una foto o seleccionarla manualmente junto con su descripción.</p>
+                <div id="lab-evidence-list" class="handover-checklist-list"></div>
+              </article>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="view-people">
+          <!-- Consulta de usuarios con diferencia visual entre activos vigentes e histórico -->
+          <div class="module-grid">
+            <div class="kpi-grid" id="people-kpi-grid"></div>
+
+            <article class="panel panel-wide" id="people-filters-panel">
+              <div class="panel-header panel-header-inline">
+                <div class="form-grid four-columns form-grid-inline">
+                  <label class="field">
+                    <span>Persona</span>
+                    <input id="people-filter-name" type="search" placeholder="Nombre o identificador">
+                  </label>
+                  <label class="field">
+                    <span>Correo</span>
+                    <input id="people-filter-email" type="search" placeholder="correo@itophub.local">
+                  </label>
+                  <label class="field">
+                    <span>Área</span>
+                    <select id="people-filter-area">
+                      <option value="">Todas</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>Estado</span>
+                    <select id="people-filter-status">
+                      <option value="">Todos</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
+            </article>
+
+            <article class="panel panel-wide" id="people-list-panel">
+              <div class="panel-header">
+                <div>
+                  <p class="eyebrow">Consulta de personas</p>
+                  <h3>Personas y relación con activos</h3>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Nombre</th>
+                      <th>Identificador</th>
+                      <th>Correo</th>
+                      <th>Área</th>
+                      <th>Cargo</th>
+                      <th>Ubicación</th>
+                      <th>Equipos actuales</th>
+                      <th>Acción</th>
+                    </tr>
+                  </thead>
+                  <tbody id="users-table-body"></tbody>
+                </table>
+              </div>
+            </article>
+
+            <section class="report-workspace" id="people-workspace">
+              <article class="panel panel-wide">
+                <div class="panel-header">
+                  <div class="report-heading">
+                    <button id="people-back-button" class="report-back-button" type="button" title="Volver a personas" aria-label="Volver a personas">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M14.5 5.5L8 12l6.5 6.5" />
+                      </svg>
+                    </button>
+                    <div>
+                      <p class="eyebrow">Consulta de personas</p>
+                      <h3 id="people-page-title">Detalle de persona</h3>
+                      <p id="people-page-description" class="report-page-description"></p>
+                    </div>
+                  </div>
+                </div>
+              </article>
+
+              <article class="panel panel-wide">
+                <div class="panel-header">
+                  <div>
+                    <p class="eyebrow">Perfil</p>
+                    <h3>Datos de la persona</h3>
+                  </div>
+                </div>
+                <div id="people-profile-tab">
+                  <div class="detail-grid" id="people-detail-panel"></div>
+                </div>
+              </article>
+
+              <article class="panel panel-wide">
+                <div class="panel-header">
+                  <div>
+                    <p class="eyebrow">Equipos</p>
+                    <h3>Activos asignados actualmente</h3>
+                  </div>
+                </div>
+                <div id="people-current-assets-tab">
+                  <div class="table-wrap">
+                    <table class="data-table compact-table">
+                      <thead>
+                        <tr>
+                          <th>Código</th>
+                          <th>Activo</th>
+                          <th>Tipo</th>
+                          <th>Modelo</th>
+                          <th>Fecha asignación</th>
+                          <th>Estado</th>
+                        </tr>
+                      </thead>
+                      <tbody id="people-current-assets-body"></tbody>
+                    </table>
+                  </div>
+                </div>
+              </article>
+
+              <article class="panel panel-wide">
+                <div class="panel-header">
+                  <div>
+                    <p class="eyebrow">Histórico</p>
+                    <h3>Trazabilidad de asignaciones</h3>
+                  </div>
+                </div>
+                <div id="people-history-tab">
+                  <div class="table-wrap">
+                    <table class="data-table compact-table">
+                      <thead>
+                        <tr>
+                          <th>Activo</th>
+                          <th>Tipo</th>
+                          <th>Fecha asignación</th>
+                          <th>Fecha retiro</th>
+                          <th>Motivo</th>
+                          <th>Estado</th>
+                          <th>Referencia</th>
+                        </tr>
+                      </thead>
+                      <tbody id="people-history-body"></tbody>
+                    </table>
+                  </div>
+                </div>
+              </article>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="view-users">
+          <div class="module-grid">
+            <div class="kpi-grid" id="system-users-kpi-grid"></div>
+
+            <article class="panel panel-wide" id="system-users-filters-panel">
+              <div class="panel-header panel-header-inline">
+                <div class="form-grid four-columns form-grid-inline">
+                  <label class="field">
+                    <span>Usuario</span>
+                    <input id="system-user-filter-name" type="search" placeholder="Nombre o login">
+                  </label>
+                  <label class="field">
+                    <span>Correo</span>
+                    <input id="system-user-filter-email" type="search" placeholder="correo@itophub.local">
+                  </label>
+                  <label class="field">
+                    <span>Rol</span>
+                    <select id="system-user-filter-role">
+                      <option value="">Todos</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>Estado</span>
+                    <select id="system-user-filter-status">
+                      <option value="">Todos</option>
+                    </select>
+                  </label>
+                </div>
+                <button id="system-user-create-button" class="btn btn-primary" type="button">Nuevo usuario</button>
+              </div>
+            </article>
+
+            <article class="panel panel-wide" id="system-users-list-panel">
+              <div class="panel-header">
+                <div>
+                  <p class="eyebrow">Acceso y seguridad</p>
+                  <h3>Usuarios del sistema</h3>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Nombre</th>
+                      <th>Correo</th>
+                      <th>Rol</th>
+                      <th>Estado</th>
+                      <th>Acción</th>
+                    </tr>
+                  </thead>
+                  <tbody id="system-users-table-body"></tbody>
+                </table>
+              </div>
+            </article>
+
+            <section class="report-workspace" id="system-users-workspace">
+              <article class="panel panel-wide">
+                <div class="panel-header">
+                  <div class="report-heading">
+                    <button id="system-users-back-button" class="report-back-button" type="button" title="Volver a usuarios" aria-label="Volver a usuarios">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M14.5 5.5L8 12l6.5 6.5" />
+                      </svg>
+                    </button>
+                    <div>
+                      <p class="eyebrow">Acceso y seguridad</p>
+                      <h3 id="system-users-page-title">Editar usuario</h3>
+                      <p id="system-users-page-description" class="report-page-description"></p>
+                    </div>
+                  </div>
+                  <div class="report-result-actions">
+                    <button id="system-users-save-button" class="btn btn-primary" type="button">Guardar usuario</button>
+                  </div>
+                </div>
+              </article>
+
+              <article class="panel panel-wide" id="system-users-form-article">
+                <div class="panel-header">
+                  <div>
+                    <p class="eyebrow">Formulario</p>
+                    <h3 id="system-users-form-title">Datos del usuario del sistema</h3>
+                  </div>
+                </div>
+                <form class="form-grid two-columns">
+                  <label class="field"><span>Usuario</span><input id="system-user-record-username" type="text" placeholder="nombre.apellido"></label>
+                  <label class="field"><span>Nombre</span><input id="system-user-record-name" type="text" placeholder="Nombre Apellido"></label>
+                  <label class="field"><span>API code user iTop</span><input id="system-user-record-api-code" type="text" placeholder="usr_************************8f3a"></label>
+                  <label class="field"><span>Correo</span><input id="system-user-record-email" type="email" placeholder="correo@itophub.local"></label>
+                  <label class="field"><span>Rol</span><select id="system-user-record-role"></select></label>
+                  <label class="field"><span>Estado</span><select id="system-user-record-status"></select></label>
+                </form>
+              </article>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="view-reports">
+          <div class="module-grid">
+            <div class="kpi-grid" id="reports-kpi-grid"></div>
+
+            <article class="panel panel-wide" id="reports-catalog-panel">
+              <div class="panel-header">
+                <div>
+                  <p class="eyebrow">Catálogo</p>
+                  <h3>Informes disponibles</h3>
+                </div>
+              </div>
+              <div class="report-grid" id="reports-grid"></div>
+            </article>
+
+            <section class="report-workspace" id="report-workspace">
+              <article class="panel panel-wide">
+                <div class="panel-header">
+                  <div class="report-heading">
+                    <button id="report-back-button" class="report-back-button" type="button" title="Volver a menu informes" aria-label="Volver a menu informes">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M14.5 5.5L8 12l6.5 6.5" />
+                      </svg>
+                    </button>
+                    <div>
+                      <p class="eyebrow">Visualización de informe</p>
+                      <h3 id="report-page-title">Informe</h3>
+                      <p id="report-page-description" class="report-page-description"></p>
+                    </div>
+                  </div>
+                </div>
+              </article>
+
+              <article class="panel panel-wide">
+                <div class="panel-header">
+                  <div>
+                    <p class="eyebrow">Parámetros</p>
+                    <h3>Configuración del informe</h3>
+                  </div>
+                  <div class="report-result-actions">
+                    <button id="report-run-inline-button" class="btn btn-primary" type="button">Cargar datos</button>
+                    <button id="report-params-toggle" class="report-toggle-button is-collapsed" type="button" title="Expandir parametros" aria-label="Expandir parametros">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M7 10l5 5 5-5" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+                <div id="report-params-content" class="report-params-content is-collapsed">
+                  <form class="form-grid" id="report-parameters-form"></form>
+                </div>
+              </article>
+
+              <article class="panel panel-wide">
+                <div class="panel-header">
+                  <div>
+                    <p class="eyebrow">Datos</p>
+                    <h3>Resultado del informe</h3>
+                  </div>
+                  <div class="report-result-actions">
+                    <button id="report-export-button" class="report-icon-button" type="button" disabled title="Exportar a Excel" aria-label="Exportar a Excel">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M4 4h16v16H4zM4 9h16M9 4v16" />
+                      </svg>
+                    </button>
+                    <button id="report-result-toggle" class="report-toggle-button is-collapsed" type="button" title="Expandir resultados" aria-label="Expandir resultados">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M7 10l5 5 5-5" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+                <div id="report-result-content" class="report-result-content is-collapsed">
+                  <div id="report-result-empty" class="empty-state">Configura los parámetros y pulsa `Cargar datos` para visualizar el listado.</div>
+                  <div id="report-result-table-wrap" class="table-wrap report-table-wrap">
+                    <table class="data-table">
+                      <thead>
+                        <tr id="report-result-head"></tr>
+                      </thead>
+                      <tbody id="report-result-body"></tbody>
+                    </table>
+                  </div>
+                </div>
+              </article>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="view-settings">
+          <div class="module-grid">
+            <article class="panel panel-wide">
+              <div class="panel-header">
+                <div>
+                  <p class="eyebrow">Parámetros funcionales</p>
+                  <h3>Configuración del sistema</h3>
+                </div>
+              </div>
+
+              <div class="tab-row">
+                <button class="tab-button is-active" data-tab-group="settings-tabs" data-tab-target="settings-itop-tab">Integración iTop</button>
+                <button class="tab-button" data-tab-group="settings-tabs" data-tab-target="settings-sync-tab">Sincronización</button>
+                <button class="tab-button" data-tab-group="settings-tabs" data-tab-target="settings-mail-tab">Correo</button>
+                <button class="tab-button" data-tab-group="settings-tabs" data-tab-target="settings-docs-tab">Documentos</button>
+                <button class="tab-button" data-tab-group="settings-tabs" data-tab-target="settings-cmdb-tab">CMDB</button>
+              </div>
+
+              <div class="tab-panel is-active" id="settings-itop-tab">
+                <div class="kpi-grid settings-kpi-grid">
+                  <article class="kpi-card">
+                    <p class="eyebrow">iTop</p>
+                    <strong>Conectado</strong>
+                    <span class="status-inline"><span class="status-light status-light-success" aria-hidden="true"></span>OK</span>
+                  </article>
+                  <article class="kpi-card">
+                    <p class="eyebrow">DB local</p>
+                    <strong>Operativa</strong>
+                    <span class="status-inline"><span class="status-light status-light-success" aria-hidden="true"></span>OK</span>
+                  </article>
+                  <article class="kpi-card">
+                    <p class="eyebrow">S3 / MinIO</p>
+                    <strong>Con latencia</strong>
+                    <span class="status-inline"><span class="status-light status-light-warning" aria-hidden="true"></span>Observado</span>
+                  </article>
+                  <article class="kpi-card">
+                    <p class="eyebrow">Parametrización</p>
+                    <strong>Externa</strong>
+                    <span class="badge badge-info">Configurada en entorno</span>
+                  </article>
+                </div>
+                <form class="form-grid two-columns">
+                  <label class="field"><span>URL de iTop</span><input type="text" value="https://itop.empresa.local" readonly></label>
+                  <label class="field"><span>Usuario técnico</span><input type="text" value="itophub.service" readonly></label>
+                  <label class="field field-full"><span>Token de autenticación</span><input type="text" value="tok_************************8f3a" readonly></label>
+                </form>
+                <p class="settings-note">Estos datos se definen en la parametrización del sistema y variables de entorno del despliegue. No se editan desde esta interfaz.</p>
+              </div>
+
+              <div class="tab-panel" id="settings-sync-tab">
+                <div class="settings-sync-block">
+                  <form class="form-grid settings-sync-grid">
+                    <label class="field"><span>Ejecución manual</span><input type="text" value="Disponible bajo demanda" readonly></label>
+                    <label class="field"><span>Automatización</span><select><option>Activa cada 15 minutos</option><option>Activa cada 30 minutos</option><option>Activa cada 60 minutos</option><option>Desactivada</option></select></label>
+                    <label class="field"><span>Alcance</span><select><option>Incremental</option><option>Completa</option><option>Documental</option></select></label>
+                  </form>
+                </div>
+                <p class="settings-note">Última sincronización: 13 Mar 2026 · 09:12 · Estado: exitosa.</p>
+                <div class="settings-footer">
+                  <div class="settings-footer-left">
+                    <button class="btn btn-secondary" type="button">Forzar sincronización ahora</button>
+                  </div>
+                  <div class="settings-footer-right">
+                    <button class="btn btn-secondary" type="button">Restablecer a fábrica</button>
+                    <button class="btn btn-primary" type="button">Guardar configuración</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="tab-panel" id="settings-mail-tab">
+                <form class="form-grid two-columns">
+                  <label class="field"><span>Remitente visible</span><input type="text" value="Mesa de Ayuda TI"></label>
+                  <label class="field"><span>Correo remitente</span><input type="email" value="soporte@empresa.local"></label>
+                  <label class="field"><span>Servidor SMTP</span><input type="text" value="smtp.empresa.local"></label>
+                  <label class="field"><span>Puerto SMTP</span><input type="text" value="587"></label>
+                  <label class="field"><span>Usuario SMTP</span><input type="text" value="smtp_itophub"></label>
+                  <label class="field"><span>Password SMTP</span><input type="password" value="smtp_password_mock"></label>
+                  <label class="field"><span>Seguridad</span><select><option>TLS</option><option>SSL</option><option>Sin cifrado</option></select></label>
+                  <label class="field field-full"><span>Pie de correo documental</span><textarea rows="4">Documento generado automáticamente por iTop Hub. Para consultas contacte a Mesa de Ayuda TI.</textarea></label>
+                </form>
+                <div class="settings-footer">
+                  <div class="settings-footer-left">
+                    <button id="mail-test-button" class="btn btn-secondary" type="button">Test SMTP</button>
+                  </div>
+                  <div class="settings-footer-right">
+                    <button class="btn btn-secondary" type="button">Restablecer a fábrica</button>
+                    <button class="btn btn-primary" type="button">Guardar configuración</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="tab-panel" id="settings-docs-tab">
+                <form class="form-grid two-columns">
+                  <label class="field"><span>Prefijo actas entrega</span><input type="text" value="ENT"></label>
+                  <label class="field"><span>Prefijo actas recepción</span><input type="text" value="REC"></label>
+                  <label class="field"><span>Prefijo laboratorio</span><input type="text" value="LAB"></label>
+                  <label class="field"><span>Formato numeración</span><input type="text" value="AAAA-NNNN"></label>
+                  <label class="field field-full"><span>Observación por defecto</span><textarea rows="4">El documento se emite como respaldo formal del movimiento registrado en CMDB.</textarea></label>
+                </form>
+                <div class="settings-footer settings-footer-right-only">
+                  <div class="settings-footer-right">
+                    <button class="btn btn-secondary" type="button">Restablecer a fábrica</button>
+                    <button class="btn btn-primary" type="button">Guardar configuración</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="tab-panel" id="settings-cmdb-tab">
+                <form class="form-grid">
+                  <div class="field field-full">
+                    <span>Alcance</span>
+                    <div class="settings-check-grid">
+                      <label class="settings-check-card"><input class="js-cmdb-scope-toggle" data-class-key="pc" type="checkbox" checked><span>Desktop (PC)</span></label>
+                      <label class="settings-check-card"><input class="js-cmdb-scope-toggle" data-class-key="laptop" type="checkbox" checked><span>Laptop (Laptop)</span></label>
+                      <label class="settings-check-card"><input class="js-cmdb-scope-toggle" data-class-key="tablet" type="checkbox"><span>Tableta (Tablet)</span></label>
+                      <label class="settings-check-card"><input class="js-cmdb-scope-toggle" data-class-key="mobilephone" type="checkbox"><span>Celular (MobilePhone)</span></label>
+                      <label class="settings-check-card"><input class="js-cmdb-scope-toggle" data-class-key="printer" type="checkbox"><span>Impresora (Printer)</span></label>
+                      <label class="settings-check-card"><input class="js-cmdb-scope-toggle" data-class-key="peripheral" type="checkbox"><span>Periférico (Peripheral)</span></label>
+                    </div>
+                  </div>
+                  <div class="field field-full">
+                    <span>Estrategia de recambio</span>
+                    <div class="settings-check-grid settings-check-grid-strategy">
+                      <label class="settings-check-card">
+                        <input id="cmdb-age-toggle" type="checkbox" checked>
+                        <span>Antigüedad</span>
+                      </label>
+                      <label class="settings-check-card">
+                        <input id="cmdb-status-toggle" type="checkbox">
+                        <span>Estado</span>
+                      </label>
+                      <label class="settings-check-card">
+                        <input id="cmdb-recurrent-failures-toggle" type="checkbox">
+                        <span>Fallas reiteradas</span>
+                      </label>
+                    </div>
+                  </div>
+                  <div id="cmdb-age-panel" class="field field-full">
+                    <span>Umbral recambio</span>
+                    <div class="settings-subpanel">
+                      <div class="settings-threshold-row">
+                        <div class="settings-threshold-control">
+                          <input class="settings-threshold-value" type="number" value="48" min="1">
+                          <select class="settings-threshold-unit">
+                            <option>Días</option>
+                            <option>Semanas</option>
+                            <option selected>Meses</option>
+                            <option>Años</option>
+                          </select>
+                        </div>
+                        <span class="settings-helper-inline">desde cuándo un activo entra en criterio de recambio para reportería y seguimiento operativo</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div id="cmdb-status-panel" class="field field-full is-hidden">
+                    <span>Estados considerados para recambio</span>
+                    <div class="settings-subpanel">
+                      <div class="settings-check-grid settings-check-grid-strategy">
+                        <label class="settings-check-card"><input type="checkbox" checked><span>Obsoleto</span></label>
+                        <label class="settings-check-card"><input type="checkbox"><span>En observación</span></label>
+                        <label class="settings-check-card"><input type="checkbox"><span>No operativo</span></label>
+                      </div>
+                      <p class="settings-helper-inline">Los activos que caigan en estos estados podrán entrar en criterio de recambio aunque no superen el umbral de antigüedad.</p>
+                    </div>
+                  </div>
+                  <div id="cmdb-recurrent-failures-panel" class="field field-full is-hidden">
+                    <span>Configuración de fallas reiteradas</span>
+                    <div class="settings-subpanel">
+                      <div class="settings-subpanel-grid">
+                        <label class="field">
+                          <span>Cantidad mínima de ingresos</span>
+                          <input type="number" value="3" min="2">
+                        </label>
+                        <label class="field">
+                          <span>Ventana de análisis</span>
+                          <select>
+                            <option>30 días</option>
+                            <option selected>90 días</option>
+                            <option>180 días</option>
+                            <option>365 días</option>
+                          </select>
+                        </label>
+                        <label class="field">
+                          <span>Considerar como falla</span>
+                          <select>
+                            <option selected>Ingreso a laboratorio</option>
+                            <option>Reparación confirmada</option>
+                            <option>Marcado para cambio desde laboratorio</option>
+                            <option>Ingreso o reparación</option>
+                          </select>
+                        </label>
+                      </div>
+                      <p class="settings-helper-inline">Define desde cuántos ingresos o reparaciones un activo debe entrar en criterio de recambio por reincidencia.</p>
+                    </div>
+                  </div>
+                </form>
+                <div class="settings-footer settings-footer-right-only">
+                  <div class="settings-footer-right">
+                    <button class="btn btn-secondary" type="button">Restablecer a fábrica</button>
+                    <button class="btn btn-primary" type="button">Guardar configuración</button>
+                  </div>
+                </div>
+              </div>
+
+            </article>
+          </div>
+        </section>
+
+        <section class="view" id="view-checklists">
+          <div class="module-grid">
+            <article class="panel panel-wide">
+              <div class="panel-header">
+                <div>
+                  <p class="eyebrow">Plantillas operativas</p>
+                  <h3>Checklist</h3>
+                </div>
+              </div>
+
+              <div class="tab-row">
+                <button class="tab-button is-active" data-tab-group="checklist-tabs" data-tab-target="checklist-lab-tab">Checklist Laboratorio</button>
+                <button class="tab-button" data-tab-group="checklist-tabs" data-tab-target="checklist-handover-tab">Checklist Entrega</button>
+                <button class="tab-button" data-tab-group="checklist-tabs" data-tab-target="checklist-reception-tab">Checklist Recepción</button>
+              </div>
+
+              <div class="tab-panel is-active" id="checklist-lab-tab" data-checklist-context="lab">
+                <div data-role="checklist-list-view">
+                  <div class="settings-checklist-summary-panel">
+                    <div class="section-heading">
+                      <div>
+                        <p class="eyebrow">Listas soportadas</p>
+                        <h3>Checklists que maneja el sistema</h3>
+                      </div>
+                    </div>
+                    <div class="table-wrap">
+                      <table class="data-table compact-table">
+                        <thead>
+                          <tr>
+                            <th>Checklist</th>
+                            <th>Clase CMDB</th>
+                            <th>Descripción</th>
+                            <th>Acciones</th>
+                          </tr>
+                        </thead>
+                        <tbody data-role="checklist-list-body"></tbody>
+                      </table>
+                    </div>
+                    <p class="settings-helper-inline">Cada checklist corresponde a una clase CMDB soportada. Desde aquí puedes abrir su configuración interna.</p>
+                  </div>
+                </div>
+
+                <div data-role="checklist-edit-view" class="is-hidden">
+                  <section class="panel settings-checklist-card">
+                    <div class="settings-checklist-card-header">
+                      <button class="report-back-button js-checklist-back" data-context="lab" type="button" title="Volver a menu checklist" aria-label="Volver a menu checklist">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M15 18l-6-6 6-6"></path>
+                        </svg>
+                      </button>
+                      <div>
+                        <p class="eyebrow" data-role="checklist-module-title">Checklist Laboratorio</p>
+                        <h3 data-role="checklist-title">Checklist</h3>
+                        <p data-role="checklist-class" class="report-page-description"></p>
+                      </div>
+                      <button class="report-toggle-button js-checklist-summary-toggle" data-context="lab" type="button" title="Colapsar resumen" aria-label="Colapsar resumen">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M15 18l-6-6 6-6"></path>
+                        </svg>
+                      </button>
+                    </div>
+                    <div data-role="checklist-summary-content" class="settings-checklist-summary-content">
+                      <label class="field field-full">
+                        <span>Descripción</span>
+                        <textarea data-role="checklist-description" rows="4" placeholder="Describe el objetivo operativo de esta lista de checklist."></textarea>
+                      </label>
+                      <div class="field field-full is-hidden" data-role="checklist-status-field">
+                        <span>Estado de la plantilla</span>
+                        <label class="settings-inline-check">
+                          <input data-role="checklist-status-toggle" type="checkbox">
+                          <span>Checklist activo para selección en actas</span>
+                        </label>
+                      </div>
+                    </div>
+                  </section>
+                  <div class="settings-checklist-section">
+                    <div class="section-heading">
+                      <div>
+                        <p class="eyebrow">Contenido</p>
+                        <h3>Checks del checklist</h3>
+                      </div>
+                      <div class="settings-footer-left">
+                        <button class="btn btn-secondary js-check-item-add" data-context="lab" type="button">Nuevo check</button>
+                      </div>
+                    </div>
+                    <div class="table-wrap">
+                      <table class="data-table compact-table">
+                        <thead>
+                          <tr>
+                            <th>Check</th>
+                            <th>Descripción</th>
+                            <th>Tipo</th>
+                            <th>Editar</th>
+                            <th>Eliminar</th>
+                          </tr>
+                        </thead>
+                        <tbody data-role="checklist-items-body"></tbody>
+                      </table>
+                    </div>
+                    <div class="settings-footer settings-footer-right-only">
+                      <div class="settings-footer-right">
+                        <button class="btn btn-primary js-checklist-save-content" data-context="lab" type="button">Guardar checklist</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="tab-panel" id="checklist-handover-tab" data-checklist-context="handover">
+                <div data-role="checklist-list-view">
+                  <div class="settings-checklist-summary-panel">
+                    <div class="section-heading">
+                      <div>
+                        <p class="eyebrow">Listas soportadas</p>
+                        <h3>Checklists que maneja el sistema</h3>
+                      </div>
+                    </div>
+                    <div class="table-wrap">
+                      <table class="data-table compact-table">
+                        <thead>
+                          <tr>
+                            <th>Checklist</th>
+                            <th>Descripción</th>
+                            <th>Estado</th>
+                            <th>Acciones</th>
+                          </tr>
+                        </thead>
+                        <tbody data-role="checklist-list-body"></tbody>
+                      </table>
+                    </div>
+                    <p class="settings-helper-inline">Cada checklist de entrega permite modelar qué insumos y validaciones se documentan al asignar activos a una persona.</p>
+                  </div>
+                </div>
+
+                <div data-role="checklist-edit-view" class="is-hidden">
+                  <section class="panel settings-checklist-card">
+                    <div class="settings-checklist-card-header">
+                      <button class="report-back-button js-checklist-back" data-context="handover" type="button" title="Volver a menu checklist" aria-label="Volver a menu checklist">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M15 18l-6-6 6-6"></path>
+                        </svg>
+                      </button>
+                      <div>
+                        <p class="eyebrow" data-role="checklist-module-title">Checklist Entrega</p>
+                        <h3 data-role="checklist-title">Checklist</h3>
+                        <p data-role="checklist-class" class="report-page-description"></p>
+                      </div>
+                      <button class="report-toggle-button js-checklist-summary-toggle" data-context="handover" type="button" title="Colapsar resumen" aria-label="Colapsar resumen">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M15 18l-6-6 6-6"></path>
+                        </svg>
+                      </button>
+                    </div>
+                    <div data-role="checklist-summary-content" class="settings-checklist-summary-content">
+                      <label class="field field-full">
+                        <span>Descripción</span>
+                        <textarea data-role="checklist-description" rows="4" placeholder="Describe el objetivo operativo de esta lista de checklist."></textarea>
+                      </label>
+                      <div class="field field-full" data-role="checklist-status-field">
+                        <span>Estado de la plantilla</span>
+                        <label class="settings-inline-check">
+                          <input data-role="checklist-status-toggle" type="checkbox">
+                          <span>Checklist activo para selección en actas</span>
+                        </label>
+                      </div>
+                    </div>
+                  </section>
+                  <div class="settings-checklist-section">
+                    <div class="section-heading">
+                      <div>
+                        <p class="eyebrow">Contenido</p>
+                        <h3>Checks del checklist</h3>
+                      </div>
+                      <div class="settings-footer-left">
+                        <button class="btn btn-secondary js-check-item-add" data-context="handover" type="button">Nuevo check</button>
+                      </div>
+                    </div>
+                    <div class="table-wrap">
+                      <table class="data-table compact-table">
+                        <thead>
+                          <tr>
+                            <th>Check</th>
+                            <th>Descripción</th>
+                            <th>Tipo</th>
+                            <th>Editar</th>
+                            <th>Eliminar</th>
+                          </tr>
+                        </thead>
+                        <tbody data-role="checklist-items-body"></tbody>
+                      </table>
+                    </div>
+                    <div class="settings-footer settings-footer-right-only">
+                      <div class="settings-footer-right">
+                        <button class="btn btn-primary js-checklist-save-content" data-context="handover" type="button">Guardar checklist</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="tab-panel" id="checklist-reception-tab" data-checklist-context="reception">
+                <div data-role="checklist-list-view">
+                  <div class="settings-checklist-summary-panel">
+                    <div class="section-heading">
+                      <div>
+                        <p class="eyebrow">Listas soportadas</p>
+                        <h3>Checklists que maneja el sistema</h3>
+                      </div>
+                    </div>
+                    <div class="table-wrap">
+                      <table class="data-table compact-table">
+                        <thead>
+                          <tr>
+                            <th>Checklist</th>
+                            <th>Descripción</th>
+                            <th>Estado</th>
+                            <th>Acciones</th>
+                          </tr>
+                        </thead>
+                        <tbody data-role="checklist-list-body"></tbody>
+                      </table>
+                    </div>
+                    <p class="settings-helper-inline">Cada checklist de recepción permite registrar devolución, faltantes, accesorios e insumos recibidos junto al activo principal.</p>
+                  </div>
+                </div>
+
+                <div data-role="checklist-edit-view" class="is-hidden">
+                  <section class="panel settings-checklist-card">
+                    <div class="settings-checklist-card-header">
+                      <button class="report-back-button js-checklist-back" data-context="reception" type="button" title="Volver a menu checklist" aria-label="Volver a menu checklist">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M15 18l-6-6 6-6"></path>
+                        </svg>
+                      </button>
+                      <div>
+                        <p class="eyebrow" data-role="checklist-module-title">Checklist Recepción</p>
+                        <h3 data-role="checklist-title">Checklist</h3>
+                        <p data-role="checklist-class" class="report-page-description"></p>
+                      </div>
+                      <button class="report-toggle-button js-checklist-summary-toggle" data-context="reception" type="button" title="Colapsar resumen" aria-label="Colapsar resumen">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M15 18l-6-6 6-6"></path>
+                        </svg>
+                      </button>
+                    </div>
+                    <div data-role="checklist-summary-content" class="settings-checklist-summary-content">
+                      <label class="field field-full">
+                        <span>Descripción</span>
+                        <textarea data-role="checklist-description" rows="4" placeholder="Describe el objetivo operativo de esta lista de checklist."></textarea>
+                      </label>
+                      <div class="field field-full" data-role="checklist-status-field">
+                        <span>Estado de la plantilla</span>
+                        <label class="settings-inline-check">
+                          <input data-role="checklist-status-toggle" type="checkbox">
+                          <span>Checklist activo para selección en actas</span>
+                        </label>
+                      </div>
+                    </div>
+                  </section>
+                  <div class="settings-checklist-section">
+                    <div class="section-heading">
+                      <div>
+                        <p class="eyebrow">Contenido</p>
+                        <h3>Checks del checklist</h3>
+                      </div>
+                      <div class="settings-footer-left">
+                        <button class="btn btn-secondary js-check-item-add" data-context="reception" type="button">Nuevo check</button>
+                      </div>
+                    </div>
+                    <div class="table-wrap">
+                      <table class="data-table compact-table">
+                        <thead>
+                          <tr>
+                            <th>Check</th>
+                            <th>Descripción</th>
+                            <th>Tipo</th>
+                            <th>Editar</th>
+                            <th>Eliminar</th>
+                          </tr>
+                        </thead>
+                        <tbody data-role="checklist-items-body"></tbody>
+                      </table>
+                    </div>
+                    <div class="settings-footer settings-footer-right-only">
+                      <div class="settings-footer-right">
+                        <button class="btn btn-primary js-checklist-save-content" data-context="reception" type="button">Guardar checklist</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <div id="brand-modal" class="modal" aria-hidden="true">
+    <div class="modal-backdrop" data-close-modal="true"></div>
+    <section class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="brand-modal-title">
+      <button id="brand-modal-close" class="modal-close" type="button" aria-label="Cerrar presentación">×</button>
+      <p class="eyebrow">Presentación del sistema</p>
+      <h3 id="brand-modal-title">iTop Hub</h3>
+      <p class="modal-lead">
+        Plataforma interna orientada a gestión documental, trazabilidad operacional y consulta centralizada de activos TI integrados con iTop.
+      </p>
+      <div class="modal-grid">
+        <article class="summary-card">
+          <strong>Visión operativa</strong>
+          <p>Unifica entrega, recepción, laboratorio, CMDB y consulta de usuarios en un entorno claro, técnico y mantenible.</p>
+        </article>
+        <article class="summary-card">
+          <strong>Base para evolucionar</strong>
+          <p>La estructura actual está preparada para conectar backend real, autenticación, carga documental y evidencias.</p>
+        </article>
+        <article class="summary-card">
+          <strong>Enfoque documental</strong>
+          <p>Cada movimiento puede derivar en actas, historial y evidencia visual para fortalecer auditoría y seguimiento.</p>
+        </article>
+        <article class="summary-card">
+          <strong>Orientado a operación TI</strong>
+          <p>Diseñado para mesa de ayuda, laboratorio, custodios CMDB y equipos de soporte corporativo.</p>
+        </article>
+      </div>
+    </section>
+  </div>
+
+  <div id="user-modal" class="modal" aria-hidden="true">
+    <div class="modal-backdrop" data-close-user-modal="true"></div>
+    <section class="modal-dialog modal-dialog-wide" role="dialog" aria-modal="true" aria-labelledby="user-modal-title">
+      <button id="user-modal-close" class="modal-close" type="button" aria-label="Cerrar detalle de usuario">×</button>
+      <p class="eyebrow">Ficha de usuario</p>
+      <h3 id="user-modal-title">Detalle</h3>
+      <div class="tab-row">
+        <button class="tab-button is-active" data-tab-group="user-detail" data-tab-target="user-summary-tab">Perfil</button>
+        <button class="tab-button" data-tab-group="user-detail" data-tab-target="user-current-assets-tab">Equipos actuales</button>
+        <button class="tab-button" data-tab-group="user-detail" data-tab-target="user-history-tab">Histórico</button>
+      </div>
+      <div class="tab-panel is-active" id="user-summary-tab">
+        <div class="detail-grid" id="user-detail-panel"></div>
+      </div>
+      <div class="tab-panel" id="user-current-assets-tab">
+        <div class="table-wrap">
+          <table class="data-table compact-table">
+            <thead>
+              <tr>
+                <th>Código activo</th>
+                <th>Nombre equipo</th>
+                <th>Tipo</th>
+                <th>Modelo</th>
+                <th>Fecha asignación</th>
+                <th>Estado</th>
+              </tr>
+            </thead>
+            <tbody id="user-current-assets-body"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="tab-panel" id="user-history-tab">
+        <div class="table-wrap">
+          <table class="data-table compact-table">
+            <thead>
+              <tr>
+                <th>Equipo</th>
+                <th>Tipo</th>
+                <th>Fecha asignación</th>
+                <th>Fecha remoción</th>
+                <th>Motivo</th>
+                <th>Estado</th>
+                <th>Referencia</th>
+              </tr>
+            </thead>
+            <tbody id="user-history-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div id="system-user-modal" class="modal" aria-hidden="true">
+    <div class="modal-backdrop" data-close-system-user-modal="true"></div>
+    <section class="modal-dialog modal-dialog-wide" role="dialog" aria-modal="true" aria-labelledby="system-user-modal-title">
+      <button id="system-user-modal-close" class="modal-close" type="button" aria-label="Cerrar detalle de usuario del sistema">×</button>
+      <p class="eyebrow">Usuario del sistema</p>
+      <h3 id="system-user-modal-title">Detalle</h3>
+      <div class="detail-grid" id="system-user-detail-panel"></div>
+    </section>
+  </div>
+
+  <div id="mail-test-modal" class="modal" aria-hidden="true">
+    <div class="modal-backdrop" data-close-mail-test-modal="true"></div>
+    <section class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="mail-test-modal-title">
+      <button id="mail-test-modal-close" class="modal-close" type="button" aria-label="Cerrar prueba SMTP">×</button>
+      <p class="eyebrow">Prueba de correo</p>
+      <h3 id="mail-test-modal-title">Enviar test SMTP</h3>
+      <form class="form-grid">
+        <label class="field">
+          <span>Correo destinatario</span>
+          <input id="mail-test-recipient" type="email" placeholder="destinatario@empresa.local">
+        </label>
+        <label class="field">
+          <span>Asunto</span>
+          <input type="text" value="Prueba de configuración SMTP - iTop Hub">
+        </label>
+        <label class="field">
+          <span>Mensaje</span>
+          <textarea rows="5">Este es un correo de prueba generado desde la configuración de iTop Hub.</textarea>
+        </label>
+      </form>
+      <div class="action-row">
+        <button class="btn btn-secondary" type="button" id="mail-test-cancel">Cancelar</button>
+        <button class="btn btn-primary" type="button" id="mail-test-send">Enviar</button>
+      </div>
+    </section>
+  </div>
+
+  <div id="checklist-item-modal" class="modal" aria-hidden="true">
+    <div class="modal-backdrop" data-close-checklist-item-modal="true"></div>
+    <section class="modal-dialog modal-dialog-wide" role="dialog" aria-modal="true" aria-labelledby="checklist-item-modal-title">
+      <button id="checklist-item-modal-close" class="modal-close" type="button" aria-label="Cerrar edición de check">×</button>
+      <p class="eyebrow">Checklist</p>
+      <h3 id="checklist-item-modal-title">Nuevo check</h3>
+      <p class="modal-lead">Define cómo se presentará este campo dentro del checklist técnico y qué información deberá completar el operador.</p>
+      <form class="form-grid two-columns checklist-modal-form">
+        <label class="field">
+          <span>Nombre del check</span>
+          <input id="checklist-item-name" type="text" placeholder="Ej. Cámara web">
+        </label>
+        <label class="field">
+          <span>Tipo de check</span>
+          <select id="checklist-item-type">
+            <option>Input text</option>
+            <option>Text area</option>
+            <option>Check</option>
+            <option>Option / Radio</option>
+          </select>
+        </label>
+        <label id="checklist-item-option-a-field" class="field field-hidden">
+          <span>Estado A</span>
+          <input id="checklist-item-option-a" type="text" placeholder="Ej. Si">
+        </label>
+        <label id="checklist-item-option-b-field" class="field field-hidden">
+          <span>Estado B</span>
+          <input id="checklist-item-option-b" type="text" placeholder="Ej. No">
+        </label>
+        <label class="field field-full">
+          <span>Descripción</span>
+          <textarea id="checklist-item-description" rows="8" placeholder="Describe qué debe validar o completar el técnico."></textarea>
+        </label>
+      </form>
+      <div class="settings-footer">
+        <div class="settings-footer-left">
+          <button id="checklist-item-modal-cancel" class="btn btn-secondary" type="button">Cancelar</button>
+        </div>
+        <div class="settings-footer-right">
+          <button id="checklist-item-modal-save" class="btn btn-primary" type="button">Guardar check</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div id="checklist-delete-modal" class="modal" aria-hidden="true">
+    <div class="modal-backdrop" data-close-checklist-delete-modal="true"></div>
+    <section class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="checklist-delete-modal-title">
+      <button id="checklist-delete-modal-close" class="modal-close" type="button" aria-label="Cerrar confirmación">×</button>
+      <p class="eyebrow">Checklist</p>
+      <h3 id="checklist-delete-modal-title">Confirmar eliminación</h3>
+      <p id="checklist-delete-modal-text" class="modal-lead">Confirma la eliminación del check seleccionado.</p>
+      <div class="settings-footer">
+        <div class="settings-footer-left">
+          <button id="checklist-delete-modal-cancel" class="btn btn-secondary" type="button">Cancelar</button>
+        </div>
+        <div class="settings-footer-right">
+          <button id="checklist-delete-modal-confirm" class="btn btn-primary" type="button">Eliminar check</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div id="checklist-preview-modal" class="modal" aria-hidden="true">
+    <div class="modal-backdrop" data-close-checklist-preview-modal="true"></div>
+    <section class="modal-dialog modal-dialog-wide" role="dialog" aria-modal="true" aria-labelledby="checklist-preview-modal-title">
+      <button id="checklist-preview-modal-close" class="modal-close" type="button" aria-label="Cerrar preview de checklist">×</button>
+      <p class="eyebrow">Preview</p>
+      <h3 id="checklist-preview-modal-title">Checklist</h3>
+      <p id="checklist-preview-modal-class" class="modal-lead"></p>
+      <div class="table-wrap checklist-preview-wrap">
+        <table class="data-table compact-table checklist-preview-table">
+          <thead>
+            <tr>
+              <th>N°</th>
+              <th>Check</th>
+              <th>Respuesta</th>
+            </tr>
+          </thead>
+          <tbody id="checklist-preview-modal-body"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <div id="lab-evidence-preview-modal" class="modal" aria-hidden="true">
+    <div class="modal-backdrop" data-close-lab-evidence-preview-modal="true"></div>
+    <section class="modal-dialog modal-dialog-wide" role="dialog" aria-modal="true" aria-labelledby="lab-evidence-preview-title">
+      <button id="lab-evidence-preview-close" class="modal-close" type="button" aria-label="Cerrar preview de evidencia">×</button>
+      <p class="eyebrow">Evidencia</p>
+      <h3 id="lab-evidence-preview-title">Preview</h3>
+      <p id="lab-evidence-preview-lead" class="modal-lead"></p>
+      <div id="lab-evidence-preview-body" class="lab-evidence-preview-body"></div>
+    </section>
+  </div>
+
+  <button id="back-to-top" class="back-to-top" type="button" aria-label="Volver al inicio">↑</button>
+
+  <script src="assets/js/mock-data.js"></script>
+  <script src="assets/js/theme.js"></script>
+  <script src="assets/js/app.js"></script>
+</body>
+</html>

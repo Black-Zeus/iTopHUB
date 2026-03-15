@@ -1,0 +1,7 @@
+.dashboard-grid .panel:nth-of-type(4) {
+  min-height: 260px;
+}
+
+.dashboard-grid .panel:nth-of-type(5) {
+  min-height: 360px;
+}
