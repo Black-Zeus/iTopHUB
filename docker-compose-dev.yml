@@ -13,10 +13,14 @@ x-common-env: &common-env
   TZ: ${TZ}
   ENV_NAME: ${ENV_NAME}
 
+x-common-labels: &common-labels
+  - stack=${PROJECT_NAME}
+
 services:
   mariadb:
     image: mariadb:11.4
     container_name: ${PROJECT_NAME}-mariadb
+    labels: *common-labels
     environment:
       <<: *common-env
       MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
@@ -45,6 +49,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: ${PROJECT_NAME}-redis
+    labels: *common-labels
     command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
     environment:
       <<: *common-env
@@ -67,6 +72,7 @@ services:
   mailpit:
     image: axllent/mailpit:v1.29
     container_name: ${PROJECT_NAME}-mailpit
+    labels: *common-labels
     environment:
       <<: *common-env
     ports:
@@ -85,6 +91,7 @@ services:
         ITOP_BASE_IMAGE: ${ITOP_BASE_IMAGE}
     image: ${PROJECT_NAME}/itop:dev
     container_name: ${PROJECT_NAME}-itop
+    labels: *common-labels
     environment:
       <<: *common-env
       ITOP_DB_HOST: mariadb
@@ -113,6 +120,7 @@ services:
       dockerfile: ./Data/dokerFile/dev_qa/Dockerfile.frontend
     image: ${PROJECT_NAME}/frontend:dev
     container_name: ${PROJECT_NAME}-frontend
+    labels: *common-labels
     working_dir: /app
     environment:
       <<: *common-env
@@ -146,6 +154,7 @@ services:
       dockerfile: ./Data/dokerFile/dev_qa/Dockerfile.backend
     image: ${PROJECT_NAME}/backend:dev
     container_name: ${PROJECT_NAME}-backend
+    labels: *common-labels
     working_dir: /app
     environment:
       <<: *common-env
@@ -202,6 +211,7 @@ services:
       dockerfile: ./Data/dokerFile/dev_qa/Dockerfile.worker
     image: ${PROJECT_NAME}/worker:dev
     container_name: ${PROJECT_NAME}-worker
+    labels: *common-labels
     working_dir: /app
     environment:
       <<: *common-env
@@ -234,6 +244,7 @@ services:
   gotenberg:
     image: gotenberg/gotenberg:8
     container_name: ${PROJECT_NAME}-gotenberg
+    labels: *common-labels
     command:
       - gotenberg
       - --chromium-disable-javascript=true
@@ -248,6 +259,7 @@ services:
       dockerfile: ./Data/dokerFile/dev_qa/Dockerfile.pdf-worker
     image: ${PROJECT_NAME}/pdf-worker:dev
     container_name: ${PROJECT_NAME}-pdf-worker
+    labels: *common-labels
     working_dir: /app
     environment:
       <<: *common-env
