@@ -3,7 +3,7 @@
 ## Execution Boundary
 
 This project is operated through Docker.
-The user controls runtime operations with `docker_tools_v2.sh`.
+The user controls runtime operations with `docker_tools_v3.sh`.
 
 The AI agent should prepare files, configuration, and documentation, but should not assume host runtimes such as `node`, `python`, `npm`, or `pip` are available for direct execution.
 
@@ -25,6 +25,34 @@ The AI agent should prepare files, configuration, and documentation, but should 
 - `.env.dev`: development-specific overrides.
 - `.env.qa`: QA-specific overrides.
 - `.env.prd`: production-specific overrides.
+
+## Versioned Templates
+
+- `.env.example`
+- `.env.dev.example`
+- `.env.qa.example`
+- `.env.prd.example`
+
+These example files are the reproducible source for rebuilding local environment files in a fresh clone.
+
+## Bootstrap Minimo
+
+Para reconstruir el entorno local desde cero:
+
+1. copiar `.env.example` como `.env`
+2. copiar `.env.dev.example` como `.env.dev`
+3. ajustar secretos, puertos y overrides locales
+4. validar con `docker compose --env-file .env --env-file .env.dev -f docker-compose-dev.yml config`
+
+La fase activa hoy es `dev`.
+`docker-compose-qa.yml` y `docker-compose.yml` deben leerse como scaffolds diferidos hasta que el proyecto entre formalmente en esas fases.
+
+## Runtime Paths
+
+- `APP/volumes/`: mounted source code
+- `APP/data/<env>`: persistent service data
+- `APP/logs/<env>`: persistent service logs
+- `APP/config/`: persistent container configuration
 
 ## Stability Rules
 

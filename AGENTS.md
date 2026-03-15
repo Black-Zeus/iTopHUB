@@ -10,7 +10,7 @@ For documentation regeneration, normalization, or governance updates, read `REGE
 
 - Prefer minimal, explicit architecture over over-engineering.
 - Docker is the execution boundary for this project.
-- The user manages runtime operations through `docker_tools_v2.sh`.
+- The user manages runtime operations through `docker_tools_v3.sh`.
 - Do not assume local availability of `node`, `python`, `npm`, `pip`, or similar host tools for agent-driven execution.
 - Do not run service restarts, `npm install`, dependency syncs, migrations, or similar operational commands unless the user explicitly asks for them.
 - If a change requires runtime execution by the user, state it clearly and leave the repository prepared so the user can perform it later.
@@ -25,10 +25,13 @@ For documentation regeneration, normalization, or governance updates, read `REGE
 - Environment variables are layered:
   - `.env` contains common defaults.
   - `.env.dev`, `.env.qa`, `.env.prd` only override environment-specific values.
+  - `.env.example`, `.env.dev.example`, `.env.qa.example`, `.env.prd.example` are the versioned source used to rebuild local environment files.
 - Dependency declarations must live in repository-managed files such as `requirements.txt`, `pyproject.toml`, `package.json`, or equivalent.
 - Do not solve dependency needs by asking the agent to install them ad hoc on the host.
-- MariaDB init files follow ordered execution under `APP/data/settings/mariadb/init`.
+- MariaDB init files follow ordered execution under `APP/config/mariadb/init`.
 - Keep Docker changes focused on the current phase. For now, `docker-compose-dev.yml` is the active target.
+- Treat `docker-compose.yml` and `docker-compose-qa.yml` as deferred scaffolds until those phases are explicitly activated by the user.
+- If a non-active environment is not being aligned yet, mark it clearly as deferred instead of pretending it is already canonical.
 - When documenting a new decision, update the relevant file in `docs/containers/` instead of adding loose notes elsewhere.
 
 ## Naming Conventions
@@ -71,8 +74,25 @@ For documentation regeneration, normalization, or governance updates, read `REGE
 - Prefer wording like:
   - update `package.json` or `requirements.txt`
   - leave the container ready for rebuild/restart
-  - tell the user which command or menu action to run in `docker_tools_v2.sh`
+  - tell the user which command or menu action to run in `docker_tools_v3.sh`
 - If verification would require running app-specific commands that are not safely available here, report that clearly instead of improvising.
+
+## Git Usage Policy
+
+- Normal Git workflow is allowed for non-destructive repository work.
+- Allowed Git operations include:
+  - `git add`
+  - `git commit`
+  - `git status`
+  - `git log`
+  - `git branch`
+  - `git switch`
+  - `git checkout`
+  - `git remote`
+  - `git push`
+- These operations are acceptable when they support the requested task and do not introduce destructive behavior.
+- Do not use destructive Git commands such as `reset --hard`, forced history rewrites, or cleanup commands unless the user explicitly requests them.
+- This policy expresses the intended working model for the project, but actual sandbox execution permissions still depend on the environment approval system.
 
 ## Git Convention
 
@@ -95,10 +115,17 @@ For documentation regeneration, normalization, or governance updates, read `REGE
 - `docs/containers/`: technical and operational notes per container.
 - `docs/domains/`: functional and business-domain notes.
 - `docs/operations/`: workflow, execution boundary, and environment usage notes.
+- `Draft/`: structured pre-implementation drafts for UI, PDFs, mails, and related exploratory artifacts.
 - `APP/volumes/`: live application source code mounted in containers.
-- `APP/data/`: persistent data and runtime configuration.
-- `APP/logs/`: service logs.
-- `Data/dokerFile/`: image definitions.
+- `APP/data/`: runtime data organized by environment.
+- `APP/logs/`: service logs organized by environment.
+- `APP/config/`: persistent container configuration, bootstrap files, and startup assets.
+- `docker/`: image definitions and container build assets.
+
+Phase rule:
+
+- `docker-compose-dev.yml` is the active reference implementation.
+- `docker-compose-qa.yml` and `docker-compose.yml` may exist ahead of time, but they should be documented as deferred scaffolds until promoted.
 
 When a new cross-project concern appears, create a dedicated place for it early instead of scattering one-off files.
 
@@ -116,6 +143,7 @@ When a new cross-project concern appears, create a dedicated place for it early 
 - Redis container: `docs/containers/redis.md`
 - Mailpit container: `docs/containers/mailpit.md`
 - Gotenberg container: `docs/containers/gotenberg.md`
+- Nginx container: `docs/containers/nginx.md`
 - CMDB domain: `docs/domains/cmdb.md`
 - Handover domain: `docs/domains/handover.md`
 - Reception domain: `docs/domains/reception.md`
@@ -131,6 +159,7 @@ When a new cross-project concern appears, create a dedicated place for it early 
 - If the task mentions business logic, APIs, auth, orchestration, or service integration, read `docs/containers/backend.md`.
 - If the task mentions queues, async jobs, background processing, or retries, read `docs/containers/worker.md`.
 - If the task mentions PDF generation, documents, rendering, or Gotenberg, read `docs/containers/pdf-worker.md` and `docs/containers/gotenberg.md`.
+- If the task mentions reverse proxy, routing, hostnames, or public path layout, read `docs/containers/nginx.md`.
 - If the task mentions cache, broker-like behavior, or transient job state, read `docs/containers/redis.md`.
 - If the task mentions SMTP, captured emails, or dev notifications, read `docs/containers/mailpit.md`.
 - If the task mentions assets, inventory, lifecycle, or CMDB synchronization, read `docs/domains/cmdb.md`.
