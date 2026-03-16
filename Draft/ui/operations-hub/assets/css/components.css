@@ -346,6 +346,7 @@
 #lab-modal .modal-dialog,
 #system-user-modal .modal-dialog,
 #mail-test-modal .modal-dialog,
+#devices-link-modal .modal-dialog,
 #checklist-preview-modal .modal-dialog,
 #checklist-item-modal .modal-dialog {
   margin: 5vh auto;
@@ -376,6 +377,118 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-4);
+}
+
+.devices-link-dialog {
+  width: min(760px, calc(100vw - 48px));
+  min-height: 480px;
+  padding: 1.7rem 1.7rem 1.5rem;
+}
+
+.devices-link-layout {
+  min-height: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 1.6rem;
+}
+
+.devices-link-header {
+  max-width: 640px;
+  padding-right: 3.2rem;
+}
+
+.devices-link-lead {
+  margin-bottom: 0;
+}
+
+.devices-link-form {
+  width: min(100%, 520px);
+  margin: 0 auto;
+  gap: 1.15rem;
+}
+
+.devices-link-code-field {
+  text-align: center;
+}
+
+.devices-link-code-field > span {
+  display: block;
+  margin-bottom: 0.35rem;
+}
+
+.device-code-inputs {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  margin-top: var(--space-3);
+}
+
+.devices-link-helper {
+  display: block;
+  margin-top: 0.75rem;
+  text-align: center;
+}
+
+.device-code-input {
+  width: 3.2rem;
+  min-width: 3.2rem;
+  max-width: 3.2rem;
+  height: 3.6rem;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-panel-muted);
+  color: var(--text-primary);
+  font-size: 1.45rem;
+  font-weight: 700;
+  line-height: 1;
+  text-align: center;
+  flex: 0 0 3.2rem;
+}
+
+.device-code-input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.device-code-input[readonly] {
+  opacity: 0.72;
+  cursor: default;
+}
+
+.device-name-field {
+  min-height: 6rem;
+  transition: opacity 0.18s ease;
+}
+
+.device-name-field > span,
+.device-name-field .settings-helper-inline {
+  text-align: left;
+}
+
+.device-name-field.is-reserved {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.modal-inline-feedback {
+  min-height: 1.4rem;
+  margin: 0;
+  color: var(--warning);
+  font-size: 0.92rem;
+  text-align: center;
+}
+
+.modal-inline-feedback.is-success {
+  color: var(--success);
+}
+
+.devices-link-actions {
+  margin-top: auto;
+  padding-top: 1rem;
 }
 
 .status-light {

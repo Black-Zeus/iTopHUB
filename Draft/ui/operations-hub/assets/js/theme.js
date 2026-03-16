@@ -2,7 +2,7 @@
   const root = document.documentElement;
   const toggleButton = document.getElementById("theme-toggle");
   const storedTheme = localStorage.getItem("itophub-theme");
-  const initialTheme = storedTheme || "light";
+  const initialTheme = storedTheme || "dark";
 
   root.setAttribute("data-theme", initialTheme);
 
@@ -22,3 +22,4 @@
     });
   }
 })();
+

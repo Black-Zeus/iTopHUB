@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="es" data-theme="light">
+<html lang="es" data-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -66,6 +66,12 @@
             <svg viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3zm0 0v18"/></svg>
           </span>
           <span class="nav-link-label">Activos CMDB</span>
+        </button>
+        <button class="nav-link" data-view="devices" data-title="Dispositivos" data-breadcrumb="Movilidad / Dispositivos" title="Dispositivos">
+          <span class="nav-link-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M9 3h6a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm3 15h.01M10 6h4"/></svg>
+          </span>
+          <span class="nav-link-label">Dispositivos</span>
         </button>
         <button class="nav-link" data-view="people" data-title="Personas" data-breadcrumb="Consultas / Personas" title="Personas">
           <span class="nav-link-icon" aria-hidden="true">
@@ -806,6 +812,38 @@
                 <div id="lab-evidence-list" class="handover-checklist-list"></div>
               </article>
             </section>
+          </div>
+        </section>
+
+        <section class="view" id="view-devices">
+          <div class="module-grid">
+            <div class="kpi-grid" id="devices-kpi-grid"></div>
+
+            <article class="panel panel-wide">
+              <div class="panel-header panel-header-inline">
+                <div>
+                  <p class="eyebrow">Movilidad operativa</p>
+                  <h3>Tablets Android vinculadas</h3>
+                </div>
+                <button id="devices-link-button" class="btn btn-primary" type="button">Vincular tablet</button>
+              </div>
+              <p class="settings-note">Cada dispositivo genera nombre operativo, codigo interno, fecha de registro y ultima sincronizacion. En esta etapa todas las tablets corresponden a Android.</p>
+              <div class="table-wrap">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Nombre</th>
+                      <th>Codigo</th>
+                      <th>Fecha de registro</th>
+                      <th>Ultima sincronizacion</th>
+                      <th>Sistema</th>
+                      <th>Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody id="devices-table-body"></tbody>
+                </table>
+              </div>
+            </article>
           </div>
         </section>
 
@@ -1761,6 +1799,46 @@
     </section>
   </div>
 
+  <div id="devices-link-modal" class="modal" aria-hidden="true">
+    <div class="modal-backdrop" data-close-devices-link-modal="true"></div>
+    <section class="modal-dialog devices-link-dialog" role="dialog" aria-modal="true" aria-labelledby="devices-link-modal-title">
+      <button id="devices-link-modal-close" class="modal-close" type="button" aria-label="Cerrar vinculacion de tablet">&times;</button>
+      <div class="devices-link-layout">
+        <div class="devices-link-header">
+          <p class="eyebrow">Dispositivos</p>
+          <h3 id="devices-link-modal-title">Vincular tablet Android</h3>
+          <p class="modal-lead devices-link-lead">Ingresa el codigo de registro de 6 digitos que muestra la tablet para completar su vinculacion con el sistema.</p>
+        </div>
+
+        <form id="devices-link-form" class="form-grid devices-link-form">
+          <div class="field devices-link-code-field">
+            <span>Codigo de registro</span>
+            <div class="device-code-inputs" id="devices-link-code-inputs">
+              <input class="device-code-input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" data-device-code-index="0" aria-label="Digito 1 del codigo de registro">
+              <input class="device-code-input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" data-device-code-index="1" aria-label="Digito 2 del codigo de registro">
+              <input class="device-code-input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" data-device-code-index="2" aria-label="Digito 3 del codigo de registro">
+              <input class="device-code-input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" data-device-code-index="3" aria-label="Digito 4 del codigo de registro">
+              <input class="device-code-input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" data-device-code-index="4" aria-label="Digito 5 del codigo de registro">
+              <input class="device-code-input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" data-device-code-index="5" aria-label="Digito 6 del codigo de registro">
+            </div>
+            <small class="settings-helper-inline devices-link-helper">La tablet entrega este codigo al iniciar el proceso de enlace.</small>
+          </div>
+          <label id="devices-name-field" class="field device-name-field is-reserved">
+            <span>Nombre de la tablet</span>
+            <input id="devices-name-input" type="text" placeholder="Tablet Android 04">
+            <small class="settings-helper-inline">Puedes ajustar el nombre antes de registrar el dispositivo.</small>
+          </label>
+          <p id="devices-link-feedback" class="modal-inline-feedback" aria-live="polite"></p>
+        </form>
+
+        <div class="action-row devices-link-actions">
+          <button class="btn btn-secondary" type="button" id="devices-link-cancel">Cancelar</button>
+          <button class="btn btn-primary" type="button" id="devices-link-confirm">Aceptar</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
   <div id="checklist-item-modal" class="modal" aria-hidden="true">
     <div class="modal-backdrop" data-close-checklist-item-modal="true"></div>
     <section class="modal-dialog modal-dialog-wide" role="dialog" aria-modal="true" aria-labelledby="checklist-item-modal-title">
@@ -1864,3 +1942,4 @@
   <script src="assets/js/app.js"></script>
 </body>
 </html>
+

@@ -39,23 +39,23 @@ function createStatusBadge(value) {
 const SYSTEM_USER_ROLES = ["Administrador", "Soporte General", "Soporte Terreno", "Soporte Laboratorio", "Visualizador"];
 const ROLE_PROFILES = {
   Administrador: {
-    viewModules: ["dashboard", "global-search", "handover", "reception", "lab", "assets", "people", "users", "reports", "checklists", "settings"],
-    writeModules: ["handover", "reception", "lab", "assets", "users", "checklists", "settings"]
+    viewModules: ["dashboard", "global-search", "handover", "reception", "lab", "assets", "devices", "people", "users", "reports", "checklists", "settings"],
+    writeModules: ["handover", "reception", "lab", "assets", "devices", "users", "checklists", "settings"]
   },
   "Soporte General": {
-    viewModules: ["dashboard", "global-search", "handover", "reception", "lab", "assets", "people", "reports"],
-    writeModules: ["handover", "reception", "lab", "assets"]
+    viewModules: ["dashboard", "global-search", "handover", "reception", "lab", "assets", "devices", "people", "reports"],
+    writeModules: ["handover", "reception", "lab", "assets", "devices"]
   },
   "Soporte Terreno": {
-    viewModules: ["dashboard", "global-search", "handover", "reception", "assets", "people", "reports"],
-    writeModules: ["handover", "reception", "assets"]
+    viewModules: ["dashboard", "global-search", "handover", "reception", "assets", "devices", "people", "reports"],
+    writeModules: ["handover", "reception", "assets", "devices"]
   },
   "Soporte Laboratorio": {
     viewModules: ["dashboard", "global-search", "lab", "reports"],
     writeModules: ["lab"]
   },
   Visualizador: {
-    viewModules: ["dashboard", "global-search", "handover", "reception", "lab", "assets", "people", "reports"],
+    viewModules: ["dashboard", "global-search", "handover", "reception", "lab", "assets", "devices", "people", "reports"],
     writeModules: []
   }
 };
@@ -104,6 +104,66 @@ const SORTABLE_MONTHS = {
   nov: 10,
   dic: 11
 };
+let mobileDevices = [
+  {
+    id: "device-1",
+    name: "Tablet Android 01",
+    code: "TAB-001",
+    registrationCode: "481205",
+    registeredAt: "11 mar 2026 · 10:15",
+    lastSyncAt: "15 mar 2026 · 17:40",
+    platform: "Android"
+  },
+  {
+    id: "device-2",
+    name: "Tablet Android 02",
+    code: "TAB-002",
+    registrationCode: "582316",
+    registeredAt: "12 mar 2026 · 09:05",
+    lastSyncAt: "16 mar 2026 · 08:20",
+    platform: "Android"
+  },
+  {
+    id: "device-3",
+    name: "Tablet Android 03",
+    code: "TAB-003",
+    registrationCode: "693427",
+    registeredAt: "14 mar 2026 · 14:25",
+    lastSyncAt: "Pendiente",
+    platform: "Android"
+  }
+];
+
+function formatDeviceTimestamp(date) {
+  return new Intl.DateTimeFormat("es-CL", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(date).replace(",", " ·");
+}
+
+function getNextDeviceSequence() {
+  return mobileDevices.reduce(function (maxValue, item) {
+    const currentValue = Number(String(item.code).split("-").pop());
+    return Number.isNaN(currentValue) ? maxValue : Math.max(maxValue, currentValue);
+  }, 0) + 1;
+}
+
+function createDeviceFromRegistrationCode(registrationCode, deviceName) {
+  const nextSequence = getNextDeviceSequence();
+  const syncTimestamp = formatDeviceTimestamp(new Date());
+  return {
+    id: `device-${Date.now()}`,
+    name: deviceName,
+    code: `TAB-${String(nextSequence).padStart(3, "0")}`,
+    registrationCode,
+    registeredAt: formatDeviceTimestamp(new Date()),
+    lastSyncAt: syncTimestamp,
+    platform: "Android"
+  };
+}
 
 function renderDetailGrid(containerId, items) {
   const container = document.getElementById(containerId);
@@ -239,6 +299,7 @@ function applyCurrentRoleProfile() {
   renderAssetsOverview();
   renderAssetFilters();
   filterAssets();
+  renderDevices();
   renderSystemUsers();
   filterSystemUsers();
 
@@ -2077,6 +2138,285 @@ function filterAssets() {
   });
 
   renderAssetsTable(filtered);
+}
+
+function renderDevices() {
+  const kpiGrid = document.getElementById("devices-kpi-grid");
+  const body = document.getElementById("devices-table-body");
+  const linkButton = document.getElementById("devices-link-button");
+
+  if (!kpiGrid || !body) {
+    return;
+  }
+
+  if (linkButton) {
+    linkButton.disabled = !canWriteAppModule("devices");
+    linkButton.classList.toggle("is-hidden", !canWriteAppModule("devices"));
+  }
+
+  const pendingSync = mobileDevices.filter(function (item) {
+    return item.lastSyncAt === "Pendiente";
+  }).length;
+  const lastSyncedDevice = mobileDevices.find(function (item) {
+    return item.lastSyncAt !== "Pendiente";
+  });
+
+  kpiGrid.innerHTML = [
+    { label: "Vinculadas", value: mobileDevices.length, helper: "Tablets activas", tone: "info" },
+    { label: "Android", value: mobileDevices.length, helper: "Base definida", tone: "success" },
+    { label: "Pendientes", value: pendingSync, helper: "Sin sincronizar", tone: "warning" },
+    { label: "Ultima actividad", value: lastSyncedDevice ? lastSyncedDevice.code : "N/A", helper: lastSyncedDevice ? lastSyncedDevice.lastSyncAt : "Sin registros", tone: "info" }
+  ].map(function (item) {
+    return `
+      <article class="kpi-card">
+        <p class="eyebrow">${item.label}</p>
+        <strong>${item.value}</strong>
+        <span class="badge badge-${item.tone}">${item.helper}</span>
+      </article>
+    `;
+  }).join("");
+
+  body.innerHTML = mobileDevices.length ? mobileDevices.map(function (device) {
+    const actionDisabled = canWriteAppModule("devices") ? "" : "disabled";
+    return `
+      <tr>
+        <td>${escapeHtml(device.name)}</td>
+        <td>${escapeHtml(device.code)}</td>
+        <td>${escapeHtml(device.registeredAt)}</td>
+        <td>${escapeHtml(device.lastSyncAt)}</td>
+        <td><span class="badge badge-info">${escapeHtml(device.platform)}</span></td>
+        <td>
+          <div class="table-actions">
+            <button class="btn btn-secondary js-device-sync" type="button" data-device-id="${device.id}" ${actionDisabled}>Sincronizar</button>
+            <button class="btn btn-secondary js-device-remove" type="button" data-device-id="${device.id}" ${actionDisabled}>Remover</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join("") : `<tr><td colspan="6"><div class="empty-state">No hay tablets vinculadas por ahora.</div></td></tr>`;
+}
+
+function setupDevicesModule() {
+  const linkButton = document.getElementById("devices-link-button");
+  const tableBody = document.getElementById("devices-table-body");
+  const modal = document.getElementById("devices-link-modal");
+  const closeButton = document.getElementById("devices-link-modal-close");
+  const cancelButton = document.getElementById("devices-link-cancel");
+  const confirmButton = document.getElementById("devices-link-confirm");
+  const feedback = document.getElementById("devices-link-feedback");
+  const nameField = document.getElementById("devices-name-field");
+  const nameInput = document.getElementById("devices-name-input");
+  const codeInputs = Array.from(document.querySelectorAll(".device-code-input"));
+  let pendingRegistrationCode = "";
+  let syncTimeoutId = null;
+  let modalStep = "code";
+
+  if (!linkButton || !tableBody || !modal || !closeButton || !cancelButton || !confirmButton || !feedback || !nameField || !nameInput || !codeInputs.length) {
+    return;
+  }
+
+  function resetModal() {
+    if (syncTimeoutId) {
+      window.clearTimeout(syncTimeoutId);
+      syncTimeoutId = null;
+    }
+
+    modalStep = "code";
+    pendingRegistrationCode = "";
+    feedback.textContent = "";
+    feedback.classList.remove("is-success");
+    nameField.classList.add("is-reserved");
+    nameInput.value = "";
+    codeInputs.forEach(function (input) {
+      input.value = "";
+      input.readOnly = false;
+    });
+    cancelButton.disabled = false;
+    confirmButton.disabled = false;
+    confirmButton.textContent = "Aceptar";
+  }
+
+  function openModal() {
+    resetModal();
+    modal.classList.add("is-open");
+    modal.setAttribute("aria-hidden", "false");
+    codeInputs[0].focus();
+  }
+
+  function closeModal() {
+    modal.classList.remove("is-open");
+    modal.setAttribute("aria-hidden", "true");
+    resetModal();
+  }
+
+  function getRegistrationCode() {
+    return codeInputs.map(function (input) {
+      return input.value.trim();
+    }).join("");
+  }
+
+  function getSuggestedDeviceName() {
+    return `Tablet Android ${String(getNextDeviceSequence()).padStart(2, "0")}`;
+  }
+
+  linkButton.addEventListener("click", function () {
+    if (!canWriteAppModule("devices")) {
+      return;
+    }
+
+    openModal();
+  });
+
+  codeInputs.forEach(function (input, index) {
+    input.addEventListener("input", function () {
+      if (input.readOnly) {
+        return;
+      }
+
+      const numericValue = input.value.replace(/\D/g, "").slice(0, 1);
+      input.value = numericValue;
+      feedback.textContent = "";
+      feedback.classList.remove("is-success");
+
+      if (numericValue && codeInputs[index + 1]) {
+        codeInputs[index + 1].focus();
+        codeInputs[index + 1].select();
+      }
+    });
+
+    input.addEventListener("keydown", function (event) {
+      if (input.readOnly && event.key !== "Tab") {
+        event.preventDefault();
+        return;
+      }
+
+      if (event.key === "Backspace" && !input.value && codeInputs[index - 1]) {
+        codeInputs[index - 1].focus();
+      }
+
+      if (event.key === "ArrowLeft" && codeInputs[index - 1]) {
+        codeInputs[index - 1].focus();
+      }
+
+      if (event.key === "ArrowRight" && codeInputs[index + 1]) {
+        codeInputs[index + 1].focus();
+      }
+    });
+
+    input.addEventListener("paste", function (event) {
+      if (input.readOnly) {
+        event.preventDefault();
+        return;
+      }
+
+      const pastedValue = (event.clipboardData || window.clipboardData).getData("text").replace(/\D/g, "").slice(0, 6);
+      if (!pastedValue) {
+        return;
+      }
+
+      event.preventDefault();
+      codeInputs.forEach(function (field, fieldIndex) {
+        field.value = pastedValue[fieldIndex] || "";
+      });
+
+      const lastIndex = Math.min(pastedValue.length - 1, codeInputs.length - 1);
+      codeInputs[lastIndex].focus();
+    });
+  });
+
+  confirmButton.addEventListener("click", function () {
+    if (modalStep === "name") {
+      const deviceName = nameInput.value.trim();
+
+      if (!deviceName) {
+        feedback.textContent = "Asigna un nombre a la tablet antes de registrarla.";
+        feedback.classList.remove("is-success");
+        nameInput.focus();
+        return;
+      }
+
+      mobileDevices.unshift(createDeviceFromRegistrationCode(pendingRegistrationCode, deviceName));
+      renderDevices();
+      closeModal();
+      return;
+    }
+
+    const registrationCode = getRegistrationCode();
+
+    if (!/^\d{6}$/.test(registrationCode)) {
+      feedback.textContent = "Ingresa los 6 digitos del codigo para continuar.";
+      feedback.classList.remove("is-success");
+      return;
+    }
+
+    if (mobileDevices.some(function (device) { return device.registrationCode === registrationCode; })) {
+      feedback.textContent = "Ese codigo ya fue utilizado por otra tablet vinculada.";
+      feedback.classList.remove("is-success");
+      return;
+    }
+
+    pendingRegistrationCode = registrationCode;
+    modalStep = "sync";
+    confirmButton.disabled = true;
+    cancelButton.disabled = true;
+    codeInputs.forEach(function (input) {
+      input.readOnly = true;
+    });
+    feedback.textContent = "Sincronizando con la tablet...";
+    feedback.classList.add("is-success");
+
+    syncTimeoutId = window.setTimeout(function () {
+      syncTimeoutId = null;
+      modalStep = "name";
+      nameField.classList.remove("is-reserved");
+      nameInput.value = getSuggestedDeviceName();
+      feedback.textContent = `Sincronizacion completada para el codigo ${pendingRegistrationCode}.`;
+      confirmButton.disabled = false;
+      confirmButton.textContent = "Registrar tablet";
+      cancelButton.disabled = false;
+      nameInput.focus();
+      nameInput.select();
+    }, 1200);
+  });
+
+  closeButton.addEventListener("click", closeModal);
+  cancelButton.addEventListener("click", closeModal);
+  modal.addEventListener("click", function (event) {
+    if (event.target.dataset.closeDevicesLinkModal === "true") {
+      closeModal();
+    }
+  });
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape" && modal.classList.contains("is-open")) {
+      closeModal();
+    }
+  });
+
+  tableBody.addEventListener("click", function (event) {
+    const syncButton = event.target.closest(".js-device-sync");
+    const removeButton = event.target.closest(".js-device-remove");
+
+    if (syncButton && canWriteAppModule("devices")) {
+      mobileDevices = mobileDevices.map(function (device) {
+        if (device.id !== syncButton.dataset.deviceId) {
+          return device;
+        }
+
+        return Object.assign({}, device, {
+          lastSyncAt: formatDeviceTimestamp(new Date())
+        });
+      });
+      renderDevices();
+      return;
+    }
+
+    if (removeButton && canWriteAppModule("devices")) {
+      mobileDevices = mobileDevices.filter(function (device) {
+        return device.id !== removeButton.dataset.deviceId;
+      });
+      renderDevices();
+    }
+  });
 }
 
 function renderPeople() {
@@ -4929,6 +5269,7 @@ document.addEventListener("DOMContentLoaded", function () {
   renderAssetsOverview();
   renderAssetFilters();
   renderAssetsTable(mockData.assets);
+  renderDevices();
   renderPeople();
   renderPeopleDetail(mockData.users[0].id);
   renderSystemUsers();
@@ -4951,6 +5292,7 @@ document.addEventListener("DOMContentLoaded", function () {
   setupHandoverWorkspace();
   setupReceptionWorkspace();
   setupLabWorkspace();
+  setupDevicesModule();
   setupLabEvidencePreviewModal();
   setupAssetsWorkspace();
   setupInteractiveTables();
