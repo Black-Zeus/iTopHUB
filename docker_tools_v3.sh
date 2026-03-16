@@ -1130,6 +1130,52 @@ list_stack() {
     menu_monitoreo
 }
 
+ask_terminal_user_mode() {
+    local choice=""
+
+    echo ""
+    echo -e "${CYAN}${BOLD}MODO DE ACCESO A LA TERMINAL${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "  ${CYAN}1)${NC} Usuario normal del contenedor"
+    echo -e "  ${CYAN}2)${NC} root"
+    echo ""
+
+    read -p "$(echo -e ${CYAN}"Seleccione el usuario para la terminal [1/2]: "${NC})" choice
+
+    case "$choice" in
+        1|"")
+            TERMINAL_EXEC_USER=""
+            TERMINAL_EXEC_LABEL="usuario normal"
+            return 0
+            ;;
+        2)
+            TERMINAL_EXEC_USER="root"
+            TERMINAL_EXEC_LABEL="root"
+            return 0
+            ;;
+        *)
+            echo -e "${RED}❌ Opción inválida${NC}"
+            sleep 2
+            return 1
+            ;;
+    esac
+}
+
+open_container_shell() {
+    local container_id="$1"
+    local exec_args=(-it)
+
+    if [[ -n "$TERMINAL_EXEC_USER" ]]; then
+        exec_args+=(-u "$TERMINAL_EXEC_USER")
+    fi
+
+    if docker exec "${exec_args[@]}" "$container_id" bash -c "echo" >/dev/null 2>&1; then
+        docker exec "${exec_args[@]}" "$container_id" bash
+    else
+        docker exec "${exec_args[@]}" "$container_id" sh
+    fi
+}
+
 exec_stack() {
     banner_principal "TERMINAL EN CONTENEDOR"
     
@@ -1137,15 +1183,14 @@ exec_stack() {
         menu_monitoreo
         return
     fi
-    
-    echo -e "${GREEN}Conectando a $SELECTED_CONTAINER_NAME...${NC}"
-    
-    # Intentar bash, luego sh
-    if docker exec -it "$SELECTED_CONTAINER_ID" bash -c "echo" 2>/dev/null; then
-        docker exec -it "$SELECTED_CONTAINER_ID" bash
-    else
-        docker exec -it "$SELECTED_CONTAINER_ID" sh
+
+    if ! ask_terminal_user_mode; then
+        exec_stack
+        return
     fi
+    
+    echo -e "${GREEN}Conectando a $SELECTED_CONTAINER_NAME como ${TERMINAL_EXEC_LABEL}...${NC}"
+    open_container_shell "$SELECTED_CONTAINER_ID"
     
     pause
     menu_monitoreo

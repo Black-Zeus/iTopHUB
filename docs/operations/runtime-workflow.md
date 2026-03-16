@@ -19,6 +19,13 @@ The AI agent should prepare files, configuration, and documentation, but should 
 - Treating ad hoc runtime commands as part of the normal implementation path.
 - Relying on manual hidden steps that are not captured in repository files.
 
+## Terminal Access In Containers
+
+- `docker_tools_v3.sh` is the supported interactive entry point for container shells.
+- When the user chooses `Abrir terminal en contenedor`, the script now asks whether the shell should open as the container's normal user or as `root`.
+- The default path should be the container's normal user.
+- `root` access should be used only for package installation, bootstrap, permissions repair, or exceptional maintenance.
+
 ## Environment Layering
 
 - `.env`: common defaults shared by all environments.
