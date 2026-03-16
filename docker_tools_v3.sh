@@ -641,6 +641,25 @@ check_file_exists() {
     return 0
 }
 
+run_interruptible_cmd() {
+    local cmd="$1"
+    local interrupted=0
+    local exit_code=0
+
+    trap 'interrupted=1' INT
+    eval "$cmd"
+    exit_code=$?
+    trap - INT
+
+    if [[ $interrupted -eq 1 || $exit_code -eq 130 ]]; then
+        echo ""
+        echo -e "${YELLOW}⏭️  Ejecución interrumpida. Volviendo al menú...${NC}"
+        return 130
+    fi
+
+    return $exit_code
+}
+
 # Verificar que el stack tenga contenedores
 check_stack_containers() {
     local count=$(docker ps --filter "label=$LABEL_FILTER" -q 2>/dev/null | wc -l)
@@ -1134,7 +1153,7 @@ logs() {
         menu_monitoreo
         return
     fi
-    $(build_compose_cmd "logs -f")
+    run_interruptible_cmd "$(build_compose_cmd "logs -f")"
     pause
     menu_monitoreo
 }
@@ -1147,7 +1166,7 @@ logs_single_container() {
         return
     fi
 
-    docker logs -f "$SELECTED_CONTAINER_ID"
+    run_interruptible_cmd "docker logs -f $SELECTED_CONTAINER_ID"
     pause
     menu_monitoreo
 }

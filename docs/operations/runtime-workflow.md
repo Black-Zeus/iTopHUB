@@ -31,6 +31,11 @@ The AI agent should prepare files, configuration, and documentation, but should 
 - `docker_tools_v3.sh` should stop the full compose stack by default when running shutdown or cleanup flows.
 - Optional profile services such as `redisinsight` must be included automatically in stack teardown so shared networks can be removed cleanly.
 
+## Interactive Log Streams
+
+- When `docker_tools_v3.sh` opens a foreground log stream, `Ctrl+C` should stop only that stream and return to the menu.
+- This behavior is especially important in Windows shells, where unhandled interrupts can otherwise terminate the whole script session.
+
 ## Environment Layering
 
 - `.env`: common defaults shared by all environments.
