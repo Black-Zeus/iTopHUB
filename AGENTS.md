@@ -14,6 +14,7 @@ For documentation regeneration, normalization, or governance updates, read `REGE
 - Do not assume local availability of `node`, `python`, `npm`, `pip`, or similar host tools for agent-driven execution.
 - Do not run service restarts, `npm install`, dependency syncs, migrations, or similar operational commands unless the user explicitly asks for them.
 - If a change requires runtime execution by the user, state it clearly and leave the repository prepared so the user can perform it later.
+- When running host commands through PowerShell, prefer simple single commands over chained expressions or shell-specific shortcuts, because complex command composition is less reliable in this project environment.
 - Root should only be used to install packages, bootstrap infrastructure, or prepare the runtime.
 - Application processes should run with the minimum privileges required.
 - Database clients must not connect as `root` except for bootstrap or emergency maintenance.
