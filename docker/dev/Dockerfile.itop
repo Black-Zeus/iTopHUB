@@ -45,7 +45,8 @@ RUN apt-get update \
 
 COPY docker/dev/itop-entrypoint.sh /usr/local/bin/itop-entrypoint.sh
 
-RUN chmod +x /usr/local/bin/itop-entrypoint.sh
+RUN sed -i 's/\r$//' /usr/local/bin/itop-entrypoint.sh \
+    && chmod +x /usr/local/bin/itop-entrypoint.sh
 
 ENTRYPOINT ["/usr/local/bin/itop-entrypoint.sh"]
 CMD ["apache2-foreground"]

@@ -9,7 +9,8 @@ RUN apk add --no-cache bash curl \
 COPY docker/dev/frontend-entrypoint.sh /usr/local/bin/frontend-entrypoint.sh
 COPY docker/dev/placeholder-server.mjs /opt/frontend/placeholder-server.mjs
 
-RUN chmod +x /usr/local/bin/frontend-entrypoint.sh \
+RUN sed -i 's/\r$//' /usr/local/bin/frontend-entrypoint.sh \
+    && chmod +x /usr/local/bin/frontend-entrypoint.sh \
     && chown node:node /usr/local/bin/frontend-entrypoint.sh /opt/frontend/placeholder-server.mjs
 
 USER node
