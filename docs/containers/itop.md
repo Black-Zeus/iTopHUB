@@ -29,3 +29,4 @@ Runs the iTop platform used as the ITSM/CMDB base of the solution.
 - A read-only installer toolbox is mounted from `APP/config/itop-installer` into `/opt/itop-installer`.
 - Manual bootstrap of iTop files can be triggered with `sh /opt/itop-installer/install_itop.sh`.
 - The PHP runtime includes `apcu` and an explicit writable `session.save_path` to keep the installation wizard clean.
+- The image also includes the MariaDB client so iTop scheduled/manual backups can execute `mysqldump` from inside the `itop` container.
