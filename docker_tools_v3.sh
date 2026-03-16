@@ -472,8 +472,14 @@ get_current_ip() {
     local ip=""
     
     if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || -n "$MSYSTEM" ]]; then
-        if command -v ipconfig &> /dev/null; then
-            ip=$(ipconfig 2>/dev/null | grep -a "IPv4" | grep -v "127.0.0.1" | head -1 | sed 's/.*: //' | tr -d '\r')
+        if command -v powershell.exe &> /dev/null; then
+            ip=$(powershell.exe -NoProfile -Command "\$route = Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | Sort-Object RouteMetric | Select-Object -First 1; if (\$route) { Get-NetIPAddress -InterfaceIndex \$route.IfIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { \$_.IPAddress -notlike '127.*' -and \$_.IPAddress -notlike '169.254.*' } | Select-Object -ExpandProperty IPAddress -First 1 }" 2>/dev/null | tr -d '\r')
+        fi
+        if [[ -z "$ip" ]] && command -v powershell.exe &> /dev/null; then
+            ip=$(powershell.exe -NoProfile -Command "Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { \$_.IPAddress -notlike '127.*' -and \$_.IPAddress -notlike '169.254.*' } | Select-Object -ExpandProperty IPAddress -First 1" 2>/dev/null | tr -d '\r')
+        fi
+        if [[ -z "$ip" ]] && command -v ipconfig &> /dev/null; then
+            ip=$(ipconfig 2>/dev/null | grep -aEo '([0-9]{1,3}\.){3}[0-9]{1,3}' | grep -vE '^(127|169\.254)\.' | head -1 | tr -d '\r')
         fi
     else
         if command -v ip &> /dev/null; then
