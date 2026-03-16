@@ -131,6 +131,41 @@ build_compose_cmd() {
     echo "$COMPOSE_CMD -f $COMPOSE_FILE --env-file .env --env-file .env.$ENV ${profile_args} ${action} ${service_args}"
 }
 
+get_all_compose_profile_args() {
+    local profile_names=()
+    local profile_name=""
+
+    if [[ ! -f "$COMPOSE_FILE" ]]; then
+        echo ""
+        return
+    fi
+
+    while IFS= read -r profile_name; do
+        [[ -n "$profile_name" ]] && profile_names+=("$profile_name")
+    done < <(
+        grep -oE 'profiles:[[:space:]]*\[[^]]+\]' "$COMPOSE_FILE" 2>/dev/null |
+            sed -E 's/.*\[//; s/\].*//' |
+            tr ',' '\n' |
+            sed -E "s/^[[:space:]]*['\"]?//; s/['\"]?[[:space:]]*$//" |
+            sort -u
+    )
+
+    if [[ ${#profile_names[@]} -eq 0 ]]; then
+        echo ""
+        return
+    fi
+
+    printf -- '--profile %s ' "${profile_names[@]}"
+}
+
+build_full_stack_down_cmd() {
+    local down_action="${1:-down}"
+    local all_profile_args=""
+
+    all_profile_args="$(get_all_compose_profile_args)"
+    build_compose_cmd "$down_action" "$all_profile_args"
+}
+
 get_service_block_from_compose() {
     local compose_file="$1"
     local service_name="$2"
@@ -1026,7 +1061,7 @@ down() {
         return
     fi
     if confirm_action "¿Detener y eliminar todos los contenedores del stack?" "no"; then
-        run_cmd "$COMPOSE_CMD -f $COMPOSE_FILE --env-file .env --env-file .env.$ENV down" \
+        run_cmd "$(build_full_stack_down_cmd "down")" \
                 "Error al detener contenedores" \
                 "Contenedores detenidos exitosamente"
     fi
@@ -1043,7 +1078,7 @@ restart() {
     fi
     if confirm_action "¿Reiniciar todos los contenedores del stack?" "no"; then
         ask_service_groups
-        run_cmd "$(build_compose_cmd "down")" \
+        run_cmd "$(build_full_stack_down_cmd "down")" \
                 "Error al detener contenedores"
         run_cmd "$(build_compose_cmd "up -d --build" "$SELECTED_PROFILE_ARGS" "$SELECTED_SERVICE_ARGS")" \
                 "Error al iniciar contenedores" \
@@ -1204,7 +1239,7 @@ clean() {
         return
     fi
     if confirm_action "¿Limpiar contenedores, redes y volúmenes del stack?" "no"; then
-        run_cmd "$(build_compose_cmd "down --volumes --remove-orphans")" \
+        run_cmd "$(build_full_stack_down_cmd "down --volumes --remove-orphans")" \
                 "Error durante la limpieza" \
                 "Limpieza completada"
     fi
@@ -1251,7 +1286,7 @@ clean_all() {
     echo -e "\n${CYAN}${BOLD}📦 PASO 1/3: Limpiando recursos del stack...${NC}"
     echo -e "${CYAN}────────────────────────────────────────────────${NC}"
     
-    run_cmd "$(build_compose_cmd "down --volumes --remove-orphans")" \
+    run_cmd "$(build_full_stack_down_cmd "down --volumes --remove-orphans")" \
             "Error al limpiar recursos del stack" \
             "Recursos del stack eliminados"
     

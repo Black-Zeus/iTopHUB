@@ -26,6 +26,11 @@ The AI agent should prepare files, configuration, and documentation, but should 
 - The default path should be the container's normal user.
 - `root` access should be used only for package installation, bootstrap, permissions repair, or exceptional maintenance.
 
+## Stack Shutdown Behavior
+
+- `docker_tools_v3.sh` should stop the full compose stack by default when running shutdown or cleanup flows.
+- Optional profile services such as `redisinsight` must be included automatically in stack teardown so shared networks can be removed cleanly.
+
 ## Environment Layering
 
 - `.env`: common defaults shared by all environments.
