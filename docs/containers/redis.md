@@ -19,5 +19,5 @@ Provides transient state and queue coordination for background processing.
 
 ## Tooling
 
-- `redisinsight` is available as an optional tooling container in `dev` and `qa`.
+- `redisinsight` is available as an optional tools container in `dev` and `qa`.
 - It is exposed through the `tools` profile so it does not start by default.

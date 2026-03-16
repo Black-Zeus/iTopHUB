@@ -20,3 +20,4 @@ Generates PDFs and document outputs without loading that responsibility into the
 
 - Runs as a non-root user.
 - When touching PDF features, review `gotenberg.md` too.
+- The current code is a bootstrap process that prepares the output directory and keeps the container alive with visible heartbeats.

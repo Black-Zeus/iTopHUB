@@ -21,3 +21,4 @@ Executes asynchronous jobs that should not block the backend request cycle.
 
 - Runs as a non-root user.
 - Prompt-based or AI-specific behavior is intentionally out of scope for the current phase.
+- The current code is a bootstrap worker with heartbeat logs so the service starts cleanly during early integration.

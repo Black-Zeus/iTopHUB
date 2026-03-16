@@ -39,6 +39,7 @@ APP/config/nginx/certs/
 
 # Generated test artifacts
 APP/volumes/backend/app/assets/test/*.pdf
+APP/volumes/itop/
 
 # Runtime temp files
 APP/volumes/backend/app/assets/temp/*

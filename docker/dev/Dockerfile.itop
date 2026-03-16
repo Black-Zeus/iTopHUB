@@ -1,2 +1,51 @@
-ARG ITOP_BASE_IMAGE=combodo/itop:latest
-FROM ${ITOP_BASE_IMAGE}
+ARG ITOP_PHP_BASE_IMAGE=php:8.2-apache-bookworm
+FROM ${ITOP_PHP_BASE_IMAGE}
+
+ENV APACHE_DOCUMENT_ROOT=/var/www/html
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        libfreetype6-dev \
+        libicu-dev \
+        libjpeg62-turbo-dev \
+        libldap2-dev \
+        libonig-dev \
+        libpng-dev \
+        libxml2-dev \
+        libzip-dev \
+        rsync \
+        unzip \
+        zip \
+    && docker-php-ext-configure gd --with-freetype --with-jpeg \
+    && docker-php-ext-configure ldap --with-libdir=lib/x86_64-linux-gnu/ \
+    && docker-php-ext-install -j"$(nproc)" \
+        exif \
+        gd \
+        intl \
+        ldap \
+        mbstring \
+        mysqli \
+        pdo_mysql \
+        soap \
+        zip \
+    && pecl install apcu \
+    && docker-php-ext-enable apcu \
+    && mkdir -p /var/lib/php/sessions \
+    && chown -R www-data:www-data /var/lib/php/sessions \
+    && printf '%s\n' \
+        'apc.enable_cli=1' \
+        'session.save_path="/var/lib/php/sessions"' \
+        > /usr/local/etc/php/conf.d/itophub-runtime.ini \
+    && a2enmod headers rewrite expires \
+    && printf '%s\n' 'ServerName localhost' > /etc/apache2/conf-available/server-name.conf \
+    && a2enconf server-name \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY docker/dev/itop-entrypoint.sh /usr/local/bin/itop-entrypoint.sh
+
+RUN chmod +x /usr/local/bin/itop-entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/itop-entrypoint.sh"]
+CMD ["apache2-foreground"]

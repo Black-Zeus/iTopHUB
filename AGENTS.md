@@ -25,7 +25,7 @@ For documentation regeneration, normalization, or governance updates, read `REGE
 - Environment variables are layered:
   - `.env` contains common defaults.
   - `.env.dev`, `.env.qa`, `.env.prd` only override environment-specific values.
-  - `.env.example`, `.env.dev.example`, `.env.qa.example`, `.env.prd.example` are the versioned source used to rebuild local environment files.
+  - `.env.example` is the versioned source used to rebuild local environment files.
 - Dependency declarations must live in repository-managed files such as `requirements.txt`, `pyproject.toml`, `package.json`, or equivalent.
 - Do not solve dependency needs by asking the agent to install them ad hoc on the host.
 - MariaDB init files follow ordered execution under `APP/config/mariadb/init`.

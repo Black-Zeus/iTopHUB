@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>iTop Hub | Acceso</title>
+  <link rel="stylesheet" href="assets/css/variables.css">
+  <link rel="stylesheet" href="assets/css/main.css">
+  <link rel="stylesheet" href="assets/css/login.css">
+</head>
+<body>
+  <main class="login-shell">
+    <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Cambiar tema">
+      Cambiar tema
+    </button>
+
+    <section class="login-layout" aria-label="Pantalla de acceso iTop Hub">
+      <article class="brand-panel panel">
+        <div>
+          <div class="brand-top">
+            <div class="brand-lockup">
+              <div class="brand-mark" aria-hidden="true">IH</div>
+              <div>
+                <p class="eyebrow">Gestion TI</p>
+                <strong>iTop Hub</strong>
+              </div>
+            </div>
+          </div>
+
+          <div class="brand-copy">
+
+            <h1>Acceso interno al Hub.</h1>
+            <p>
+              Este acceso esta pensado para personal interno. Su finalidad es centralizar
+              el ingreso a los modulos operativos y mantener separados los flujos del Hub
+              respecto de iTop.
+            </p>
+          </div>
+
+          <div class="highlight-grid" aria-label="Indicadores del portal">
+            <div class="highlight-card">
+              <strong>Finalidad</strong>
+              <span>Ingresar a los modulos necesarios para registrar, consultar y dar seguimiento a la operacion.</span>
+            </div>
+            <div class="highlight-card">
+              <strong>Alcance</strong>
+              <span>Actas de entrega, actas de recepcion, laboratorio y consulta de activos.</span>
+            </div>
+            <div class="highlight-card">
+              <strong>Acceso</strong>
+              <span>Disponible solo para usuarios autorizados dentro de la operacion interna.</span>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <article class="login-panel panel">
+        <header class="login-header">
+          <p class="eyebrow">Bienvenido</p>
+          <h2>Inicia sesion</h2>
+          <p>
+            Ingresa con tu cuenta autorizada para acceder a las funciones internas del Hub.
+          </p>
+        </header>
+
+        <form class="login-form">
+          <label class="field login-field">
+            <span>Correo o usuario</span>
+            <div class="input-wrap">
+              <div class="field-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M4 7.5h16v9H4z" />
+                  <path d="m5.5 8.5 6.5 5 6.5-5" />
+                </svg>
+              </div>
+              <input type="text" name="username" placeholder="usuario@empresa.com" autocomplete="username">
+            </div>
+          </label>
+
+          <label class="field login-field field-password">
+            <span>Contrasena</span>
+            <div class="input-wrap">
+              <div class="field-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M7.5 10V8a4.5 4.5 0 1 1 9 0v2" />
+                  <path d="M5 10.5h14v9H5z" />
+                  <circle cx="12" cy="15" r="1.2" />
+                </svg>
+              </div>
+              <input id="password-input" type="password" name="password" placeholder="Ingresa tu contrasena" autocomplete="current-password">
+              <button class="toggle-password" id="toggle-password" type="button" aria-label="Mostrar u ocultar contrasena">
+                <svg viewBox="0 0 24 24">
+                  <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z" />
+                  <circle cx="12" cy="12" r="2.8" />
+                </svg>
+              </button>
+            </div>
+          </label>
+
+          <div class="form-row">
+            <label class="checkbox">
+              <input type="checkbox" name="remember">
+              <span>Recordar sesion en este equipo</span>
+            </label>
+          </div>
+
+          <button class="primary-action" type="submit">Acceder al Hub</button>
+
+        </form>
+
+        <aside class="security-note" aria-label="Nota de seguridad">
+          <h3>Acceso restringido</h3>
+          <p>
+            Sistema Satelite para gestion de CMDB implementado sobre Core Itop Combodo 3.2.2-1.
+          </p>
+        </aside>
+
+        <footer class="login-footer">
+          <span>iTop-Hub 2026</span>
+        </footer>
+      </article>
+    </section>
+  </main>
+
+  <script>
+    const root = document.documentElement;
+    const themeToggle = document.getElementById("theme-toggle");
+    const passwordInput = document.getElementById("password-input");
+    const togglePassword = document.getElementById("toggle-password");
+
+    themeToggle.addEventListener("click", () => {
+      const nextTheme = root.getAttribute("data-theme") === "dark" ? "light" : "dark";
+      root.setAttribute("data-theme", nextTheme);
+    });
+
+    togglePassword.addEventListener("click", () => {
+      const isPassword = passwordInput.getAttribute("type") === "password";
+      passwordInput.setAttribute("type", isPassword ? "text" : "password");
+    });
+  </script>
+</body>
+</html>

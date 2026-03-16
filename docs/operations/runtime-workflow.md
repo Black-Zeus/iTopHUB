@@ -29,20 +29,18 @@ The AI agent should prepare files, configuration, and documentation, but should 
 ## Versioned Templates
 
 - `.env.example`
-- `.env.dev.example`
-- `.env.qa.example`
-- `.env.prd.example`
 
-These example files are the reproducible source for rebuilding local environment files in a fresh clone.
+This example file is the reproducible source for rebuilding local environment files in a fresh clone.
 
 ## Bootstrap Minimo
 
 Para reconstruir el entorno local desde cero:
 
 1. copiar `.env.example` como `.env`
-2. copiar `.env.dev.example` como `.env.dev`
-3. ajustar secretos, puertos y overrides locales
-4. validar con `docker compose --env-file .env --env-file .env.dev -f docker-compose-dev.yml config`
+2. crear `.env.dev`, `.env.qa` o `.env.prd` segun el entorno de trabajo
+3. dejar en ese archivo solo overrides del entorno
+4. ajustar secretos, puertos y overrides locales
+5. validar con `docker compose --env-file .env --env-file .env.dev -f docker-compose-dev.yml config`
 
 La fase activa hoy es `dev`.
 `docker-compose-qa.yml` y `docker-compose.yml` deben leerse como scaffolds diferidos hasta que el proyecto entre formalmente en esas fases.

@@ -127,23 +127,180 @@ get_runtime_volumes_root() {
 build_compose_cmd() {
     local action="$1"
     local profile_args="${2:-}"
-    echo "$COMPOSE_CMD -f $COMPOSE_FILE --env-file .env --env-file .env.$ENV ${profile_args} ${action}"
+    local service_args="${3:-}"
+    echo "$COMPOSE_CMD -f $COMPOSE_FILE --env-file .env --env-file .env.$ENV ${profile_args} ${action} ${service_args}"
 }
 
-ask_tools_profile() {
+get_service_block_from_compose() {
+    local compose_file="$1"
+    local service_name="$2"
+
+    awk -v target="$service_name" '
+        BEGIN {
+            in_services = 0
+            in_target = 0
+        }
+        /^services:/ {
+            in_services = 1
+            next
+        }
+        in_services && /^[^[:space:]]/ {
+            if ($0 !~ /^services:/) {
+                if (in_target) {
+                    exit
+                }
+                in_services = 0
+            }
+        }
+        in_services && $0 ~ ("^  " target ":$") {
+            in_target = 1
+            print
+            next
+        }
+        in_target && /^  [a-zA-Z0-9_-]+:/ {
+            exit
+        }
+        in_target {
+            print
+        }
+    ' "$compose_file"
+}
+
+list_services_by_group() {
+    local target_group="${1:-all}"
+    local services=()
+    local service_name=""
+    local service_block=""
+    local group_value=""
+
+    while IFS= read -r service_name; do
+        [[ -z "$service_name" ]] && continue
+        service_block="$(get_service_block_from_compose "$COMPOSE_FILE" "$service_name")"
+        group_value="$(echo "$service_block" | sed -n 's/^[[:space:]]*service\.group: //p' | head -1)"
+
+        if [[ "$target_group" == "all" || "$group_value" == "$target_group" ]]; then
+            services+=("$service_name")
+        fi
+    done < <(eval "$(build_compose_cmd "config --services" "--profile tools")" 2>/dev/null)
+
+    if [[ ${#services[@]} -gt 0 ]]; then
+        printf '%s\n' "${services[@]}"
+    fi
+}
+
+validate_compose_env_files() {
+    local missing_files=()
+    local env_file=""
+
+    for env_file in ".env" ".env.$ENV"; do
+        if [[ ! -f "$env_file" ]]; then
+            missing_files+=("$env_file")
+        fi
+    done
+
+    if [[ ${#missing_files[@]} -gt 0 ]]; then
+        echo -e "${RED}${BOLD}❌ Faltan archivos de entorno requeridos:${NC}"
+        for env_file in "${missing_files[@]}"; do
+            echo -e "${RED}   └─ ${env_file}${NC}"
+        done
+        echo ""
+        echo -e "${YELLOW}Cree los archivos locales a partir de .env.example y luego genere .env.${ENV} solo con overrides del entorno.${NC}"
+        return 1
+    fi
+
+    local required_vars=()
+    while IFS= read -r var_name; do
+        [[ -n "$var_name" ]] && required_vars+=("$var_name")
+    done < <(grep -oE '\$\{[A-Z0-9_]+(:-[^}]*)?\}' "$COMPOSE_FILE" 2>/dev/null | sed -E 's/^\$\{([A-Z0-9_]+).*/\1/' | sort -u)
+
+    local missing_vars=()
+    local optional_empty_vars=(
+        "ITOP_PACKAGE_URL"
+    )
+    local var_name=""
+    for var_name in "${required_vars[@]}"; do
+        if [[ " ${optional_empty_vars[*]} " == *" ${var_name} "* ]]; then
+            continue
+        fi
+        if [[ -z "$(read_env_value "$var_name")" ]]; then
+            missing_vars+=("$var_name")
+        fi
+    done
+
+    if [[ ${#missing_vars[@]} -gt 0 ]]; then
+        echo -e "${RED}${BOLD}❌ Hay variables requeridas sin valor para ${COMPOSE_FILE}:${NC}"
+        for var_name in "${missing_vars[@]}"; do
+            echo -e "${RED}   └─ ${var_name}${NC}"
+        done
+        echo ""
+        echo -e "${YELLOW}Revise .env y .env.${ENV} o regenérelos desde los archivos *.example.${NC}"
+        return 1
+    fi
+
+    return 0
+}
+
+ask_service_groups() {
     local response=""
+    local core_services=()
+    local dependency_services=()
+    local tools_services=()
+    local selected_services=()
+    local service_name=""
+
     SELECTED_PROFILE_ARGS=""
+    SELECTED_SERVICE_ARGS=""
+
+    while IFS= read -r service_name; do
+        [[ -n "$service_name" ]] && core_services+=("$service_name")
+    done < <(list_services_by_group "core")
+
+    while IFS= read -r service_name; do
+        [[ -n "$service_name" ]] && dependency_services+=("$service_name")
+    done < <(list_services_by_group "dependency")
+
+    while IFS= read -r service_name; do
+        [[ -n "$service_name" ]] && tools_services+=("$service_name")
+    done < <(list_services_by_group "tools")
+
+    selected_services=("${core_services[@]}")
 
     echo ""
-    echo -e "${CYAN}${BOLD}🧰 PERFIL DE HERRAMIENTAS${NC}"
+    echo -e "${CYAN}${BOLD}🧩 ALCANCE DEL LEVANTE${NC}"
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "Las herramientas opcionales del stack pueden incluir servicios como ${BOLD}mailpit${NC} o ${BOLD}redisinsight${NC}."
-    echo -e "Si no activas el profile ${BOLD}tools${NC}, esos contenedores no se crearán en este arranque."
+    echo -e "El grupo base para el entorno ${BOLD}${ENV}${NC} sera siempre ${BOLD}core${NC}."
     echo ""
-    read -p "$(echo -e ${CYAN}"¿Iniciar también el profile tools? [s/N]: "${NC})" response
+    if [[ ${#dependency_services[@]} -gt 0 ]]; then
+        echo -e "Dependencias disponibles:"
+        for service_name in "${dependency_services[@]}"; do
+            echo -e "   • ${service_name}"
+        done
+        echo ""
+        read -p "$(echo -e ${CYAN}"¿Desea anexar también dependency? [s/N]: "${NC})" response
+        if [[ "$response" =~ ^[Ss]$ ]]; then
+            selected_services+=("${dependency_services[@]}")
+        fi
+    fi
 
-    if [[ "$response" =~ ^[Ss]$ ]]; then
-        SELECTED_PROFILE_ARGS="--profile tools"
+    if [[ ${#tools_services[@]} -gt 0 ]]; then
+        echo ""
+        echo -e "Herramientas disponibles:"
+        for service_name in "${tools_services[@]}"; do
+            echo -e "   • ${service_name}"
+        done
+        echo ""
+        read -p "$(echo -e ${CYAN}"¿Desea anexar también tools? [s/N]: "${NC})" response
+        if [[ "$response" =~ ^[Ss]$ ]]; then
+            SELECTED_PROFILE_ARGS="--profile tools"
+            selected_services+=("${tools_services[@]}")
+        fi
+    fi
+
+    echo ""
+    echo -e "${YELLOW}Nota:${NC} Docker Compose puede iniciar dependencias tecnicas adicionales cuando corresponda."
+
+    if [[ ${#selected_services[@]} -gt 0 ]]; then
+        SELECTED_SERVICE_ARGS="${selected_services[*]}"
     fi
 }
 
@@ -606,7 +763,7 @@ banner_principal() {
     fi
     
     local git_info=""
-    if git rev-parse --is-inside-work-tree 2>/dev/null; then
+    if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
         git_info="${GREEN}$(git rev-parse --abbrev-ref HEAD 2>/dev/null)${NC}"
     else
         git_info="${YELLOW}No es repositorio Git${NC}"
@@ -686,6 +843,7 @@ menu_contenedores() {
     echo -e "  ${CYAN}4)${NC} 🔃 Reiniciar contenedor unico"
     echo -e "  ${CYAN}5)${NC} 🔨 Construir imágenes"
     echo -e "  ${CYAN}6)${NC} 🔍 Validar Docker Compose"
+    echo -e "  ${CYAN}7)${NC} 📏 Validar reglas del proyecto"
     echo ""
     echo -e "  ${CYAN}V)${NC} ⬅️ Volver"
     echo -e "  ${CYAN}S)${NC} 🚪 Salir"
@@ -700,6 +858,7 @@ menu_contenedores() {
         4) restart_single_container ;;
         5) build ;;
         6) validate_compose ;;
+        7) validate_compose_rules ;;
         [Vv]) menu ;;
         [Ss]) exit_script ;;
         *)
@@ -846,8 +1005,13 @@ menu_backup() {
 
 up() {
     banner_principal "INICIAR CONTENEDORES"
-    ask_tools_profile
-    run_cmd "$(build_compose_cmd "up -d --build" "$SELECTED_PROFILE_ARGS")" \
+    if ! validate_compose_env_files; then
+        pause
+        menu_contenedores
+        return
+    fi
+    ask_service_groups
+    run_cmd "$(build_compose_cmd "up -d --build" "$SELECTED_PROFILE_ARGS" "$SELECTED_SERVICE_ARGS")" \
             "Error al iniciar contenedores" \
             "Contenedores iniciados exitosamente"
     pause
@@ -856,6 +1020,11 @@ up() {
 
 down() {
     banner_principal "DETENER CONTENEDORES"
+    if ! validate_compose_env_files; then
+        pause
+        menu_contenedores
+        return
+    fi
     if confirm_action "¿Detener y eliminar todos los contenedores del stack?" "no"; then
         run_cmd "$COMPOSE_CMD -f $COMPOSE_FILE --env-file .env --env-file .env.$ENV down" \
                 "Error al detener contenedores" \
@@ -867,11 +1036,16 @@ down() {
 
 restart() {
     banner_principal "REINICIAR CONTENEDORES"
+    if ! validate_compose_env_files; then
+        pause
+        menu_contenedores
+        return
+    fi
     if confirm_action "¿Reiniciar todos los contenedores del stack?" "no"; then
-        ask_tools_profile
+        ask_service_groups
         run_cmd "$(build_compose_cmd "down")" \
                 "Error al detener contenedores"
-        run_cmd "$(build_compose_cmd "up -d --build" "$SELECTED_PROFILE_ARGS")" \
+        run_cmd "$(build_compose_cmd "up -d --build" "$SELECTED_PROFILE_ARGS" "$SELECTED_SERVICE_ARGS")" \
                 "Error al iniciar contenedores" \
                 "Contenedores reiniciados exitosamente"
     fi
@@ -899,8 +1073,13 @@ restart_single_container() {
 
 build() {
     banner_principal "CONSTRUIR IMÁGENES"
-    ask_tools_profile
-    run_cmd "$(build_compose_cmd "build" "$SELECTED_PROFILE_ARGS")" \
+    if ! validate_compose_env_files; then
+        pause
+        menu_contenedores
+        return
+    fi
+    ask_service_groups
+    run_cmd "$(build_compose_cmd "build" "$SELECTED_PROFILE_ARGS" "$SELECTED_SERVICE_ARGS")" \
             "Error al construir imágenes" \
             "Imágenes construidas exitosamente"
     pause
@@ -909,6 +1088,11 @@ build() {
 
 logs() {
     banner_principal "VER LOGS"
+    if ! validate_compose_env_files; then
+        pause
+        menu_monitoreo
+        return
+    fi
     $(build_compose_cmd "logs -f")
     pause
     menu_monitoreo
@@ -929,6 +1113,11 @@ logs_single_container() {
 
 ps() {
     banner_principal "ESTADO DE CONTENEDORES"
+    if ! validate_compose_env_files; then
+        pause
+        menu_monitoreo
+        return
+    fi
     $(build_compose_cmd "ps")
     pause
     menu_monitoreo
@@ -964,6 +1153,11 @@ exec_stack() {
 
 clean() {
     banner_principal "LIMPIEZA DE RECURSOS"
+    if ! validate_compose_env_files; then
+        pause
+        menu_limpieza
+        return
+    fi
     if confirm_action "¿Limpiar contenedores, redes y volúmenes del stack?" "no"; then
         run_cmd "$(build_compose_cmd "down --volumes --remove-orphans")" \
                 "Error durante la limpieza" \
@@ -986,6 +1180,11 @@ clean_volumes() {
 
 clean_all() {
     banner_principal "LIMPIEZA COMPLETA"
+    if ! validate_compose_env_files; then
+        pause
+        menu_limpieza
+        return
+    fi
     
     echo -e "${RED}${BOLD}⚠️  ADVERTENCIA: Esta acción realizará una limpieza profunda del sistema${NC}"
     echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -1369,6 +1568,12 @@ validate_compose() {
         menu_contenedores
         return
     fi
+
+    if ! validate_compose_env_files; then
+        pause
+        menu_contenedores
+        return
+    fi
     
     echo -e "${BLUE}Validando configuración...${NC}"
     echo ""
@@ -1384,6 +1589,155 @@ validate_compose() {
         $(build_compose_cmd "config")
     fi
     
+    pause
+    menu_contenedores
+}
+
+validate_compose_rules() {
+    banner_principal "VALIDAR REGLAS DEL COMPOSE"
+
+    if ! check_file_exists "$COMPOSE_FILE" "validación de reglas"; then
+        pause
+        menu_contenedores
+        return
+    fi
+
+    if ! validate_compose_env_files; then
+        pause
+        menu_contenedores
+        return
+    fi
+
+    local tmp_config
+    tmp_config="$(mktemp)"
+
+    if ! eval "$(build_compose_cmd "config" "--profile tools")" >"$tmp_config" 2>/dev/null; then
+        echo -e "${RED}❌ No se pudo expandir la configuración de Compose para validar reglas${NC}"
+        rm -f "$tmp_config"
+        pause
+        menu_contenedores
+        return
+    fi
+
+    local services=()
+    while IFS= read -r service_name; do
+        [[ -n "$service_name" ]] && services+=("$service_name")
+    done < <(eval "$(build_compose_cmd "config --services" "--profile tools")" 2>/dev/null)
+
+    local errors=0
+    local warnings=0
+    local service_name=""
+
+    echo -e "${CYAN}${BOLD}📋 REGLAS EVALUADAS:${NC}"
+    echo -e "   • container_name debe usar ${PROJECT_NAME}-<servicio>"
+    echo -e "   • labels requeridos: stack, env, service.group, service.lifecycle"
+    echo -e "   • service.group debe ser: core, dependency o tools"
+    echo -e "   • no deben existir rutas legacy del layout anterior"
+    echo ""
+
+    for service_name in "${services[@]}"; do
+        local source_block
+        local expanded_block
+        local expected_container_name="${PROJECT_NAME}-${service_name}"
+        local group_value=""
+
+        source_block="$(get_service_block_from_compose "$COMPOSE_FILE" "$service_name")"
+        expanded_block="$(awk -v target="$service_name" '
+            BEGIN {
+                in_services = 0
+                in_target = 0
+            }
+            /^services:/ {
+                in_services = 1
+                next
+            }
+            in_services && /^[^[:space:]]/ {
+                if (in_target) {
+                    exit
+                }
+            }
+            in_services && $0 ~ ("^  " target ":$") {
+                in_target = 1
+                print
+                next
+            }
+            in_target && /^  [a-zA-Z0-9_-]+:/ {
+                exit
+            }
+            in_target {
+                print
+            }
+        ' "$tmp_config")"
+
+        echo -e "${BLUE}${BOLD}Servicio:${NC} ${service_name}"
+
+        if [[ -z "$source_block" ]]; then
+            echo -e "${RED}   ❌ No se pudo localizar el bloque del servicio en ${COMPOSE_FILE}${NC}"
+            ((errors++))
+            continue
+        fi
+
+        if echo "$expanded_block" | grep -q "container_name: ${expected_container_name}$"; then
+            echo -e "${GREEN}   ✅ container_name correcto (${expected_container_name})${NC}"
+        else
+            echo -e "${RED}   ❌ container_name inválido. Se espera ${expected_container_name}${NC}"
+            ((errors++))
+        fi
+
+        if echo "$expanded_block" | grep -q "stack: ${PROJECT_NAME}$"; then
+            echo -e "${GREEN}   ✅ label stack correcto${NC}"
+        else
+            echo -e "${RED}   ❌ falta label stack=${PROJECT_NAME}${NC}"
+            ((errors++))
+        fi
+
+        if echo "$expanded_block" | grep -q "env: ${ENV}$"; then
+            echo -e "${GREEN}   ✅ label env correcto${NC}"
+        else
+            echo -e "${RED}   ❌ falta label env=${ENV}${NC}"
+            ((errors++))
+        fi
+
+        group_value="$(echo "$expanded_block" | sed -n 's/^[[:space:]]*service\.group: //p' | head -1)"
+        if [[ "$group_value" =~ ^(core|dependency|tools)$ ]]; then
+            echo -e "${GREEN}   ✅ service.group válido (${group_value})${NC}"
+        else
+            echo -e "${RED}   ❌ service.group inválido o ausente${NC}"
+            ((errors++))
+        fi
+
+        if echo "$expanded_block" | grep -q "service.lifecycle:"; then
+            echo -e "${GREEN}   ✅ service.lifecycle presente${NC}"
+        else
+            echo -e "${RED}   ❌ falta service.lifecycle${NC}"
+            ((errors++))
+        fi
+
+        if echo "$source_block" | grep -Eq 'Data/dokerFile|persistence/|APP/data-prd|APP/data-qa|APP/logs-prd|APP/logs-qa|APP/data/settings'; then
+            echo -e "${RED}   ❌ el servicio usa rutas legacy del layout anterior${NC}"
+            ((errors++))
+        fi
+
+        if echo "$source_block" | grep -qE '^\s+- \./'; then
+            echo -e "${YELLOW}   ⚠️  hay mounts hardcodeados con rutas relativas directas; revisar si deben usar variables de entorno${NC}"
+            ((warnings++))
+        fi
+
+        echo ""
+    done
+
+    rm -f "$tmp_config"
+
+    echo -e "${CYAN}${BOLD}═══════════════════════════════════════════════════════════${NC}"
+    if [[ $errors -eq 0 ]]; then
+        echo -e "${GREEN}${BOLD}✅ VALIDACIÓN DE REGLAS SUPERADA${NC}"
+    else
+        echo -e "${RED}${BOLD}❌ VALIDACIÓN DE REGLAS CON ERRORES${NC}"
+    fi
+    echo -e "${CYAN}Errores:${NC} $errors"
+    echo -e "${CYAN}Advertencias:${NC} $warnings"
+    echo -e "${CYAN}${BOLD}═══════════════════════════════════════════════════════════${NC}"
+
     pause
     menu_contenedores
 }

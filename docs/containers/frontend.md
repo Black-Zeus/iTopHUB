@@ -16,7 +16,8 @@ Runs the custom React/Vite interface for the Hub layer on top of iTop.
 - This is the primary UI for operational workflows.
 - The static mockup under `Draft/` is reference material for the future React migration.
 - It should integrate with the custom backend and may deep-link or embed data coming from iTop.
-- It is expected to be published through `nginx`, currently under `/integration/hub/`.
+- It is expected to be published through `nginx`, currently under `/itop-hub/`.
+- In `dev`, it is also exposed directly for quick validation through `FRONTEND_PORT`.
 
 ## Notes
 

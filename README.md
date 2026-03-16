@@ -63,10 +63,18 @@ La configuracion actual deja preparada esta idea:
 
 - `/` -> iTop en desarrollo
 - `/api/` -> backend del Hub
-- `/integration/hub/` -> frontend del Hub
+- `/itop-hub/` -> frontend del Hub
+
+Exposición directa en `dev`:
+
+- `http://localhost` -> `nginx`
+- `http://localhost:8080` -> `itop`
+- `http://localhost:8081` -> `itop-hub`
 
 En `dev`, `iTop` sigue corriendo como dependencia temporal para facilitar integracion local.
 En `qa` y `prd`, la intencion es consumir el sitio original de iTop y mantener el Hub por fuera del core.
+
+Para evitar subir a GitHub toda la estructura de iTop, el servicio `itop` usa un volumen nombrado de Docker para sus archivos y monta un toolbox de instalacion en solo lectura desde `APP/config/itop-installer`. Si el volumen esta vacio, el contenedor puede bootstrapear automaticamente iTop `3.2.2-1`.
 
 ## Estructura principal
 
@@ -164,24 +172,22 @@ docker compose --env-file .env --env-file .env.dev --profile tools -f docker-com
 
 ## Variables de entorno
 
-- [.env.example](/.env.example): base común versionada.
-- [.env.dev.example](/.env.dev.example): plantilla de desarrollo.
-- [.env.qa.example](/.env.qa.example): plantilla de QA.
-- [.env.prd.example](/.env.prd.example): plantilla de producción.
+- [.env.example](/.env.example): plantilla versionada única del proyecto.
 
 Los archivos reales `.env`, `.env.dev`, `.env.qa` y `.env.prd` no se suben al repositorio.
 
 Para preparar un entorno local:
 
 1. copiar `.env.example` como `.env`
-2. copiar el archivo de ejemplo del entorno deseado, por ejemplo `.env.dev.example` como `.env.dev`
-3. ajustar secretos, puertos y rutas según el escenario
+2. crear `.env.dev`, `.env.qa` o `.env.prd` según el entorno que necesites
+3. copiar en ese archivo solo las variables que realmente deban sobreescribirse
+4. ajustar secretos, puertos y rutas según el escenario
 
 Regla de lectura:
 
-- `.env` contiene valores comunes.
+- `.env` contiene el inventario completo de variables del proyecto y sus valores base.
 - `.env.dev`, `.env.qa` y `.env.prd` solo contienen overrides del entorno.
-- los archivos `*.example` son la fuente versionada para reconstruir el entorno local en un clon limpio.
+- `.env.example` es la única fuente versionada para reconstruir el entorno local en un clon limpio.
 
 Para la fase actual, la combinación esperada es:
 

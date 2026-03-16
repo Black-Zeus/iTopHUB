@@ -16,7 +16,7 @@ Acts as the reverse proxy entrypoint for the stack and centralizes public routin
 
 - In `dev`, route `/` to the local iTop container.
 - Route `/api/` to the Hub backend.
-- Route `/integration/hub/` to the Hub frontend.
+- Route `/itop-hub/` to the Hub frontend.
 - Prepare the project for hostname-based publishing later without coupling the applications directly to public URLs.
 
 ## Notes
