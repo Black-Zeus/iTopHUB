@@ -1,0 +1,76 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Variables del sistema de diseño (del Draft/ui/operations-hub) ── */
+:root {
+  color-scheme: light;
+  --font-base: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  --bg-app: #eef4f8;
+  --bg-surface: #f7fafc;
+  --bg-panel: #ffffff;
+  --bg-panel-muted: #f3f7fb;
+  --bg-sidebar: #e9f1f7;
+  --bg-hover: #edf4fa;
+  --border-color: #d6e1ea;
+  --border-strong: #b8c9d9;
+  --text-primary: #17324a;
+  --text-secondary: #58718a;
+  --text-muted: #7f93a8;
+  --accent: #78b6d9;
+  --accent-strong: #5198c2;
+  --accent-soft: #dff0f9;
+  --success: #7fbf9c;
+  --warning: #e0b56b;
+  --danger: #d28a8a;
+  --info: #8fb7d8;
+  --shadow-soft: 0 10px 30px rgba(19, 50, 74, 0.06);
+  --shadow-subtle: 0 2px 10px rgba(23, 50, 74, 0.05);
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg-app: #0f1821;
+  --bg-surface: #15212c;
+  --bg-panel: #182632;
+  --bg-panel-muted: #1c2d3a;
+  --bg-sidebar: #13202a;
+  --bg-hover: #213444;
+  --border-color: #274152;
+  --border-strong: #33536a;
+  --text-primary: #e5eff8;
+  --text-secondary: #aac0d3;
+  --text-muted: #7f97ab;
+  --accent: #82b7d9;
+  --accent-strong: #9bc6e0;
+  --accent-soft: rgba(130, 183, 217, 0.14);
+  --success: #7ac69e;
+  --warning: #d2b16e;
+  --danger: #d59898;
+  --info: #93bbdc;
+  --shadow-soft: 0 12px 34px rgba(0, 0, 0, 0.22);
+  --shadow-subtle: 0 3px 12px rgba(0, 0, 0, 0.18);
+}
+
+* { box-sizing: border-box; }
+
+html { font-size: 15px; }
+
+body {
+  margin: 0;
+  font-family: var(--font-base);
+  background: var(--bg-app);
+  color: var(--text-primary);
+}
+
+button, input, select, textarea { font: inherit; }
+button { cursor: pointer; }
+img { max-width: 100%; display: block; }
+h1, h2, h3, h4, p { margin: 0; }
+table { width: 100%; border-collapse: collapse; }
+a { color: inherit; text-decoration: none; }
+
+html, body, #root { min-height: 100%; }
