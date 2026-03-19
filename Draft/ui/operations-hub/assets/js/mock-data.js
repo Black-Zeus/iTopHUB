@@ -282,6 +282,71 @@ const mockData = {
       notes: "Reasignación interna desde Administración a Finanzas."
     }
   ],
+  reassignments: [
+    {
+      id: "reassignment-1",
+      document: "REA-2026-0012",
+      date: "2026-03-14",
+      assetCode: "MN-11044",
+      assetName: "Monitor Corporativo",
+      originUser: "Nicolas Paredes",
+      originUserIdentifier: "NP-1182",
+      destinationUser: "Carla Rosales",
+      destinationUserIdentifier: "CR-2191",
+      owner: "Damian Ochoa",
+      status: "Emitida",
+      reason: "Cambio de puesto dentro del area de Finanzas.",
+      notes: "Reasignacion coordinada con jefatura y sin observaciones de hardware."
+    },
+    {
+      id: "reassignment-2",
+      document: "REA-2026-0011",
+      date: "2026-03-12",
+      assetCode: "NB-24019",
+      assetName: "Notebook Comercial",
+      originUser: "Joaquin Herrera",
+      originUserIdentifier: "JH-2033",
+      destinationUser: "Fernanda Mella",
+      destinationUserIdentifier: "FM-2270",
+      owner: "Marina Sosa",
+      status: "Confirmada",
+      reason: "Cobertura temporal por reemplazo interno.",
+      notes: "Se transfiere notebook con cargador y mochila corporativa.",
+      selectedAssets: [
+        {
+          assetCode: "NB-24019",
+          assetName: "Notebook Comercial",
+          collapsed: false,
+          checklistSections: [
+            {
+              id: "handover-checklist-1",
+              collapsed: false,
+              answers: {
+                "handover-base-1": true,
+                "handover-base-2": "SN-COM-24019",
+                "handover-base-3": "Equipo verificado durante la transferencia interna."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      id: "reassignment-3",
+      document: "REA-2026-0008",
+      date: "2026-03-05",
+      assetCode: "DK-19008",
+      assetName: "Docking USB-C",
+      originUser: "Paula Ferreyra",
+      originUserIdentifier: "PF-2048",
+      destinationUser: "Carla Rosales",
+      destinationUserIdentifier: "CR-2191",
+      owner: "Marina Sosa",
+      status: "Borrador",
+      reason: "Regularizacion documental de periferico compartido.",
+      notes: "Pendiente validacion final de accesorios por parte del destino."
+    }
+  ],
   receptions: [
     {
       id: "reception-1",
@@ -898,3 +963,5 @@ const mockData = {
     }
   ]
 };
+
+

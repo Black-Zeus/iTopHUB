@@ -39,23 +39,23 @@ function createStatusBadge(value) {
 const SYSTEM_USER_ROLES = ["Administrador", "Soporte General", "Soporte Terreno", "Soporte Laboratorio", "Visualizador"];
 const ROLE_PROFILES = {
   Administrador: {
-    viewModules: ["dashboard", "global-search", "handover", "reception", "lab", "assets", "devices", "people", "users", "reports", "checklists", "settings"],
-    writeModules: ["handover", "reception", "lab", "assets", "devices", "users", "checklists", "settings"]
+    viewModules: ["dashboard", "global-search", "handover", "reassignment", "reception", "lab", "assets", "devices", "people", "users", "reports", "checklists", "settings"],
+    writeModules: ["handover", "reassignment", "reception", "lab", "assets", "devices", "users", "checklists", "settings"]
   },
   "Soporte General": {
-    viewModules: ["dashboard", "global-search", "handover", "reception", "lab", "assets", "devices", "people", "reports"],
-    writeModules: ["handover", "reception", "lab", "assets", "devices"]
+    viewModules: ["dashboard", "global-search", "handover", "reassignment", "reception", "lab", "assets", "devices", "people", "reports"],
+    writeModules: ["handover", "reassignment", "reception", "lab", "assets", "devices"]
   },
   "Soporte Terreno": {
-    viewModules: ["dashboard", "global-search", "handover", "reception", "assets", "devices", "people", "reports"],
-    writeModules: ["handover", "reception", "assets", "devices"]
+    viewModules: ["dashboard", "global-search", "handover", "reassignment", "reception", "assets", "devices", "people", "reports"],
+    writeModules: ["handover", "reassignment", "reception", "assets", "devices"]
   },
   "Soporte Laboratorio": {
     viewModules: ["dashboard", "global-search", "lab", "reports"],
     writeModules: ["lab"]
   },
   Visualizador: {
-    viewModules: ["dashboard", "global-search", "handover", "reception", "lab", "assets", "devices", "people", "reports"],
+    viewModules: ["dashboard", "global-search", "handover", "reassignment", "reception", "lab", "assets", "devices", "people", "reports"],
     writeModules: []
   }
 };
@@ -264,6 +264,8 @@ function applyCurrentRoleProfile() {
 
   [
     ["handover-create-button", canWriteAppModule("handover")],
+    ["reassignment-create-button", canWriteAppModule("reassignment")],
+    ["reassignment-save-button", canWriteAppModule("reassignment")],
     ["handover-save-button", canWriteAppModule("handover")],
     ["reception-create-button", canWriteAppModule("reception")],
     ["reception-save-button", canWriteAppModule("reception")],
@@ -285,6 +287,7 @@ function applyCurrentRoleProfile() {
   });
 
   syncWorkspacePermissionState("#handover-workspace", canWriteAppModule("handover"), ".js-handover-asset-remove, .js-handover-checklist-remove, .js-handover-asset-checklist-add, #handover-asset-add");
+  syncWorkspacePermissionState("#reassignment-workspace", canWriteAppModule("reassignment"), ".js-reassignment-asset-remove, .js-reassignment-checklist-remove, .js-reassignment-asset-checklist-add, #reassignment-asset-add");
   syncWorkspacePermissionState("#reception-workspace", canWriteAppModule("reception"), ".js-reception-asset-remove, .js-reception-checklist-remove, .js-reception-asset-checklist-add, #reception-asset-add");
   syncWorkspacePermissionState("#lab-workspace", canWriteAppModule("lab"), ".js-lab-asset-remove, .js-lab-checklist-remove, .js-lab-asset-checklist-add, .js-lab-evidence-remove, [data-lab-evidence-dropzone='true'], #lab-asset-add, #lab-evidence-add");
   syncWorkspacePermissionState("#assets-workspace", canWriteAppModule("assets"));
@@ -733,6 +736,26 @@ function openHandoverWorkspaceById(handoverId) {
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
+function openReassignmentWorkspaceById(reassignmentId) {
+  if (!canViewAppModule("reassignment")) {
+    activateView("dashboard");
+    return;
+  }
+
+  const workspace = document.getElementById("reassignment-workspace");
+  const listPanel = document.getElementById("reassignment-list-panel");
+  const filtersPanel = document.getElementById("reassignment-filters-panel");
+  const stats = document.getElementById("reassignment-kpi-grid");
+
+  activateView("reassignment");
+  renderReassignmentDetail(reassignmentId, "edit");
+  workspace.classList.add("is-active");
+  listPanel.classList.add("is-hidden");
+  filtersPanel.classList.add("is-hidden");
+  stats.classList.add("is-hidden");
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
 function openReceptionWorkspaceById(receptionId) {
   if (!canViewAppModule("reception")) {
     activateView("dashboard");
@@ -852,7 +875,21 @@ function getGlobalSearchItems() {
         ].join(" "))
       };
     }) : [])
-    .concat(canViewAppModule("reception") ? mockData.receptions.map(function (item) {
+    .concat(canViewAppModule("reassignment") ? mockData.reassignments.map(function (item) {
+      return {
+        kind: "reassignment",
+        group: "Reasignaciones",
+        id: item.id,
+        icon: "RA",
+        badge: item.status,
+        title: item.document,
+        subtitle: `${item.assetCode} · ${item.originUser} -> ${item.destinationUser}`,
+        haystack: normalizeSearchText([
+          item.document, item.assetCode, item.assetName, item.originUser, item.originUserIdentifier,
+          item.destinationUser, item.destinationUserIdentifier, item.owner, item.reason, item.status, item.notes
+        ].join(" "))
+      };
+    }) : [])    .concat(canViewAppModule("reception") ? mockData.receptions.map(function (item) {
       return {
         kind: "reception",
         group: "Recepciones",
@@ -914,7 +951,7 @@ function getRankedGlobalSearchResults(query) {
     .slice(0, 10);
 }
 
-const GLOBAL_SEARCH_GROUP_ORDER = ["Activos", "Personas", "Usuarios", "Entregas", "Recepciones", "Laboratorio"];
+const GLOBAL_SEARCH_GROUP_ORDER = ["Activos", "Personas", "Usuarios", "Entregas", "Reasignaciones", "Recepciones", "Laboratorio"];
 
 function renderGlobalSearchPage(query) {
   const normalizedQuery = normalizeSearchText(query);
@@ -931,7 +968,7 @@ function renderGlobalSearchPage(query) {
 
   title.textContent = normalizedQuery ? `Resultados para "${query.trim()}"` : "Resultados agrupados";
   description.textContent = normalizedQuery
-    ? "Consulta transversal sobre activos, personas, usuarios, entregas, recepciones y laboratorio."
+    ? "Consulta transversal sobre activos, personas, usuarios, entregas, reasignaciones, recepciones y laboratorio."
     : "Ingresa un término en la barra superior y presiona Enter para consultar información transversal del mockup.";
   chip.textContent = normalizedQuery ? query.trim() : "Sin consulta";
 
@@ -947,7 +984,7 @@ function renderGlobalSearchPage(query) {
     { label: "Coincidencias", value: total, helper: normalizedQuery ? "Resultados visibles" : "Sin consulta activa", tone: "info" },
     { label: "Módulos con match", value: countsByGroup.filter(function (item) { return item.value > 0; }).length, helper: "Agrupación transversal", tone: "success" },
     { label: "Activos y personas", value: countsByGroup[0].value + countsByGroup[1].value, helper: "Cobertura operativa", tone: "warning" },
-    { label: "Documentos", value: countsByGroup[3].value + countsByGroup[4].value + countsByGroup[5].value, helper: "Entrega, recepción y lab", tone: "info" }
+    { label: "Documentos", value: countsByGroup.filter(function (item) { return ["Entregas", "Reasignaciones", "Recepciones", "Laboratorio"].includes(item.label); }).reduce(function (sum, item) { return sum + item.value; }, 0), helper: "Entrega, reasignacion, recepcion y lab", tone: "info" }
   ].map(function (item) {
     return `<article class="kpi-card"><p class="eyebrow">${item.label}</p><strong>${item.value}</strong><span class="badge badge-${item.tone}">${item.helper}</span></article>`;
   }).join("");
@@ -1029,6 +1066,11 @@ function runGlobalSearchTarget(item) {
 
   if (item.kind === "handover") {
     openHandoverWorkspaceById(item.id);
+    return;
+  }
+
+  if (item.kind === "reassignment") {
+    openReassignmentWorkspaceById(item.id);
     return;
   }
 
@@ -1574,6 +1616,207 @@ function filterHandovers() {
   });
 
   renderHandoverTable(filtered);
+}
+
+let currentReassignmentWorkspaceId = null;
+let currentReassignmentWorkspaceMode = "create";
+let currentReassignmentDocument = "";
+let currentReassignmentAssetState = { items: [] };
+
+function getReassignmentRecords() {
+  return mockData.reassignments || [];
+}
+
+function getNextReassignmentDocument() {
+  const currentYear = String(new Date().getFullYear());
+  const sequences = getReassignmentRecords().map(function (item) {
+    const match = item.document.match(/^REA-(\d{4})-(\d+)$/);
+    return match && match[1] === currentYear ? Number(match[2]) : 0;
+  });
+  return `REA-${currentYear}-${String(Math.max(0, ...sequences) + 1).padStart(4, "0")}`;
+}
+
+function getDefaultReassignmentDraft() {
+  const now = new Date();
+  return {
+    document: getNextReassignmentDocument(),
+    date: new Date().toISOString().slice(0, 10),
+    generatedAt: now.toISOString().slice(0, 16),
+    originUser: "",
+    originUserIdentifier: "",
+    destinationUser: "",
+    destinationUserIdentifier: "",
+    owner: getLoggedInUserName(),
+    status: "Borrador",
+    reason: "",
+    notes: "",
+    assetCode: "",
+    assetName: "",
+    selectedAssets: []
+  };
+}
+
+function normalizeSelectedReassignmentAssets(record) {
+  if (record && Array.isArray(record.selectedAssets) && record.selectedAssets.length) {
+    return record.selectedAssets.map(function (item) {
+      const asset = mockData.assets.find(function (entry) { return entry.code === item.assetCode; }) || {};
+      return { assetCode: item.assetCode, assetName: item.assetName || asset.name || "", collapsed: item.collapsed !== undefined ? item.collapsed : false, checklistSections: normalizeHandoverChecklistSections(item.checklistSections || []) };
+    });
+  }
+  if (record && record.assetCode) {
+    return [{ assetCode: record.assetCode, assetName: record.assetName || "", collapsed: false, checklistSections: normalizeHandoverChecklistSections(record.checklistSections || []) }];
+  }
+  return [];
+}
+
+function populateReassignmentUserAutocomplete(inputId, listId, selectedUserName) {
+  const input = document.getElementById(inputId);
+  const list = document.getElementById(listId);
+  if (!input || !list) return;
+  list.innerHTML = mockData.users.map(function (user) { return `<option value="${user.name}">${user.identifier} · ${user.email}</option>`; }).join("");
+  input.value = selectedUserName || "";
+}
+
+function getReassignmentUserByInput(inputId) {
+  const input = document.getElementById(inputId);
+  const value = input ? input.value.trim().toLowerCase() : "";
+  if (!value) return null;
+  return mockData.users.find(function (item) { return item.name.toLowerCase() === value || item.identifier.toLowerCase() === value || item.email.toLowerCase() === value; }) || null;
+}
+
+function renderReassignmentUserSummary(containerId, user, emptyTitle, emptyText) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  container.innerHTML = user ? `<p class="eyebrow">Persona seleccionada</p><h4>${user.name}</h4><p>${user.identifier} · ${user.area}</p><p>${user.email}</p>` : `<p class="eyebrow">Persona seleccionada</p><h4>${emptyTitle}</h4><p>${emptyText}</p>`;
+}
+
+function renderReassignmentOriginSummary() {
+  renderReassignmentUserSummary("reassignment-origin-summary", getReassignmentUserByInput("reassignment-record-origin-user"), "Sin usuario origen", "Selecciona la persona que entrega el o los activos.");
+}
+
+function renderReassignmentDestinationSummary() {
+  renderReassignmentUserSummary("reassignment-destination-summary", getReassignmentUserByInput("reassignment-record-destination-user"), "Sin usuario destino", "Selecciona la persona que recibira el o los activos.");
+}
+
+function renderReassignment() {
+  const kpiGrid = document.getElementById("reassignment-kpi-grid");
+  const records = getReassignmentRecords();
+  const total = records.length;
+  const confirmed = records.filter(function (item) { return item.status === "Confirmada"; }).length;
+  const draft = records.filter(function (item) { return item.status === "Borrador"; }).length;
+  const multiAsset = records.filter(function (item) { return normalizeSelectedReassignmentAssets(item).length > 1; }).length;
+  kpiGrid.innerHTML = [
+    { label: "Actas emitidas", value: total, helper: "Periodo actual", tone: "info" },
+    { label: "Actas confirmadas", value: confirmed, helper: "Con traspaso validado", tone: "success" },
+    { label: "Pendientes de cierre", value: draft, helper: "Aun en borrador", tone: "warning" },
+    { label: "Actas multi-activo", value: multiAsset, helper: "Transferencias agrupadas", tone: "info" }
+  ].map(function (item) { return `<article class="kpi-card"><p class="eyebrow">${item.label}</p><strong>${item.value}</strong><span class="badge badge-${item.tone}">${item.helper}</span></article>`; }).join("");
+  renderReassignmentTable(records);
+}
+
+function renderReassignmentTable(items) {
+  const body = document.getElementById("reassignment-table-body");
+  const actionLabel = getModuleActionLabel("reassignment");
+  body.innerHTML = items.map(function (item) {
+    const selectedAssets = normalizeSelectedReassignmentAssets(item);
+    const assetLabel = selectedAssets.length > 1 ? `${selectedAssets[0].assetCode} · ${selectedAssets[0].assetName} +${selectedAssets.length - 1}` : `${item.assetCode} · ${item.assetName}`;
+    return `<tr><td>${item.document}</td><td>${item.date}</td><td>${assetLabel}</td><td>${item.originUser}</td><td>${item.destinationUser}</td><td>${item.owner}</td><td>${createStatusBadge(item.status)}</td><td><button class="btn btn-secondary js-reassignment-detail" type="button" data-reassignment-id="${item.id}">${actionLabel}</button></td></tr>`;
+  }).join("");
+}
+
+function renderReassignmentAssetSelector() {
+  const selector = document.getElementById("reassignment-record-asset");
+  const addButton = document.getElementById("reassignment-asset-add");
+  const selectedCodes = currentReassignmentAssetState.items.map(function (item) { return item.assetCode; });
+  const available = mockData.assets.filter(function (asset) { return !selectedCodes.includes(asset.code); });
+  if (!selector) return;
+  selector.innerHTML = available.length ? `<option value="">Selecciona un activo</option>${available.map(function (item) { return `<option value="${item.code}">${getAssetDisplayName(item)}</option>`; }).join("")}` : `<option value="">No hay activos disponibles</option>`;
+  selector.disabled = !available.length;
+  selector.value = "";
+  if (addButton) addButton.disabled = true;
+}
+
+function renderReassignmentAssetChecklistSelector(assetItem) {
+  const selectedIds = assetItem.checklistSections.map(function (section) { return section.id; });
+  const available = getActiveHandoverChecklistDefinitions().filter(function (item) { return !selectedIds.includes(item.id); });
+  return available.length ? `<option value="">Selecciona un checklist</option>${available.map(function (item) { return `<option value="${item.id}">${item.name}</option>`; }).join("")}` : `<option value="">No hay checklists disponibles</option>`;
+}
+
+function renderSelectedReassignmentAssets() {
+  const container = document.getElementById("reassignment-selected-assets");
+  if (!container) return;
+  if (!currentReassignmentAssetState.items.length) {
+    container.innerHTML = `<div class="handover-checklist-empty">Aun no hay activos cargados en el acta. Agrega al menos un activo para completar la reasignacion.</div>`;
+    renderReassignmentAssetSelector();
+    return;
+  }
+  container.innerHTML = currentReassignmentAssetState.items.map(function (assetItem, index) {
+    const asset = mockData.assets.find(function (entry) { return entry.code === assetItem.assetCode; }) || null;
+    const checklistMarkup = assetItem.checklistSections.length ? assetItem.checklistSections.map(function (section, sectionIndex) {
+      const definition = getHandoverChecklistDefinition(section.id);
+      if (!definition) return "";
+      const checksMarkup = definition.checks.map(function (check, checkIndex) {
+        const answer = section.answers[check.id] || "";
+        let controlMarkup = "";
+        if (check.type === "Check") {
+          controlMarkup = `<label class="handover-check-boolean"><input type="checkbox" data-reassignment-check-input="true" data-asset-code="${assetItem.assetCode}" data-checklist-id="${section.id}" data-check-id="${check.id}"${answer === true ? " checked" : ""}><span>Validado</span></label>`;
+        } else if (check.type === "Input text") {
+          controlMarkup = `<input type="text" data-reassignment-check-input="true" data-asset-code="${assetItem.assetCode}" data-checklist-id="${section.id}" data-check-id="${check.id}" value="${escapeHtml(answer)}" placeholder="Completar campo">`;
+        } else if (check.type === "Text area") {
+          controlMarkup = `<textarea rows="4" data-reassignment-check-input="true" data-asset-code="${assetItem.assetCode}" data-checklist-id="${section.id}" data-check-id="${check.id}" placeholder="Completar detalle">${escapeHtml(answer)}</textarea>`;
+        } else if (check.type === "Option / Radio") {
+          controlMarkup = `<div class="handover-check-radio-group"><label><input type="radio" name="reassignment-${assetItem.assetCode}-${section.id}-${checkIndex}" value="${check.optionA}" data-reassignment-check-input="true" data-asset-code="${assetItem.assetCode}" data-checklist-id="${section.id}" data-check-id="${check.id}"${answer === check.optionA ? " checked" : ""}><span>${check.optionA}</span></label><label><input type="radio" name="reassignment-${assetItem.assetCode}-${section.id}-${checkIndex}" value="${check.optionB}" data-reassignment-check-input="true" data-asset-code="${assetItem.assetCode}" data-checklist-id="${section.id}" data-check-id="${check.id}"${answer === check.optionB ? " checked" : ""}><span>${check.optionB}</span></label></div>`;
+        }
+        return `<div class="handover-check-item"><div class="handover-check-item-header"><strong>${check.name}</strong><p>${check.description}</p></div>${controlMarkup}</div>`;
+      }).join("");
+      return `<article class="handover-checklist-card"><div class="handover-checklist-card-header"><div class="handover-checklist-card-title"><strong>${definition.name}</strong><p>${definition.description}</p></div><div class="handover-checklist-card-actions"><button class="report-toggle-button ${section.collapsed ? "is-collapsed" : ""} js-reassignment-checklist-toggle" type="button" data-asset-code="${assetItem.assetCode}" data-checklist-id="${section.id}" title="${section.collapsed ? "Expandir checklist" : "Colapsar checklist"}" aria-label="${section.collapsed ? "Expandir checklist" : "Colapsar checklist"}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5" /></svg></button><button class="btn btn-secondary js-reassignment-checklist-remove" type="button" data-asset-code="${assetItem.assetCode}" data-checklist-id="${section.id}">Quitar</button></div></div><div class="handover-checklist-content ${section.collapsed ? "is-collapsed" : ""}">${checksMarkup}</div></article>`;
+    }).join("") : `<div class="handover-checklist-empty">Este activo aun no tiene checklists asociados.</div>`;
+    return `<article class="handover-checklist-card"><div class="handover-checklist-card-header"><div class="handover-checklist-card-title"><strong>${asset ? getAssetDisplayName(asset) : assetItem.assetCode}</strong><div class="handover-asset-meta">${asset ? `<span class="badge">${asset.model}</span>` : ""}${asset ? `<span class="badge">${asset.brand}</span>` : ""}${asset ? `<span class="badge">${asset.location}</span>` : ""}</div></div><div class="handover-checklist-card-actions"><button class="report-toggle-button ${assetItem.collapsed ? "is-collapsed" : ""} js-reassignment-asset-toggle" type="button" data-asset-code="${assetItem.assetCode}" title="${assetItem.collapsed ? "Expandir activo" : "Colapsar activo"}" aria-label="${assetItem.collapsed ? "Expandir activo" : "Colapsar activo"}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5" /></svg></button><button class="btn btn-secondary js-reassignment-asset-remove" type="button" data-asset-code="${assetItem.assetCode}">Quitar activo</button></div></div><div class="handover-checklist-content ${assetItem.collapsed ? "is-collapsed" : ""}"><div class="handover-asset-checklist-toolbar"><label class="field"><span>Agregar checklist a este activo</span><select data-reassignment-asset-checklist-selector="${assetItem.assetCode}">${renderReassignmentAssetChecklistSelector(assetItem)}</select></label><button class="btn btn-secondary js-reassignment-asset-checklist-add" type="button" data-asset-code="${assetItem.assetCode}">Agregar checklist</button></div>${checklistMarkup}</div></article>`;
+  }).join("");
+  renderReassignmentAssetSelector();
+}
+
+function renderReassignmentDetail(reassignmentId, mode) {
+  const isCreateMode = mode === "create";
+  const record = isCreateMode ? getDefaultReassignmentDraft() : (getReassignmentRecords().find(function (item) { return item.id === reassignmentId; }) || getReassignmentRecords()[0]);
+  const title = document.getElementById("reassignment-page-title");
+  const description = document.getElementById("reassignment-page-description");
+  const saveButton = document.getElementById("reassignment-save-button");
+  if (!record) return;
+  currentReassignmentWorkspaceId = isCreateMode ? null : record.id;
+  currentReassignmentWorkspaceMode = isCreateMode ? "create" : "edit";
+  currentReassignmentDocument = record.document || "";
+  if (title) title.textContent = isCreateMode ? "Nueva Acta de Reasignacion" : `Editar ${record.document}`;
+  if (description) description.textContent = isCreateMode ? "Completa el formulario para emitir una nueva Acta de Reasignacion sin salir del modulo." : "Ajusta el traspaso, valida usuarios y actualiza el checklist desde esta pagina.";
+  if (saveButton) saveButton.textContent = isCreateMode ? "Guardar acta" : "Guardar cambios";
+  document.getElementById("reassignment-record-generated-at").value = record.generatedAt || `${record.date}T09:00`;
+  document.getElementById("reassignment-record-owner").value = record.owner || getLoggedInUserName();
+  document.getElementById("reassignment-record-status").value = record.status || "Borrador";
+  document.getElementById("reassignment-record-reason").value = record.reason || "";
+  document.getElementById("reassignment-record-notes").value = record.notes || "";
+  populateReassignmentUserAutocomplete("reassignment-record-origin-user", "reassignment-origin-user-list", record.originUser);
+  populateReassignmentUserAutocomplete("reassignment-record-destination-user", "reassignment-destination-user-list", record.destinationUser);
+  currentReassignmentAssetState = { items: normalizeSelectedReassignmentAssets(record) };
+  renderReassignmentAssetSelector();
+  renderSelectedReassignmentAssets();
+  renderReassignmentOriginSummary();
+  renderReassignmentDestinationSummary();
+  setHandoverSectionCollapse("reassignment-origin-toggle", "reassignment-origin-content", !isCreateMode, "Expandir usuario origen", "Colapsar usuario origen");
+  setHandoverSectionCollapse("reassignment-destination-toggle", "reassignment-destination-content", !isCreateMode, "Expandir usuario destino", "Colapsar usuario destino");
+  setHandoverSectionCollapse("reassignment-form-toggle", "reassignment-form-content", !isCreateMode, "Expandir datos de emision", "Colapsar datos de emision");
+}
+
+function filterReassignments() {
+  const documentValue = document.getElementById("reassignment-filter-document").value.toLowerCase();
+  const originValue = document.getElementById("reassignment-filter-origin-user").value.toLowerCase();
+  const destinationValue = document.getElementById("reassignment-filter-destination-user").value.toLowerCase();
+  const assetValue = document.getElementById("reassignment-filter-asset").value.toLowerCase();
+  const filtered = getReassignmentRecords().filter(function (item) {
+    const selectedAssets = normalizeSelectedReassignmentAssets(item);
+    const matchesAsset = !assetValue || selectedAssets.some(function (asset) { return asset.assetCode.toLowerCase().includes(assetValue) || asset.assetName.toLowerCase().includes(assetValue); }) || item.assetCode.toLowerCase().includes(assetValue) || item.assetName.toLowerCase().includes(assetValue);
+    return (!documentValue || item.document.toLowerCase().includes(documentValue)) && (!originValue || item.originUser.toLowerCase().includes(originValue) || item.originUserIdentifier.toLowerCase().includes(originValue)) && (!destinationValue || item.destinationUser.toLowerCase().includes(destinationValue) || item.destinationUserIdentifier.toLowerCase().includes(destinationValue)) && matchesAsset;
+  });
+  renderReassignmentTable(filtered);
 }
 
 let currentReceptionWorkspaceId = null;
@@ -5238,6 +5481,11 @@ function setupInteractiveTables() {
     document.getElementById(id).addEventListener("change", filterHandovers);
   });
 
+  ["reassignment-filter-document", "reassignment-filter-origin-user", "reassignment-filter-destination-user", "reassignment-filter-asset"].forEach(function (id) {
+    document.getElementById(id).addEventListener("input", filterReassignments);
+    document.getElementById(id).addEventListener("change", filterReassignments);
+  });
+
   ["reception-filter-document", "reception-filter-asset", "reception-filter-origin", "reception-filter-status"].forEach(function (id) {
     document.getElementById(id).addEventListener("input", filterReceptions);
     document.getElementById(id).addEventListener("change", filterReceptions);
@@ -5260,9 +5508,37 @@ function setupInteractiveTables() {
 
 }
 
+function setupReassignmentWorkspace() {
+  const workspace = document.getElementById("reassignment-workspace");
+  const listPanel = document.getElementById("reassignment-list-panel");
+  const filtersPanel = document.getElementById("reassignment-filters-panel");
+  const stats = document.getElementById("reassignment-kpi-grid");
+  const backButton = document.getElementById("reassignment-back-button");
+  const saveButton = document.getElementById("reassignment-save-button");
+  const originInput = document.getElementById("reassignment-record-origin-user");
+  const destinationInput = document.getElementById("reassignment-record-destination-user");
+  const assetSelect = document.getElementById("reassignment-record-asset");
+  const assetAddButton = document.getElementById("reassignment-asset-add");
+  const originToggle = document.getElementById("reassignment-origin-toggle");
+  const destinationToggle = document.getElementById("reassignment-destination-toggle");
+  const formToggle = document.getElementById("reassignment-form-toggle");
+  function openWorkspace(mode, reassignmentId) { renderReassignmentDetail(reassignmentId, mode); workspace.classList.add("is-active"); listPanel.classList.add("is-hidden"); filtersPanel.classList.add("is-hidden"); stats.classList.add("is-hidden"); window.scrollTo({ top: 0, behavior: "smooth" }); }
+  function closeWorkspace() { workspace.classList.remove("is-active"); listPanel.classList.remove("is-hidden"); filtersPanel.classList.remove("is-hidden"); stats.classList.remove("is-hidden"); currentReassignmentWorkspaceId = null; currentReassignmentWorkspaceMode = "create"; currentReassignmentDocument = ""; }
+  function toggleStaticSection(toggleId, contentId, expandLabel, collapseLabel) { const content = document.getElementById(contentId); if (!content) return; const collapsed = !content.classList.contains("is-collapsed"); setHandoverSectionCollapse(toggleId, contentId, collapsed, expandLabel, collapseLabel); }
+  function addAssetToWorkspace(assetCode) { if (!assetCode) return; const asset = mockData.assets.find(function (item) { return item.code === assetCode; }); if (!asset || currentReassignmentAssetState.items.some(function (item) { return item.assetCode === assetCode; })) return; currentReassignmentAssetState.items.push({ assetCode: asset.code, assetName: asset.name, collapsed: false, checklistSections: [] }); renderSelectedReassignmentAssets(); }
+  function addChecklistToAsset(assetCode, checklistId) { const assetItem = currentReassignmentAssetState.items.find(function (item) { return item.assetCode === assetCode; }); const definition = getHandoverChecklistDefinition(checklistId); if (!assetItem || !definition || !checklistId || assetItem.checklistSections.some(function (section) { return section.id === checklistId; })) return; assetItem.checklistSections.push({ id: checklistId, collapsed: false, answers: {} }); renderSelectedReassignmentAssets(); }
+  function collectReassignmentWorkspaceValues() { const originUser = getReassignmentUserByInput("reassignment-record-origin-user"); const destinationUser = getReassignmentUserByInput("reassignment-record-destination-user"); const selectedAssets = currentReassignmentAssetState.items.map(function (item) { return { assetCode: item.assetCode, assetName: item.assetName, collapsed: item.collapsed, checklistSections: item.checklistSections.map(function (section) { return { id: section.id, collapsed: section.collapsed, answers: Object.assign({}, section.answers) }; }) }; }); const firstAsset = selectedAssets[0] || null; return { document: currentReassignmentDocument || getNextReassignmentDocument(), generatedAt: document.getElementById("reassignment-record-generated-at").value, date: (document.getElementById("reassignment-record-generated-at").value || "").split("T")[0], reason: document.getElementById("reassignment-record-reason").value.trim(), notes: document.getElementById("reassignment-record-notes").value.trim(), assetCode: firstAsset ? firstAsset.assetCode : "", assetName: firstAsset ? firstAsset.assetName : "", originUser: originUser ? originUser.name : "", originUserIdentifier: originUser ? originUser.identifier : "", destinationUser: destinationUser ? destinationUser.name : "", destinationUserIdentifier: destinationUser ? destinationUser.identifier : "", owner: document.getElementById("reassignment-record-owner").value.trim(), status: document.getElementById("reassignment-record-status").value, selectedAssets: selectedAssets }; }
+  document.addEventListener("click", function (event) { const createButton = event.target.closest(".js-reassignment-create"); const editButton = event.target.closest(".js-reassignment-detail"); if (createButton) { if (!canWriteAppModule("reassignment")) return; openWorkspace("create"); return; } if (editButton) { if (!canViewAppModule("reassignment")) return; openWorkspace("edit", editButton.dataset.reassignmentId); } });
+  backButton.addEventListener("click", closeWorkspace); originToggle.addEventListener("click", function () { toggleStaticSection("reassignment-origin-toggle", "reassignment-origin-content", "Expandir usuario origen", "Colapsar usuario origen"); }); destinationToggle.addEventListener("click", function () { toggleStaticSection("reassignment-destination-toggle", "reassignment-destination-content", "Expandir usuario destino", "Colapsar usuario destino"); }); formToggle.addEventListener("click", function () { toggleStaticSection("reassignment-form-toggle", "reassignment-form-content", "Expandir datos de emision", "Colapsar datos de emision"); }); originInput.addEventListener("input", renderReassignmentOriginSummary); originInput.addEventListener("change", renderReassignmentOriginSummary); destinationInput.addEventListener("input", renderReassignmentDestinationSummary); destinationInput.addEventListener("change", renderReassignmentDestinationSummary); assetAddButton.addEventListener("click", function () { addAssetToWorkspace(assetSelect.value); }); assetSelect.addEventListener("change", function () { assetAddButton.disabled = !assetSelect.value; });
+  document.addEventListener("click", function (event) { const assetToggleButton = event.target.closest(".js-reassignment-asset-toggle"); const toggleButton = event.target.closest(".js-reassignment-checklist-toggle"); const assetRemoveButton = event.target.closest(".js-reassignment-asset-remove"); const removeButton = event.target.closest(".js-reassignment-checklist-remove"); const assetChecklistAddButton = event.target.closest(".js-reassignment-asset-checklist-add"); if (assetToggleButton) { const assetItem = currentReassignmentAssetState.items.find(function (item) { return item.assetCode === assetToggleButton.dataset.assetCode; }); if (!assetItem) return; assetItem.collapsed = !assetItem.collapsed; renderSelectedReassignmentAssets(); return; } if (toggleButton) { const assetItem = currentReassignmentAssetState.items.find(function (item) { return item.assetCode === toggleButton.dataset.assetCode; }); const section = assetItem ? assetItem.checklistSections.find(function (item) { return item.id === toggleButton.dataset.checklistId; }) : null; if (!section) return; section.collapsed = !section.collapsed; renderSelectedReassignmentAssets(); return; } if (assetRemoveButton) { currentReassignmentAssetState.items = currentReassignmentAssetState.items.filter(function (item) { return item.assetCode !== assetRemoveButton.dataset.assetCode; }); renderSelectedReassignmentAssets(); return; } if (assetChecklistAddButton) { const selector = document.querySelector(`[data-reassignment-asset-checklist-selector="${assetChecklistAddButton.dataset.assetCode}"]`); addChecklistToAsset(assetChecklistAddButton.dataset.assetCode, selector ? selector.value : ""); return; } if (!removeButton) return; const assetItem = currentReassignmentAssetState.items.find(function (item) { return item.assetCode === removeButton.dataset.assetCode; }); if (!assetItem) return; assetItem.checklistSections = assetItem.checklistSections.filter(function (item) { return item.id !== removeButton.dataset.checklistId; }); renderSelectedReassignmentAssets(); });
+  document.addEventListener("input", function (event) { const input = event.target.closest("[data-reassignment-check-input='true']"); if (!input) return; const assetItem = currentReassignmentAssetState.items.find(function (item) { return item.assetCode === input.dataset.assetCode; }); const section = assetItem ? assetItem.checklistSections.find(function (item) { return item.id === input.dataset.checklistId; }) : null; if (!section) return; if (input.type === "checkbox") { section.answers[input.dataset.checkId] = input.checked; return; } if (input.type === "radio") { if (input.checked) section.answers[input.dataset.checkId] = input.value; return; } section.answers[input.dataset.checkId] = input.value; });
+  document.addEventListener("change", function (event) { const input = event.target.closest("[data-reassignment-check-input='true']"); if (!input || input.type !== "radio") return; const assetItem = currentReassignmentAssetState.items.find(function (item) { return item.assetCode === input.dataset.assetCode; }); const section = assetItem ? assetItem.checklistSections.find(function (item) { return item.id === input.dataset.checklistId; }) : null; if (section && input.checked) section.answers[input.dataset.checkId] = input.value; });
+  saveButton.addEventListener("click", function () { if (!canWriteAppModule("reassignment")) return; const payload = collectReassignmentWorkspaceValues(); if (!payload.document || !payload.date || !payload.selectedAssets.length || !payload.originUser || !payload.destinationUser || !payload.owner) return; if (currentReassignmentWorkspaceMode === "edit" && currentReassignmentWorkspaceId) { const existingRecord = getReassignmentRecords().find(function (item) { return item.id === currentReassignmentWorkspaceId; }); if (!existingRecord) return; Object.assign(existingRecord, payload); } else { if (!Array.isArray(mockData.reassignments)) mockData.reassignments = []; mockData.reassignments.unshift(Object.assign({ id: "reassignment-" + Date.now() }, payload)); } renderReassignment(); filterReassignments(); closeWorkspace(); });
+}
 document.addEventListener("DOMContentLoaded", function () {
   renderDashboard();
   renderHandover();
+  renderReassignment();
   renderReception();
   populateLabRecordSelects();
   renderLabQueue();
@@ -5290,6 +5566,7 @@ document.addEventListener("DOMContentLoaded", function () {
   setupChecklistSettings();
   setupReportsWorkspace();
   setupHandoverWorkspace();
+  setupReassignmentWorkspace();
   setupReceptionWorkspace();
   setupLabWorkspace();
   setupDevicesModule();
@@ -5298,3 +5575,18 @@ document.addEventListener("DOMContentLoaded", function () {
   setupInteractiveTables();
   setupSortableTables();
 });
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

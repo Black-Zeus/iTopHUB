@@ -49,11 +49,17 @@
           </span>
           <span class="nav-link-label">Actas de Entrega</span>
         </button>
-        <button class="nav-link" data-view="reception" data-title="Actas de Recepción" data-breadcrumb="Laboratorio / Actas de Recepción" title="Actas de Recepción">
+        <button class="nav-link" data-view="reception" data-title="Acta de Devolucion" data-breadcrumb="Operacion / Acta de Devolucion" title="Acta de Devolucion">
           <span class="nav-link-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24"><path d="M19 12H9M13 6l-6 6 6 6M15 5h5v14h-5z"/></svg>
           </span>
-          <span class="nav-link-label">Actas de Recepción</span>
+          <span class="nav-link-label">Acta de Devolucion</span>
+        </button>
+        <button class="nav-link" data-view="reassignment" data-title="Acta de Reasignacion" data-breadcrumb="Operacion / Acta de Reasignacion" title="Acta de Reasignacion">
+          <span class="nav-link-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M7 7h10v4M17 17H7v-4M14 4l3 3-3 3M10 20l-3-3 3-3"/></svg>
+          </span>
+          <span class="nav-link-label">Acta de Reasignacion</span>
         </button>
         <button class="nav-link" data-view="lab" data-title="Registro de Laboratorio" data-breadcrumb="Laboratorio / Registro" title="Registro de Laboratorio">
           <span class="nav-link-icon" aria-hidden="true">
@@ -104,6 +110,7 @@
           <span class="nav-link-label">Configuración</span>
         </button>
       </nav>
+
     </aside>
 
     <div class="content-shell">
@@ -408,6 +415,191 @@
           </div>
         </section>
 
+        <section class="view" id="view-reassignment">
+          <div class="module-grid">
+            <div class="kpi-grid" id="reassignment-kpi-grid"></div>
+
+            <article class="panel panel-wide" id="reassignment-filters-panel">
+              <div class="panel-header panel-header-inline">
+                <div class="form-grid four-columns form-grid-inline">
+                  <label class="field">
+                    <span>Numero de acta</span>
+                    <input id="reassignment-filter-document" type="search" placeholder="REA-2026-0012">
+                  </label>
+                  <label class="field">
+                    <span>Usuario origen</span>
+                    <input id="reassignment-filter-origin-user" type="search" placeholder="Nombre o identificador">
+                  </label>
+                  <label class="field">
+                    <span>Usuario destino</span>
+                    <input id="reassignment-filter-destination-user" type="search" placeholder="Nombre o identificador">
+                  </label>
+                  <label class="field">
+                    <span>Activo</span>
+                    <input id="reassignment-filter-asset" type="search" placeholder="Codigo o nombre">
+                  </label>
+                </div>
+                <button id="reassignment-create-button" class="btn btn-primary handover-toolbar-button js-reassignment-create" type="button">Nueva acta</button>
+              </div>
+            </article>
+
+            <article class="panel panel-wide" id="reassignment-list-panel">
+              <div class="panel-header">
+                <div>
+                  <p class="eyebrow">Consulta</p>
+                  <h3>Listado de Acta de Reasignacion</h3>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Numero</th>
+                      <th>Fecha</th>
+                      <th>Activo</th>
+                      <th>Usuario origen</th>
+                      <th>Usuario destino</th>
+                      <th>Responsable</th>
+                      <th>Estado</th>
+                      <th>Accion</th>
+                    </tr>
+                  </thead>
+                  <tbody id="reassignment-table-body"></tbody>
+                </table>
+              </div>
+            </article>
+
+            <section class="handover-workspace" id="reassignment-workspace">
+              <article class="panel panel-wide">
+                <div class="panel-header">
+                  <div class="report-heading">
+                    <button id="reassignment-back-button" class="report-back-button" type="button" title="Volver a Acta de Reasignacion" aria-label="Volver a Acta de Reasignacion">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M14.5 5.5L8 12l6.5 6.5" />
+                      </svg>
+                    </button>
+                    <div>
+                      <p class="eyebrow">Acta de Reasignacion</p>
+                      <h3 id="reassignment-page-title">Nueva Acta de Reasignacion</h3>
+                      <p id="reassignment-page-description" class="report-page-description"></p>
+                    </div>
+                  </div>
+                  <div class="report-result-actions">
+                    <button id="reassignment-save-button" class="btn btn-primary" type="button">Guardar acta</button>
+                  </div>
+                </div>
+              </article>
+
+              <article class="panel panel-wide">
+                <div class="panel-header">
+                  <div>
+                    <p class="eyebrow">Formulario</p>
+                    <h3>Datos de emision</h3>
+                  </div>
+                  <button id="reassignment-form-toggle" class="report-toggle-button is-collapsed" type="button" title="Expandir datos de emision" aria-label="Expandir datos de emision">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M7 10l5 5 5-5" />
+                    </svg>
+                  </button>
+                </div>
+                <div id="reassignment-form-content" class="handover-section-content is-collapsed">
+                  <form class="form-grid two-columns">
+                    <label class="field">
+                      <span>Fecha y hora de generacion</span>
+                      <input id="reassignment-record-generated-at" type="datetime-local">
+                    </label>
+                    <label class="field">
+                      <span>Encargado de generar acta</span>
+                      <input id="reassignment-record-owner" type="text" value="Marina Sosa" readonly>
+                    </label>
+                    <label class="field">
+                      <span>Estado del acta</span>
+                      <select id="reassignment-record-status">
+                        <option>Borrador</option>
+                        <option>Emitida</option>
+                        <option>Confirmada</option>
+                      </select>
+                    </label>
+                    <label class="field field-double-row">
+                      <span>Motivo de reasignacion</span>
+                      <textarea id="reassignment-record-reason" rows="2"></textarea>
+                    </label>
+                    <label class="field field-full">
+                      <span>Observacion</span>
+                      <textarea id="reassignment-record-notes" rows="4" placeholder="Contexto del movimiento, autorizacion y observaciones relevantes."></textarea>
+                    </label>
+                  </form>
+                </div>
+              </article>
+
+              <article class="panel panel-wide">
+                <div class="panel-header">
+                  <div>
+                    <p class="eyebrow">Origen</p>
+                    <h3>Usuario origen</h3>
+                  </div>
+                  <button id="reassignment-origin-toggle" class="report-toggle-button is-collapsed" type="button" title="Expandir usuario origen" aria-label="Expandir usuario origen">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M7 10l5 5 5-5" />
+                    </svg>
+                  </button>
+                </div>
+                <div id="reassignment-origin-content" class="handover-section-content is-collapsed">
+                  <form class="form-grid">
+                    <label class="field">
+                      <span>Persona que entrega</span>
+                      <input id="reassignment-record-origin-user" type="search" list="reassignment-origin-user-list" placeholder="Escribe nombre, identificador o correo">
+                      <datalist id="reassignment-origin-user-list"></datalist>
+                    </label>
+                  </form>
+                  <div id="reassignment-origin-summary" class="summary-card handover-user-summary"></div>
+                </div>
+              </article>
+
+              <article class="panel panel-wide">
+                <div class="panel-header">
+                  <div>
+                    <p class="eyebrow">Destino</p>
+                    <h3>Usuario destino</h3>
+                  </div>
+                  <button id="reassignment-destination-toggle" class="report-toggle-button is-collapsed" type="button" title="Expandir usuario destino" aria-label="Expandir usuario destino">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M7 10l5 5 5-5" />
+                    </svg>
+                  </button>
+                </div>
+                <div id="reassignment-destination-content" class="handover-section-content is-collapsed">
+                  <form class="form-grid">
+                    <label class="field">
+                      <span>Persona que recibe</span>
+                      <input id="reassignment-record-destination-user" type="search" list="reassignment-destination-user-list" placeholder="Escribe nombre, identificador o correo">
+                      <datalist id="reassignment-destination-user-list"></datalist>
+                    </label>
+                  </form>
+                  <div id="reassignment-destination-summary" class="summary-card handover-user-summary"></div>
+                </div>
+              </article>
+
+              <article class="panel panel-wide">
+                <div class="panel-header">
+                  <div>
+                    <p class="eyebrow">Activos</p>
+                    <h3>Activos incluidos en la reasignacion</h3>
+                  </div>
+                </div>
+                <div class="handover-checklist-toolbar">
+                  <label class="field">
+                    <span>Agregar activo</span>
+                    <select id="reassignment-record-asset"></select>
+                  </label>
+                  <button id="reassignment-asset-add" class="btn btn-secondary" type="button">Agregar activo</button>
+                </div>
+                <p class="handover-checklist-helper">Cada activo agregado permite asociar sus propios checklists activos. Un mismo activo puede aparecer una sola vez en el acta y dentro de ese activo no se puede repetir una plantilla.</p>
+                <div id="reassignment-selected-assets" class="handover-checklist-list"></div>
+              </article>
+            </section>
+          </div>
+        </section>
         <section class="view" id="view-reception">
           <div class="module-grid">
             <div class="kpi-grid" id="reception-kpi-grid"></div>
@@ -442,7 +634,7 @@
               <div class="panel-header">
                 <div>
                   <p class="eyebrow">Consulta</p>
-                  <h3>Listado de recepciones emitidas</h3>
+                  <h3>Listado de Acta de Devolucion</h3>
                 </div>
               </div>
               <div class="table-wrap">
@@ -1942,4 +2134,10 @@
   <script src="assets/js/app.js"></script>
 </body>
 </html>
+
+
+
+
+
+
 
