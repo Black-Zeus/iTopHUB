@@ -1,0 +1,1114 @@
+“Te paso el contexto de diseño de mi sistema (iTop-Hub). Necesito que me ayudes a generar el modelo lógico/DDL basado en esto.”
+
+🧠 MEMORIA DE DISEÑO – ITOP HUB (ACTAS / CMDB / DOCUMENTOS)
+1. Contexto General
+
+iTop es la fuente de verdad (SoT) para:
+
+CMDB (activos)
+
+usuarios (personas)
+
+iTop-Hub:
+
+NO modifica core ni DB de iTop
+
+consume datos desde iTop
+
+genera lógica propia (actas, documentos, trazabilidad)
+
+mantiene BD local mínima + snapshots controlados
+
+2. Objetivo del Sistema
+
+Gestionar el ciclo documental de activos TI mediante:
+
+Actas formales (entrega, devolución, reasignación, laboratorio)
+
+Generación de PDF
+
+Firma (manual v1 / tablet v2)
+
+Evidencias
+
+Checklist
+
+Trazabilidad completa
+
+Integración final con iTop
+
+3. Tipos de Actas (MVP)
+
+Se definen 4 actas independientes:
+
+Entrega / Asignación
+
+Devolución
+
+Reasignación
+
+Laboratorio
+
+Cada una:
+
+tiene tabla hija propia
+
+comparte una tabla maestra común
+
+4. Arquitectura de Datos
+4.1 Tabla Maestra de Actas
+
+Función:
+
+grillas
+
+búsqueda
+
+reportería
+
+relaciones principales
+
+Contiene:
+
+folio
+
+tipo de acta
+
+estado del acta
+
+elaborador (systemUser)
+
+destinatario principal (user)
+
+activo principal (referencia rápida)
+
+snapshot de:
+
+usuario
+
+activo
+
+fechas clave
+
+flags operacionales
+
+4.2 Tablas Hijas por Tipo
+
+acta_entrega
+
+acta_devolucion
+
+acta_reasignacion
+
+acta_laboratorio
+
+Contienen:
+
+lógica específica por tipo
+
+campos particulares
+
+4.3 Ítems por Acta
+
+Entrega / Devolución / Reasignación:
+
+1 acta → N ítems
+
+Laboratorio:
+
+1 acta → 1 ítem
+
+Cada ítem:
+
+referencia a activo (id iTop)
+
+snapshot del activo
+
+observaciones (según tipo)
+
+5. Reglas de Negocio por Tipo
+Entrega
+
+solo activos en:
+
+stock / disponible
+
+1 destinatario
+
+N ítems
+
+checklist por ítem
+
+Devolución
+
+solo activos asignados
+
+N ítems
+
+cada ítem puede tener:
+
+N checklist
+
+anotaciones
+
+Reasignación
+
+N ítems
+
+requiere:
+
+persona origen
+
+persona destino
+
+observación por ítem (opcional)
+
+NO checklist en v1
+
+Laboratorio
+
+1 ítem por acta
+
+sin destinatario
+
+orientado a diagnóstico
+
+N checklist por acta
+
+requiere evidencias
+
+6. Documento (PDF)
+
+1 acta = 1 documento principal
+
+NO versionado
+
+mientras no esté finalizada:
+
+se puede regenerar (sobrescribir)
+
+al finalizar:
+
+documento queda definitivo
+
+se envía a iTop
+
+7. Evidencias
+
+0..N evidencias por acta
+
+tipo: imágenes (jpg, png, etc.)
+
+siempre ligadas al acta, NO al ítem
+
+se incorporan al PDF al generar
+
+8. Checklist
+Modelo general
+
+basado en plantillas
+
+ejecutado como instancia
+
+Comportamiento por tipo
+Entrega
+
+checklist por tipo de ítem
+
+guía de captura (accesorios, etc.)
+
+Devolución
+
+1 ítem → N checklist
+
+inspección:
+
+hardware
+
+visual
+
+software
+
+Laboratorio
+
+N checklist por acta
+
+diagnóstico técnico
+
+Reasignación
+
+sin checklist estructurado (v1)
+
+solo observaciones
+
+9. Usuarios
+
+Separación obligatoria:
+
+users → personas desde iTop
+
+systemUsers → operadores del Hub
+
+10. Snapshots
+
+Se almacenan para evitar dependencia runtime de iTop:
+
+Usuario
+
+nombre
+
+correo
+
+área
+
+cargo
+
+ubicación
+
+Activo
+
+nombre
+
+código
+
+tipo
+
+marca
+
+modelo
+
+serie
+
+estado
+
+ubicación
+
+👉 Objetivo:
+
+preservar contexto histórico
+
+evitar inconsistencia visual
+
+11. Movimientos (Trazabilidad)
+
+Debe existir registro tipo:
+
+activo
+
+origen
+
+destino
+
+estado previo
+
+estado posterior
+
+acta asociada
+
+fecha
+
+operador
+
+12. Estados del Acta (flujo)
+
+Conceptualmente:
+
+borrador
+
+preparado
+
+pendiente_firma
+
+firmado
+
+finalizado
+
+(posible: anulado / observado)
+
+13. Inconsistencias
+
+Modelo v1:
+
+tabla maestra
+
+detalle genérico
+
+Propósito:
+
+registrar desviaciones
+
+soporte a auditoría
+
+base para reportes
+
+Un acta ideal:
+
+no debe tener inconsistencias abiertas
+
+14. Integración con iTop
+
+Hub genera acta y documento
+
+documento final:
+
+se envía a iTop
+
+se asocia a:
+
+CMDB
+
+usuario (si aplica)
+
+Hub:
+
+no modifica estructura de iTop
+
+solo integra vía referencia/documento
+
+15. Firma
+Fase 1 (MVP)
+
+PDF generado
+
+descarga / envío por mail
+
+usuario firma manual
+
+se carga PDF firmado
+
+se registra como evidencia legal
+
+Fase 2
+
+app tablet
+
+captura de firma directa
+
+envío inmediato a iTop
+
+16. Estrategia de Datos
+
+BD local mínima pero suficiente
+
+evitar consultas innecesarias a iTop
+
+mantener:
+
+referencias (id externos)
+
+snapshots operativos
+
+evitar duplicación innecesaria
+
+17. Decisiones Clave de Diseño
+
+✔ Tabla maestra de actas
+✔ Tablas hijas por tipo
+✔ Documento único sin versionado
+✔ Evidencias separadas del documento
+✔ Checklist como entidad real
+✔ Snapshot obligatorio
+✔ Separación users vs systemUsers
+✔ Reasignación como entidad propia
+✔ Inconsistencias como entidad (no flag)
+✔ Laboratorio como flujo independiente
+
+18. Pendientes Menores (antes de DDL final)
+
+definir si checklist en devolución es múltiple por ítem (ya inclinado a sí)
+
+granularidad final de inconsistencias
+
+ubicación exacta de algunos campos (maestra vs hija)
+
+🧾 Resumen Ejecutivo
+
+El sistema iTop-Hub:
+
+orquesta el ciclo documental de activos
+
+sin intervenir iTop
+
+con modelo basado en:
+
+actas estructuradas
+
+snapshots controlados
+
+checklist dinámico
+
+evidencias
+
+trazabilidad
+
+preparado para:
+
+firma manual (v1)
+
+firma digital tablet (v2)
+
+te paso el beta 01 de mi ddl propuesto, nbcesito que vaides si esta clro el dominio, estructura, deepndecnias, comportamientso espeado
+
+el ddlk esta en postgre, pero trabajare con MySQL/mariadb
+
+-- =========================================================
+-- iTop Hub - DDL v1 (beta)
+-- Motor objetivo: PostgreSQL
+-- =========================================================
+
+BEGIN;
+
+-- =========================================================
+-- 0) ESQUEMA
+-- =========================================================
+
+CREATE SCHEMA IF NOT EXISTS hub;
+SET search_path TO hub, public;
+
+-- =========================================================
+-- 1) CATALOGOS BASE
+-- =========================================================
+
+CREATE TABLE locations (
+    id                  BIGSERIAL PRIMARY KEY,
+    name                VARCHAR(150) NOT NULL,
+    type                VARCHAR(50) NOT NULL,
+    parent_location_id  BIGINT NULL REFERENCES locations(id),
+    status              VARCHAR(30) NOT NULL DEFAULT 'active',
+    notes               TEXT NULL,
+    created_at          TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE asset_classes (
+    id                  BIGSERIAL PRIMARY KEY,
+    class_key           VARCHAR(80) NOT NULL UNIQUE,
+    cmdb_class_name     VARCHAR(150) NOT NULL,
+    functional_name     VARCHAR(150) NOT NULL,
+    status              VARCHAR(30) NOT NULL DEFAULT 'active',
+    created_at          TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE asset_brands (
+    id                  BIGSERIAL PRIMARY KEY,
+    name                VARCHAR(120) NOT NULL UNIQUE,
+    status              VARCHAR(30) NOT NULL DEFAULT 'active',
+    created_at          TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE asset_models (
+    id                  BIGSERIAL PRIMARY KEY,
+    brand_id            BIGINT NOT NULL REFERENCES asset_brands(id),
+    asset_class_id      BIGINT NOT NULL REFERENCES asset_classes(id),
+    name                VARCHAR(150) NOT NULL,
+    status              VARCHAR(30) NOT NULL DEFAULT 'active',
+    is_standard_model   BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at          TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMP NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_asset_model UNIQUE (brand_id, asset_class_id, name)
+);
+
+-- =========================================================
+-- 2) MAESTROS CACHEADOS DESDE ITOP
+-- =========================================================
+
+CREATE TABLE users (
+    id                      BIGSERIAL PRIMARY KEY,
+    external_ref            VARCHAR(120) NOT NULL UNIQUE,
+    source_system           VARCHAR(30) NOT NULL DEFAULT 'itop',
+    name                    VARCHAR(180) NOT NULL,
+    identifier              VARCHAR(120) NULL,
+    email                   VARCHAR(180) NULL,
+    area                    VARCHAR(150) NULL,
+    role                    VARCHAR(150) NULL,
+    manager_name            VARCHAR(180) NULL,
+    location_id             BIGINT NULL REFERENCES locations(id),
+    person_status           VARCHAR(30) NOT NULL DEFAULT 'active',
+    last_synced_at          TIMESTAMP NULL,
+    created_at              TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX ix_users_name ON users(name);
+CREATE INDEX ix_users_email ON users(email);
+CREATE INDEX ix_users_identifier ON users(identifier);
+
+CREATE TABLE system_users (
+    id                      BIGSERIAL PRIMARY KEY,
+    username                VARCHAR(80) NOT NULL UNIQUE,
+    full_name               VARCHAR(180) NOT NULL,
+    email                   VARCHAR(180) NULL,
+    role_code               VARCHAR(60) NOT NULL,
+    user_status             VARCHAR(30) NOT NULL DEFAULT 'active',
+    created_at              TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE assets (
+    id                      BIGSERIAL PRIMARY KEY,
+    external_cmdb_id        VARCHAR(120) NOT NULL UNIQUE,
+    source_system           VARCHAR(30) NOT NULL DEFAULT 'itop',
+
+    code                    VARCHAR(80) NOT NULL,
+    hostname                VARCHAR(120) NULL,
+    name                    VARCHAR(180) NOT NULL,
+
+    asset_class_id          BIGINT NOT NULL REFERENCES asset_classes(id),
+    type_label              VARCHAR(120) NULL,
+    brand_id                BIGINT NULL REFERENCES asset_brands(id),
+    model_id                BIGINT NULL REFERENCES asset_models(id),
+
+    serial_number           VARCHAR(150) NULL,
+    inventory_code          VARCHAR(120) NULL,
+
+    current_person_id       BIGINT NULL REFERENCES users(id),
+    current_system_user_id  BIGINT NULL REFERENCES system_users(id),
+    location_id             BIGINT NULL REFERENCES locations(id),
+
+    operational_status      VARCHAR(50) NOT NULL,
+    cmdb_status             VARCHAR(50) NOT NULL,
+
+    observations            TEXT NULL,
+    onboarding_date         DATE NULL,
+
+    last_synced_at          TIMESTAMP NULL,
+    created_at              TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX ix_assets_code ON assets(code);
+CREATE INDEX ix_assets_name ON assets(name);
+CREATE INDEX ix_assets_serial_number ON assets(serial_number);
+CREATE INDEX ix_assets_inventory_code ON assets(inventory_code);
+CREATE INDEX ix_assets_current_person_id ON assets(current_person_id);
+CREATE INDEX ix_assets_cmdb_status ON assets(cmdb_status);
+CREATE INDEX ix_assets_operational_status ON assets(operational_status);
+
+-- =========================================================
+-- 3) CONFIGURACION
+-- =========================================================
+
+CREATE TABLE app_settings (
+    id                  BIGSERIAL PRIMARY KEY,
+    group_key           VARCHAR(80) NOT NULL,
+    setting_key         VARCHAR(120) NOT NULL,
+    setting_value       TEXT NULL,
+    value_type          VARCHAR(40) NOT NULL DEFAULT 'string',
+    is_sensitive        BOOLEAN NOT NULL DEFAULT FALSE,
+    updated_by          BIGINT NULL REFERENCES system_users(id),
+    updated_at          TIMESTAMP NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_app_settings UNIQUE (group_key, setting_key)
+);
+
+CREATE TABLE integration_settings (
+    id                  BIGSERIAL PRIMARY KEY,
+    group_key           VARCHAR(80) NOT NULL,
+    setting_key         VARCHAR(120) NOT NULL,
+    setting_value       TEXT NULL,
+    value_type          VARCHAR(40) NOT NULL DEFAULT 'string',
+    is_sensitive        BOOLEAN NOT NULL DEFAULT FALSE,
+    updated_by          BIGINT NULL REFERENCES system_users(id),
+    updated_at          TIMESTAMP NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_integration_settings UNIQUE (group_key, setting_key)
+);
+
+CREATE TABLE document_settings (
+    id                  BIGSERIAL PRIMARY KEY,
+    handover_prefix     VARCHAR(20) NOT NULL DEFAULT 'ENT',
+    reception_prefix    VARCHAR(20) NOT NULL DEFAULT 'DEV',
+    reassignment_prefix VARCHAR(20) NOT NULL DEFAULT 'REA',
+    lab_prefix          VARCHAR(20) NOT NULL DEFAULT 'LAB',
+    number_format       VARCHAR(80) NOT NULL DEFAULT '{PREFIX}-{YYYY}-{SEQ}',
+    default_observation TEXT NULL,
+    updated_at          TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE sync_runs (
+    id                  BIGSERIAL PRIMARY KEY,
+    started_at          TIMESTAMP NOT NULL,
+    finished_at         TIMESTAMP NULL,
+    scope               VARCHAR(80) NOT NULL,
+    trigger_type        VARCHAR(30) NOT NULL,
+    status              VARCHAR(30) NOT NULL,
+    processed_count     INTEGER NOT NULL DEFAULT 0,
+    error_count         INTEGER NOT NULL DEFAULT 0,
+    summary             TEXT NULL,
+    executed_by         BIGINT NULL REFERENCES system_users(id)
+);
+
+CREATE TABLE mail_settings (
+    id                      BIGSERIAL PRIMARY KEY,
+    display_sender_name     VARCHAR(180) NOT NULL,
+    sender_email            VARCHAR(180) NOT NULL,
+    smtp_host               VARCHAR(180) NOT NULL,
+    smtp_port               INTEGER NOT NULL,
+    smtp_user               VARCHAR(180) NULL,
+    smtp_secret_ref         VARCHAR(180) NULL,
+    security_mode           VARCHAR(20) NOT NULL DEFAULT 'tls',
+    footer_text             TEXT NULL,
+    status                  VARCHAR(30) NOT NULL DEFAULT 'active',
+    updated_at              TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+-- =========================================================
+-- 4) ARCHIVOS
+-- =========================================================
+
+CREATE TABLE files (
+    id                  BIGSERIAL PRIMARY KEY,
+    storage_provider    VARCHAR(30) NOT NULL DEFAULT 'local',
+    storage_path        TEXT NOT NULL,
+    file_name           VARCHAR(255) NOT NULL,
+    mime_type           VARCHAR(120) NOT NULL,
+    extension           VARCHAR(20) NULL,
+    size_bytes          BIGINT NULL,
+    checksum            VARCHAR(128) NULL,
+    uploaded_by         BIGINT NULL REFERENCES system_users(id),
+    uploaded_at         TIMESTAMP NOT NULL DEFAULT NOW(),
+    status              VARCHAR(30) NOT NULL DEFAULT 'active'
+);
+
+CREATE INDEX ix_files_status ON files(status);
+CREATE INDEX ix_files_checksum ON files(checksum);
+
+-- =========================================================
+-- 5) TABLA MAESTRA DE ACTAS
+-- =========================================================
+
+CREATE TABLE acts (
+    id                              BIGSERIAL PRIMARY KEY,
+
+    folio                           VARCHAR(50) NOT NULL UNIQUE,
+    act_type                        VARCHAR(30) NOT NULL,
+    act_status                      VARCHAR(30) NOT NULL DEFAULT 'draft',
+
+    -- actores principales
+    elaborator_system_user_id       BIGINT NOT NULL REFERENCES system_users(id),
+    recipient_user_id               BIGINT NULL REFERENCES users(id),
+    principal_asset_id              BIGINT NULL REFERENCES assets(id),
+
+    -- snapshots usuario principal
+    snapshot_recipient_name         VARCHAR(180) NULL,
+    snapshot_recipient_email        VARCHAR(180) NULL,
+    snapshot_recipient_area         VARCHAR(150) NULL,
+    snapshot_recipient_role         VARCHAR(150) NULL,
+    snapshot_recipient_location     VARCHAR(150) NULL,
+
+    -- snapshot activo principal
+    snapshot_asset_code             VARCHAR(80) NULL,
+    snapshot_asset_name             VARCHAR(180) NULL,
+    snapshot_asset_type             VARCHAR(120) NULL,
+    snapshot_asset_brand            VARCHAR(120) NULL,
+    snapshot_asset_model            VARCHAR(150) NULL,
+    snapshot_asset_serial           VARCHAR(150) NULL,
+    snapshot_asset_inventory_code   VARCHAR(120) NULL,
+    snapshot_asset_location         VARCHAR(150) NULL,
+    snapshot_asset_status           VARCHAR(50) NULL,
+    snapshot_asset_cmdb_status      VARCHAR(50) NULL,
+
+    -- documento principal
+    main_document_id                BIGINT NULL,
+
+    -- flujo documental
+    document_status                 VARCHAR(30) NOT NULL DEFAULT 'pending_generation',
+    publication_status              VARCHAR(30) NOT NULL DEFAULT 'pending',
+    signature_method                VARCHAR(30) NULL,
+    origin_channel                  VARCHAR(30) NOT NULL DEFAULT 'web',
+
+    -- flags operativos
+    has_open_inconsistencies        BOOLEAN NOT NULL DEFAULT FALSE,
+    has_evidences                   BOOLEAN NOT NULL DEFAULT FALSE,
+    is_finalized                    BOOLEAN NOT NULL DEFAULT FALSE,
+
+    reason                          TEXT NULL,
+    notes                           TEXT NULL,
+
+    prepared_at                     TIMESTAMP NULL,
+    pending_signature_at            TIMESTAMP NULL,
+    signed_at                       TIMESTAMP NULL,
+    published_at                    TIMESTAMP NULL,
+    finalized_at                    TIMESTAMP NULL,
+
+    created_at                      TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at                      TIMESTAMP NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT ck_acts_type CHECK (act_type IN ('delivery','return','reassignment','lab')),
+    CONSTRAINT ck_acts_status CHECK (act_status IN ('draft','prepared','pending_signature','signed','finalized','observed','cancelled')),
+    CONSTRAINT ck_acts_document_status CHECK (document_status IN ('pending_generation','generated','downloaded','sent_mail','pending_signed_upload','signed_uploaded','published_itop','error_publication')),
+    CONSTRAINT ck_acts_publication_status CHECK (publication_status IN ('pending','published','failed','observed')),
+    CONSTRAINT ck_acts_origin_channel CHECK (origin_channel IN ('web','tablet')),
+    CONSTRAINT ck_acts_signature_method CHECK (
+        signature_method IS NULL OR
+        signature_method IN ('manual_upload','mail_record','web_signature','tablet_signature')
+    )
+);
+
+ALTER TABLE acts
+    ADD CONSTRAINT fk_acts_main_document
+    FOREIGN KEY (main_document_id) REFERENCES files(id);
+
+CREATE INDEX ix_acts_type ON acts(act_type);
+CREATE INDEX ix_acts_status ON acts(act_status);
+CREATE INDEX ix_acts_document_status ON acts(document_status);
+CREATE INDEX ix_acts_publication_status ON acts(publication_status);
+CREATE INDEX ix_acts_recipient_user_id ON acts(recipient_user_id);
+CREATE INDEX ix_acts_principal_asset_id ON acts(principal_asset_id);
+CREATE INDEX ix_acts_elaborator_system_user_id ON acts(elaborator_system_user_id);
+CREATE INDEX ix_acts_created_at ON acts(created_at);
+
+-- =========================================================
+-- 6) TABLAS HIJAS POR TIPO DE ACTA
+-- =========================================================
+
+CREATE TABLE act_delivery (
+    act_id                           BIGINT PRIMARY KEY REFERENCES acts(id) ON DELETE CASCADE,
+    delivery_mode                    VARCHAR(30) NOT NULL DEFAULT 'assignment',
+    source_location_id               BIGINT NULL REFERENCES locations(id),
+    destination_location_id          BIGINT NULL REFERENCES locations(id),
+    delivery_reason                  TEXT NULL,
+    CHECK (delivery_mode IN ('assignment','replacement','loan','other'))
+);
+
+CREATE TABLE act_return (
+    act_id                           BIGINT PRIMARY KEY REFERENCES acts(id) ON DELETE CASCADE,
+    return_to_location_id            BIGINT NULL REFERENCES locations(id),
+    return_reason                    TEXT NULL,
+    requires_review                  BOOLEAN NOT NULL DEFAULT FALSE,
+    requires_lab                     BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+CREATE TABLE act_reassignment (
+    act_id                           BIGINT PRIMARY KEY REFERENCES acts(id) ON DELETE CASCADE,
+    origin_user_id                   BIGINT NOT NULL REFERENCES users(id),
+    destination_user_id              BIGINT NOT NULL REFERENCES users(id),
+    reassignment_reason              TEXT NULL,
+    CONSTRAINT ck_reassignment_users CHECK (origin_user_id <> destination_user_id)
+);
+
+CREATE TABLE act_lab (
+    act_id                           BIGINT PRIMARY KEY REFERENCES acts(id) ON DELETE CASCADE,
+    asset_id                         BIGINT NOT NULL REFERENCES assets(id),
+    received_from_location_id        BIGINT NULL REFERENCES locations(id),
+    assigned_technician_id           BIGINT NULL REFERENCES system_users(id),
+    priority                         VARCHAR(20) NOT NULL DEFAULT 'normal',
+    lab_status                       VARCHAR(30) NOT NULL DEFAULT 'open',
+    technical_description            TEXT NULL,
+    technical_result                 TEXT NULL,
+    diagnosis_summary                TEXT NULL,
+    opened_at                        TIMESTAMP NOT NULL DEFAULT NOW(),
+    closed_at                        TIMESTAMP NULL,
+    CONSTRAINT ck_lab_priority CHECK (priority IN ('low','normal','high','critical')),
+    CONSTRAINT ck_lab_status CHECK (lab_status IN ('open','in_review','waiting_parts','resolved','closed','cancelled'))
+);
+
+-- =========================================================
+-- 7) ITEMS POR ACTA
+-- =========================================================
+
+CREATE TABLE act_delivery_items (
+    id                              BIGSERIAL PRIMARY KEY,
+    act_id                          BIGINT NOT NULL REFERENCES act_delivery(act_id) ON DELETE CASCADE,
+    asset_id                        BIGINT NOT NULL REFERENCES assets(id),
+
+    snapshot_asset_code             VARCHAR(80) NOT NULL,
+    snapshot_asset_name             VARCHAR(180) NOT NULL,
+    snapshot_asset_type             VARCHAR(120) NULL,
+    snapshot_asset_brand            VARCHAR(120) NULL,
+    snapshot_asset_model            VARCHAR(150) NULL,
+    snapshot_asset_serial           VARCHAR(150) NULL,
+    snapshot_asset_inventory_code   VARCHAR(120) NULL,
+    snapshot_asset_location         VARCHAR(150) NULL,
+    snapshot_asset_status           VARCHAR(50) NULL,
+    snapshot_asset_cmdb_status      VARCHAR(50) NULL,
+
+    notes                           TEXT NULL,
+    created_at                      TIMESTAMP NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT uq_delivery_item UNIQUE (act_id, asset_id)
+);
+
+CREATE INDEX ix_delivery_items_asset_id ON act_delivery_items(asset_id);
+
+CREATE TABLE act_return_items (
+    id                              BIGSERIAL PRIMARY KEY,
+    act_id                          BIGINT NOT NULL REFERENCES act_return(act_id) ON DELETE CASCADE,
+    asset_id                        BIGINT NOT NULL REFERENCES assets(id),
+
+    snapshot_asset_code             VARCHAR(80) NOT NULL,
+    snapshot_asset_name             VARCHAR(180) NOT NULL,
+    snapshot_asset_type             VARCHAR(120) NULL,
+    snapshot_asset_brand            VARCHAR(120) NULL,
+    snapshot_asset_model            VARCHAR(150) NULL,
+    snapshot_asset_serial           VARCHAR(150) NULL,
+    snapshot_asset_inventory_code   VARCHAR(120) NULL,
+    snapshot_asset_location         VARCHAR(150) NULL,
+    snapshot_asset_status           VARCHAR(50) NULL,
+    snapshot_asset_cmdb_status      VARCHAR(50) NULL,
+
+    item_notes                      TEXT NULL,
+    created_at                      TIMESTAMP NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT uq_return_item UNIQUE (act_id, asset_id)
+);
+
+CREATE INDEX ix_return_items_asset_id ON act_return_items(asset_id);
+
+CREATE TABLE act_reassignment_items (
+    id                              BIGSERIAL PRIMARY KEY,
+    act_id                          BIGINT NOT NULL REFERENCES act_reassignment(act_id) ON DELETE CASCADE,
+    asset_id                        BIGINT NOT NULL REFERENCES assets(id),
+
+    snapshot_asset_code             VARCHAR(80) NOT NULL,
+    snapshot_asset_name             VARCHAR(180) NOT NULL,
+    snapshot_asset_type             VARCHAR(120) NULL,
+    snapshot_asset_brand            VARCHAR(120) NULL,
+    snapshot_asset_model            VARCHAR(150) NULL,
+    snapshot_asset_serial           VARCHAR(150) NULL,
+    snapshot_asset_inventory_code   VARCHAR(120) NULL,
+    snapshot_asset_location         VARCHAR(150) NULL,
+    snapshot_asset_status           VARCHAR(50) NULL,
+    snapshot_asset_cmdb_status      VARCHAR(50) NULL,
+
+    item_observation                TEXT NULL,
+    created_at                      TIMESTAMP NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT uq_reassignment_item UNIQUE (act_id, asset_id)
+);
+
+CREATE INDEX ix_reassignment_items_asset_id ON act_reassignment_items(asset_id);
+
+-- =========================================================
+-- 8) CHECKLIST
+-- =========================================================
+
+CREATE TABLE checklist_templates (
+    id                              BIGSERIAL PRIMARY KEY,
+    code                            VARCHAR(80) NOT NULL UNIQUE,
+    name                            VARCHAR(180) NOT NULL,
+    module_context                  VARCHAR(30) NOT NULL,
+    applies_to_level                VARCHAR(20) NOT NULL,
+    asset_class_id                  BIGINT NULL REFERENCES asset_classes(id),
+    status                          VARCHAR(30) NOT NULL DEFAULT 'active',
+    description                     TEXT NULL,
+    created_at                      TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at                      TIMESTAMP NOT NULL DEFAULT NOW(),
+    CONSTRAINT ck_checklist_templates_module CHECK (module_context IN ('delivery','return','lab')),
+    CONSTRAINT ck_checklist_templates_level CHECK (applies_to_level IN ('act','item'))
+);
+
+CREATE TABLE checklist_template_items (
+    id                              BIGSERIAL PRIMARY KEY,
+    template_id                     BIGINT NOT NULL REFERENCES checklist_templates(id) ON DELETE CASCADE,
+    order_index                     INTEGER NOT NULL,
+    name                            VARCHAR(180) NOT NULL,
+    description                     TEXT NULL,
+    input_type                      VARCHAR(30) NOT NULL,
+    option_a                        VARCHAR(150) NULL,
+    option_b                        VARCHAR(150) NULL,
+    is_required                     BOOLEAN NOT NULL DEFAULT FALSE,
+    status                          VARCHAR(30) NOT NULL DEFAULT 'active',
+    created_at                      TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at                      TIMESTAMP NOT NULL DEFAULT NOW(),
+    CONSTRAINT ck_checklist_item_input_type CHECK (input_type IN ('text','textarea','boolean','option'))
+);
+
+CREATE TABLE checklist_runs (
+    id                              BIGSERIAL PRIMARY KEY,
+    template_id                     BIGINT NOT NULL REFERENCES checklist_templates(id),
+    module_context                  VARCHAR(30) NOT NULL,
+    applies_to_level                VARCHAR(20) NOT NULL,
+    act_id                          BIGINT NOT NULL REFERENCES acts(id) ON DELETE CASCADE,
+
+    delivery_item_id                BIGINT NULL REFERENCES act_delivery_items(id) ON DELETE CASCADE,
+    return_item_id                  BIGINT NULL REFERENCES act_return_items(id) ON DELETE CASCADE,
+
+    executed_by                     BIGINT NULL REFERENCES system_users(id),
+    executed_at                     TIMESTAMP NULL,
+    status                          VARCHAR(30) NOT NULL DEFAULT 'draft',
+    created_at                      TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at                      TIMESTAMP NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT ck_checklist_runs_module CHECK (module_context IN ('delivery','return','lab')),
+    CONSTRAINT ck_checklist_runs_level CHECK (applies_to_level IN ('act','item')),
+    CONSTRAINT ck_checklist_runs_status CHECK (status IN ('draft','completed','cancelled')),
+    CONSTRAINT ck_checklist_runs_reference CHECK (
+        (
+            applies_to_level = 'act'
+            AND delivery_item_id IS NULL
+            AND return_item_id IS NULL
+        )
+        OR
+        (
+            applies_to_level = 'item'
+            AND (
+                delivery_item_id IS NOT NULL
+                OR return_item_id IS NOT NULL
+            )
+        )
+    )
+);
+
+CREATE INDEX ix_checklist_runs_act_id ON checklist_runs(act_id);
+CREATE INDEX ix_checklist_runs_template_id ON checklist_runs(template_id);
+
+CREATE TABLE checklist_run_answers (
+    id                              BIGSERIAL PRIMARY KEY,
+    checklist_run_id                BIGINT NOT NULL REFERENCES checklist_runs(id) ON DELETE CASCADE,
+    template_item_id                BIGINT NOT NULL REFERENCES checklist_template_items(id),
+    answer_text                     TEXT NULL,
+    answer_boolean                  BOOLEAN NULL,
+    answer_option                   VARCHAR(150) NULL,
+    notes                           TEXT NULL,
+    created_at                      TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at                      TIMESTAMP NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_checklist_answer UNIQUE (checklist_run_id, template_item_id)
+);
+
+-- =========================================================
+-- 9) EVIDENCIAS
+-- =========================================================
+
+CREATE TABLE act_evidences (
+    id                              BIGSERIAL PRIMARY KEY,
+    act_id                          BIGINT NOT NULL REFERENCES acts(id) ON DELETE CASCADE,
+    file_id                         BIGINT NOT NULL REFERENCES files(id),
+    evidence_type                   VARCHAR(30) NOT NULL DEFAULT 'image',
+    title                           VARCHAR(180) NULL,
+    notes                           TEXT NULL,
+    order_index                     INTEGER NOT NULL DEFAULT 1,
+    created_by                      BIGINT NULL REFERENCES system_users(id),
+    created_at                      TIMESTAMP NOT NULL DEFAULT NOW(),
+    CONSTRAINT ck_act_evidences_type CHECK (evidence_type IN ('image'))
+);
+
+CREATE INDEX ix_act_evidences_act_id ON act_evidences(act_id);
+
+-- =========================================================
+-- 10) INCONSISTENCIAS
+-- =========================================================
+
+CREATE TABLE inconsistencies (
+    id                              BIGSERIAL PRIMARY KEY,
+    act_id                          BIGINT NOT NULL REFERENCES acts(id) ON DELETE CASCADE,
+    inconsistency_type              VARCHAR(50) NOT NULL,
+    severity                        VARCHAR(20) NOT NULL DEFAULT 'medium',
+    status                          VARCHAR(30) NOT NULL DEFAULT 'open',
+    summary                         VARCHAR(255) NOT NULL,
+    detected_at                     TIMESTAMP NOT NULL DEFAULT NOW(),
+    detected_by                     BIGINT NULL REFERENCES system_users(id),
+    resolved_at                     TIMESTAMP NULL,
+    resolved_by                     BIGINT NULL REFERENCES system_users(id),
+    created_at                      TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at                      TIMESTAMP NOT NULL DEFAULT NOW(),
+    CONSTRAINT ck_inconsistency_severity CHECK (severity IN ('low','medium','high','critical')),
+    CONSTRAINT ck_inconsistency_status CHECK (status IN ('open','in_review','resolved','discarded'))
+);
+
+CREATE INDEX ix_inconsistencies_act_id ON inconsistencies(act_id);
+CREATE INDEX ix_inconsistencies_status ON inconsistencies(status);
+CREATE INDEX ix_inconsistencies_type ON inconsistencies(inconsistency_type);
+
+CREATE TABLE inconsistency_details (
+    id                              BIGSERIAL PRIMARY KEY,
+    inconsistency_id                BIGINT NOT NULL REFERENCES inconsistencies(id) ON DELETE CASCADE,
+    reference_table                 VARCHAR(80) NULL,
+    reference_id                    BIGINT NULL,
+    expected_value                  TEXT NULL,
+    actual_value                    TEXT NULL,
+    notes                           TEXT NULL,
+    created_at                      TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+-- =========================================================
+-- 11) HISTORIALES
+-- =========================================================
+
+CREATE TABLE act_history (
+    id                              BIGSERIAL PRIMARY KEY,
+    act_id                          BIGINT NOT NULL REFERENCES acts(id) ON DELETE CASCADE,
+    event_type                      VARCHAR(50) NOT NULL,
+    previous_status                 VARCHAR(30) NULL,
+    next_status                     VARCHAR(30) NULL,
+    notes                           TEXT NULL,
+    performed_by                    BIGINT NULL REFERENCES system_users(id),
+    created_at                      TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX ix_act_history_act_id ON act_history(act_id);
+
+CREATE TABLE document_history (
+    id                              BIGSERIAL PRIMARY KEY,
+    act_id                          BIGINT NOT NULL REFERENCES acts(id) ON DELETE CASCADE,
+    previous_document_status        VARCHAR(30) NULL,
+    next_document_status            VARCHAR(30) NULL,
+    file_id                         BIGINT NULL REFERENCES files(id),
+    notes                           TEXT NULL,
+    performed_by                    BIGINT NULL REFERENCES system_users(id),
+    created_at                      TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX ix_document_history_act_id ON document_history(act_id);
+
+CREATE TABLE inconsistency_history (
+    id                              BIGSERIAL PRIMARY KEY,
+    inconsistency_id                BIGINT NOT NULL REFERENCES inconsistencies(id) ON DELETE CASCADE,
+    previous_status                 VARCHAR(30) NULL,
+    next_status                     VARCHAR(30) NULL,
+    notes                           TEXT NULL,
+    performed_by                    BIGINT NULL REFERENCES system_users(id),
+    created_at                      TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+-- =========================================================
+-- 12) MOVIMIENTOS DE ACTIVOS
+-- =========================================================
+
+CREATE TABLE asset_movements (
+    id                              BIGSERIAL PRIMARY KEY,
+    asset_id                        BIGINT NOT NULL REFERENCES assets(id),
+    movement_type                   VARCHAR(50) NOT NULL,
+    movement_date                   TIMESTAMP NOT NULL DEFAULT NOW(),
+    from_reference                  VARCHAR(180) NULL,
+    to_reference                    VARCHAR(180) NULL,
+    previous_status                 VARCHAR(50) NULL,
+    next_status                     VARCHAR(50) NULL,
+    act_id                          BIGINT NULL REFERENCES acts(id),
+    operator_user_id                BIGINT NULL REFERENCES system_users(id),
+    notes                           TEXT NULL,
+    created_at                      TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX ix_asset_movements_asset_id ON asset_movements(asset_id);
+CREATE INDEX ix_asset_movements_act_id ON asset_movements(act_id);
+CREATE INDEX ix_asset_movements_movement_type ON asset_movements(movement_type);
+CREATE INDEX ix_asset_movements_movement_date ON asset_movements(movement_date);
+
+-- =========================================================
+-- 13) RESTRICCIONES DE APOYO
+-- =========================================================
+
+-- Laboratorio no debe tener destinatario principal
+ALTER TABLE acts
+    ADD CONSTRAINT ck_acts_lab_recipient
+    CHECK (
+        (act_type = 'lab' AND recipient_user_id IS NULL)
+        OR
+        (act_type <> 'lab')
+    );
+
+-- Tipos no laboratorio deben tener destinatario
+-- Nota: reasignación usa recipient_user_id como destinatario principal (destino)
+ALTER TABLE acts
+    ADD CONSTRAINT ck_acts_non_lab_recipient
+    CHECK (
+        (act_type = 'lab')
+        OR
+        (act_type <> 'lab' AND recipient_user_id IS NOT NULL)
+    );
+
+COMMIT;
+
+
+

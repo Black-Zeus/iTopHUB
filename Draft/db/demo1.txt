@@ -1,0 +1,928 @@
+# Borrador BD - Iteracion 1
+
+Este documento resume tablas candidatas para la base de datos del Hub a partir del draft general `index/login`.
+No es DDL. No define tipos de datos, PK/FK ni restricciones tecnicas finales.
+Su objetivo es servir como registro inicial para validar alcance funcional antes de modelar la base real.
+
+TABLA: people
+Finalidad:
+Registrar personas de negocio o custodios vinculados a activos, entregas, recepciones y consultas.
+
+Campos:
+- id
+  Observacion: Identificador interno de la persona dentro del Hub.
+- full_name
+  Observacion: Nombre visible de la persona para busqueda, actas y fichas.
+- identifier
+  Observacion: Identificador corporativo, legajo o codigo interno del colaborador.
+- email
+  Observacion: Correo principal usado en busquedas, contacto y cruce con iTop.
+- area
+  Observacion: Area o unidad organizacional de la persona.
+- job_title
+  Observacion: Cargo o funcion laboral mostrada en fichas e informes.
+- manager_name
+  Observacion: Nombre del jefe o responsable jerarquico, util para contexto operativo.
+- location_id
+  Observacion: Referencia a sede, oficina o ubicacion asociada a la persona.
+- status
+  Observacion: Estado de vigencia de la persona, por ejemplo activa o inactiva.
+- hire_date
+  Observacion: Fecha de ingreso, util para reportes de asignacion o dotacion.
+- source_system
+  Observacion: Sistema origen del dato, por ejemplo iTop o carga local.
+- external_ref
+  Observacion: Id externo para sincronizacion con sistemas maestros.
+- created_at
+  Observacion: Fecha de creacion del registro en Hub.
+- updated_at
+  Observacion: Ultima fecha de modificacion del registro.
+
+TABLA: system_users
+Finalidad:
+Registrar los usuarios internos que operan el Hub y ejecutan acciones sobre documentos, checklists y configuracion.
+
+Campos:
+- id
+  Observacion: Identificador interno del usuario del sistema.
+- username
+  Observacion: Login o nombre de usuario utilizado para acceder.
+- full_name
+  Observacion: Nombre visible del operador.
+- email
+  Observacion: Correo del usuario del sistema.
+- role_id
+  Observacion: Referencia al rol funcional asignado.
+- status
+  Observacion: Estado del usuario, por ejemplo activo, bloqueado o inactivo.
+- api_code
+  Observacion: Codigo tecnico o referencia expuesta en el draft para trazabilidad.
+- person_id
+  Observacion: Relacion opcional con una persona del maestro de colaboradores.
+- last_login_at
+  Observacion: Ultimo acceso registrado.
+- created_at
+  Observacion: Fecha de alta del usuario.
+- updated_at
+  Observacion: Ultima actualizacion del usuario.
+
+TABLA: roles
+Finalidad:
+Definir los perfiles operativos del sistema para ordenar permisos y vistas.
+
+Campos:
+- id
+  Observacion: Identificador del rol.
+- name
+  Observacion: Nombre corto del rol, por ejemplo Administrador o Soporte Laboratorio.
+- description
+  Observacion: Explica el alcance funcional del rol.
+- status
+  Observacion: Permite activar o desactivar el rol.
+- created_at
+  Observacion: Fecha de creacion.
+- updated_at
+  Observacion: Fecha de ultima modificacion.
+
+TABLA: locations
+Finalidad:
+Centralizar sedes, oficinas, areas fisicas o ubicaciones logicas usadas por personas y activos.
+
+Campos:
+- id
+  Observacion: Identificador interno de la ubicacion.
+- name
+  Observacion: Nombre visible de la ubicacion.
+- type
+  Observacion: Tipo de ubicacion, por ejemplo oficina, laboratorio, datacenter o stock.
+- parent_location_id
+  Observacion: Permite armar jerarquias de ubicacion.
+- status
+  Observacion: Indica si la ubicacion sigue vigente.
+- notes
+  Observacion: Comentarios utiles para operacion o clasificacion.
+
+TABLA: asset_classes
+Finalidad:
+Mantener las clases CMDB o familias de activos soportadas por el Hub.
+
+Campos:
+- id
+  Observacion: Identificador de la clase.
+- class_key
+  Observacion: Clave tecnica usada por la app y la integracion.
+- cmdb_class_name
+  Observacion: Nombre de la clase segun CMDB o iTop.
+- functional_name
+  Observacion: Nombre funcional o legible para usuarios.
+- status
+  Observacion: Permite activar o desactivar la clase en el Hub.
+
+TABLA: asset_brands
+Finalidad:
+Catalogo de marcas de activos.
+
+Campos:
+- id
+  Observacion: Identificador de la marca.
+- name
+  Observacion: Nombre de la marca.
+- status
+  Observacion: Permite ocultar o desactivar marcas obsoletas.
+
+TABLA: asset_models
+Finalidad:
+Catalogo de modelos por marca y clase de activo.
+
+Campos:
+- id
+  Observacion: Identificador del modelo.
+- brand_id
+  Observacion: Marca a la que pertenece el modelo.
+- asset_class_id
+  Observacion: Clase de activo asociada.
+- name
+  Observacion: Nombre comercial o tecnico del modelo.
+- status
+  Observacion: Indica si el modelo sigue habilitado.
+- is_standard_model
+  Observacion: Sirve para distinguir modelos dentro o fuera del estandar corporativo.
+
+TABLA: assets
+Finalidad:
+Guardar el maestro de activos visibles para CMDB, entregas, recepciones y laboratorio.
+
+Campos:
+- id
+  Observacion: Identificador interno del activo.
+- code
+  Observacion: Codigo principal del activo; en el draft tambien actua como HostName visible.
+- hostname
+  Observacion: Nombre de host si se quiere separar del codigo patrimonial.
+- name
+  Observacion: Nombre descriptivo del equipo o activo.
+- asset_class_id
+  Observacion: Clase o familia del activo.
+- type_label
+  Observacion: Etiqueta visible de tipo, util para la UI y reportes.
+- brand_id
+  Observacion: Marca del activo.
+- model_id
+  Observacion: Modelo del activo.
+- serial_number
+  Observacion: Numero de serie fisico o logico.
+- inventory_code
+  Observacion: Codigo patrimonial o de inventario interno.
+- current_person_id
+  Observacion: Persona custodio o usuario actual del activo.
+- current_system_user_id
+  Observacion: Operador responsable actual si el activo queda bajo control interno.
+- location_id
+  Observacion: Ubicacion actual del activo.
+- operational_status
+  Observacion: Estado operativo visible en grillas y filtros.
+- cmdb_status
+  Observacion: Estado sincronizado o alineado con la CMDB.
+- technical_condition
+  Observacion: Condicion tecnica general, por ejemplo operativo o no operativo.
+- onboarding_date
+  Observacion: Fecha de alta o incorporacion del activo.
+- observations
+  Observacion: Notas libres relevantes del equipo.
+- external_cmdb_id
+  Observacion: Identificador externo del registro en iTop o CMDB.
+- created_at
+  Observacion: Fecha de creacion en Hub.
+- updated_at
+  Observacion: Fecha de ultima modificacion.
+
+TABLA: asset_movements
+Finalidad:
+Conservar la trazabilidad historica de cada movimiento operacional del activo.
+
+Campos:
+- id
+  Observacion: Identificador del movimiento.
+- asset_id
+  Observacion: Activo afectado por el movimiento.
+- movement_type
+  Observacion: Tipo de movimiento, por ejemplo entrega, recepcion, reasignacion o cambio de estado.
+- movement_date
+  Observacion: Fecha del movimiento.
+- from_reference
+  Observacion: Origen del movimiento, puede ser persona, ubicacion o estado previo.
+- to_reference
+  Observacion: Destino del movimiento, puede ser persona, ubicacion o estado nuevo.
+- previous_status
+  Observacion: Estado anterior relevante para trazabilidad.
+- next_status
+  Observacion: Estado resultante despues del movimiento.
+- document_type
+  Observacion: Tipo documental que respalda el movimiento.
+- document_id
+  Observacion: Referencia al documento asociado.
+- operator_user_id
+  Observacion: Usuario del sistema que registro o gestiono el movimiento.
+- notes
+  Observacion: Comentario libre para ampliar contexto del cambio.
+
+TABLA: handover_documents
+Finalidad:
+Registrar la cabecera de las actas de entrega.
+
+Campos:
+- id
+  Observacion: Identificador interno del acta.
+- document_number
+  Observacion: Numero visible del documento, por ejemplo ENT-2026-0317.
+- generated_at
+  Observacion: Fecha y hora de generacion del acta.
+- owner_user_id
+  Observacion: Encargado de generar el acta.
+- status
+  Observacion: Estado del acta, por ejemplo borrador, emitida o confirmada.
+- handover_type
+  Observacion: Tipo de entrega, por ejemplo asignacion inicial, reasignacion o reposicion.
+- reason
+  Observacion: Motivo o justificacion de la emision.
+- notes
+  Observacion: Observaciones generales del documento.
+- receiver_person_id
+  Observacion: Persona que recibe el activo o los activos.
+- default_checklist_id
+  Observacion: Plantilla de checklist aplicada si corresponde.
+- pdf_file_id
+  Observacion: Archivo PDF generado o asociado al documento.
+- created_at
+  Observacion: Fecha de alta del registro.
+- updated_at
+  Observacion: Fecha de ultima actualizacion.
+
+TABLA: handover_document_items
+Finalidad:
+Registrar cada activo incluido dentro de un acta de entrega.
+
+Campos:
+- id
+  Observacion: Identificador del item.
+- handover_document_id
+  Observacion: Acta a la que pertenece el item.
+- asset_id
+  Observacion: Activo incluido en la entrega.
+- item_status
+  Observacion: Estado del item dentro del proceso documental, si se requiere granularidad.
+- notes
+  Observacion: Observaciones del item, por ejemplo accesorios o condiciones particulares.
+
+TABLA: reception_documents
+Finalidad:
+Registrar la cabecera de las actas de recepcion o devolucion.
+
+Campos:
+- id
+  Observacion: Identificador interno del documento.
+- document_number
+  Observacion: Numero visible del acta de recepcion.
+- generated_at
+  Observacion: Fecha y hora de generacion.
+- owner_user_id
+  Observacion: Encargado de generar el acta.
+- status
+  Observacion: Estado documental o tecnico de la recepcion.
+- origin_reference
+  Observacion: Origen declarado del activo, persona, sede o area.
+- reason
+  Observacion: Motivo de ingreso o devolucion.
+- notes
+  Observacion: Observaciones generales de la recepcion.
+- deliverer_person_id
+  Observacion: Persona que entrega fisicamente el equipo.
+- receiver_user_id
+  Observacion: Operador que recibe o registra el ingreso.
+- default_checklist_id
+  Observacion: Checklist aplicado si se usa en recepcion.
+- pdf_file_id
+  Observacion: PDF asociado al documento.
+- created_at
+  Observacion: Fecha de creacion.
+- updated_at
+  Observacion: Fecha de ultima modificacion.
+
+TABLA: reception_document_items
+Finalidad:
+Registrar el detalle tecnico inicial de cada activo incluido en una recepcion.
+
+Campos:
+- id
+  Observacion: Identificador del item recepcionado.
+- reception_document_id
+  Observacion: Documento de recepcion al que pertenece.
+- asset_id
+  Observacion: Activo recibido.
+- received_state
+  Observacion: Estado recibido declarado en el formulario.
+- accessories_text
+  Observacion: Texto libre de accesorios entregados junto al equipo.
+- technical_notes
+  Observacion: Observacion tecnica inicial levantada al ingreso.
+- diagnosis
+  Observacion: Diagnostico preliminar o hallazgo inicial.
+- result_notes
+  Observacion: Comentario de resultado o seguimiento inmediato.
+
+TABLA: reception_flags
+Finalidad:
+Guardar banderas operativas derivadas de la recepcion para clasificar la accion siguiente.
+
+Campos:
+- id
+  Observacion: Identificador del conjunto de banderas.
+- reception_item_id
+  Observacion: Item de recepcion al que pertenecen.
+- requires_review
+  Observacion: Indica si requiere revision tecnica.
+- requires_format
+  Observacion: Indica si requiere formateo o reinstalacion.
+- requires_repair
+  Observacion: Indica si requiere reparacion.
+- is_operational
+  Observacion: Indica si se considera operativo al momento del ingreso.
+- is_down
+  Observacion: Indica si el equipo esta caido o fuera de servicio.
+
+TABLA: reception_inspection_reports
+Finalidad:
+Guardar una inspeccion estructurada del estado recibido del activo.
+
+Campos:
+- id
+  Observacion: Identificador del reporte de inspeccion.
+- reception_item_id
+  Observacion: Item de recepcion asociado.
+- general_condition
+  Observacion: Evaluacion general del equipo.
+- case_condition
+  Observacion: Estado del chasis, carcasa o estructura.
+- screen_condition
+  Observacion: Estado de la pantalla.
+- keyboard_condition
+  Observacion: Estado del teclado.
+- pointer_condition
+  Observacion: Estado de mouse, touchpad o puntero.
+- battery_condition
+  Observacion: Estado o autonomia de bateria si aplica.
+- charger_condition
+  Observacion: Estado o disponibilidad del cargador.
+- ports_condition
+  Observacion: Estado general de puertos y conectividad fisica.
+
+TABLA: lab_records
+Finalidad:
+Registrar la gestion tecnica de laboratorio asociada a un activo recepcionado.
+
+Campos:
+- id
+  Observacion: Identificador interno del registro de laboratorio.
+- report_number
+  Observacion: Folio o numero visible, por ejemplo LAB-2026-0048.
+- reception_document_id
+  Observacion: Documento de recepcion origen del caso.
+- asset_id
+  Observacion: Activo trabajado en laboratorio.
+- entry_at
+  Observacion: Fecha de ingreso al laboratorio.
+- closed_at
+  Observacion: Fecha y hora de cierre tecnico.
+- owner_user_id
+  Observacion: Usuario que genera o administra el registro.
+- technician_user_id
+  Observacion: Tecnico asignado al caso.
+- status
+  Observacion: Estado actual del flujo de laboratorio.
+- reason
+  Observacion: Motivo de ingreso heredado o definido en laboratorio.
+- priority
+  Observacion: Prioridad operativa del caso.
+- technical_result
+  Observacion: Resultado tecnico declarado, por ejemplo diagnostico emitido o listo para devolucion.
+- technical_description
+  Observacion: Descripcion detallada del trabajo o hallazgos.
+- return_status
+  Observacion: Campo opcional para reflejar si vuelve a stock, usuario o sigue pendiente.
+- created_at
+  Observacion: Fecha de creacion.
+- updated_at
+  Observacion: Fecha de ultima actualizacion.
+
+TABLA: lab_evidence
+Finalidad:
+Registrar evidencias del laboratorio, incluyendo imagenes y descripciones.
+
+Campos:
+- id
+  Observacion: Identificador de la evidencia.
+- lab_record_id
+  Observacion: Registro tecnico al que pertenece.
+- title
+  Observacion: Titulo corto de la evidencia.
+- description
+  Observacion: Explicacion de lo que muestra o respalda la evidencia.
+- file_id
+  Observacion: Referencia al archivo almacenado.
+- captured_at
+  Observacion: Fecha de captura o carga.
+- created_by
+  Observacion: Usuario que subio o asocio la evidencia.
+
+TABLA: devices
+Finalidad:
+Registrar tablets o dispositivos moviles vinculados al Hub.
+
+Campos:
+- id
+  Observacion: Identificador interno del dispositivo.
+- name
+  Observacion: Nombre operativo asignado al dispositivo.
+- internal_code
+  Observacion: Codigo interno visible en la grilla.
+- registration_code
+  Observacion: Codigo de registro usado en el proceso de vinculacion.
+- platform
+  Observacion: Plataforma principal, en este draft Android.
+- os_family
+  Observacion: Familia o variante del sistema operativo si luego se requiere mayor detalle.
+- registered_at
+  Observacion: Fecha de registro del dispositivo.
+- last_sync_at
+  Observacion: Ultima sincronizacion conocida.
+- status
+  Observacion: Estado del dispositivo, por ejemplo activo, desvinculado o bloqueado.
+- linked_by_user_id
+  Observacion: Usuario que ejecuto el alta o vinculacion.
+- notes
+  Observacion: Comentarios operativos del dispositivo.
+
+TABLA: checklist_templates
+Finalidad:
+Definir plantillas de checklist reutilizables para laboratorio, entrega y recepcion.
+
+Campos:
+- id
+  Observacion: Identificador de la plantilla.
+- module_context
+  Observacion: Modulo al que aplica, por ejemplo lab, handover o reception.
+- name
+  Observacion: Nombre visible del checklist.
+- asset_class_id
+  Observacion: Clase de activo a la que aplica la plantilla.
+- description
+  Observacion: Explica el objetivo operativo de la plantilla.
+- status
+  Observacion: Indica si la plantilla esta activa para uso.
+- version
+  Observacion: Permite versionar cambios si luego se necesita trazabilidad.
+- created_by
+  Observacion: Usuario creador de la plantilla.
+- updated_by
+  Observacion: Ultimo usuario que modifico la plantilla.
+
+TABLA: checklist_template_items
+Finalidad:
+Registrar los checks o preguntas que componen cada plantilla.
+
+Campos:
+- id
+  Observacion: Identificador del item de plantilla.
+- template_id
+  Observacion: Checklist al que pertenece.
+- order_index
+  Observacion: Orden de visualizacion del check.
+- name
+  Observacion: Nombre del check.
+- description
+  Observacion: Instruccion o detalle de uso para el operador.
+- input_type
+  Observacion: Tipo de captura esperado, por ejemplo texto, textarea, check u opcion.
+- option_a
+  Observacion: Primer valor posible para checks tipo opcion.
+- option_b
+  Observacion: Segundo valor posible para checks tipo opcion.
+- is_required
+  Observacion: Permite definir si el check es obligatorio.
+- status
+  Observacion: Permite ocultar o desactivar el item sin borrarlo.
+
+TABLA: checklist_runs
+Finalidad:
+Guardar la aplicacion real de una plantilla sobre una entrega, recepcion o registro tecnico.
+
+Campos:
+- id
+  Observacion: Identificador de la ejecucion.
+- template_id
+  Observacion: Plantilla utilizada.
+- module_context
+  Observacion: Contexto funcional donde se ejecuto.
+- reference_table
+  Observacion: Tabla de negocio relacionada, para evitar acoplar el diseno desde ya.
+- reference_id
+  Observacion: Registro especifico al que pertenece la ejecucion.
+- executed_by
+  Observacion: Usuario que completo el checklist.
+- executed_at
+  Observacion: Fecha de ejecucion.
+- status
+  Observacion: Estado de la ejecucion, por ejemplo borrador o completado.
+
+TABLA: checklist_run_answers
+Finalidad:
+Guardar las respuestas de cada item ejecutado en un checklist.
+
+Campos:
+- id
+  Observacion: Identificador de la respuesta.
+- checklist_run_id
+  Observacion: Ejecucion a la que pertenece.
+- template_item_id
+  Observacion: Item respondido.
+- answer_text
+  Observacion: Respuesta libre si aplica.
+- answer_boolean
+  Observacion: Respuesta si el item se maneja como verdadero o falso.
+- answer_option
+  Observacion: Valor elegido cuando el check usa opciones.
+- notes
+  Observacion: Observacion adicional de la respuesta.
+
+TABLA: files
+Finalidad:
+Registrar archivos asociados a documentos, evidencias o anexos.
+
+Campos:
+- id
+  Observacion: Identificador del archivo.
+- storage_provider
+  Observacion: Proveedor o medio de almacenamiento, por ejemplo local, S3 o MinIO.
+- storage_path
+  Observacion: Ruta o referencia tecnica de almacenamiento.
+- file_name
+  Observacion: Nombre visible del archivo.
+- mime_type
+  Observacion: Tipo logico del archivo.
+- extension
+  Observacion: Extension del archivo.
+- size_bytes
+  Observacion: Tamano del archivo, util para control y validacion.
+- checksum
+  Observacion: Huella para integridad o deduplicacion si luego se requiere.
+- uploaded_by
+  Observacion: Usuario que subio el archivo.
+- uploaded_at
+  Observacion: Fecha de carga.
+- status
+  Observacion: Estado del archivo, por ejemplo activo, reemplazado o eliminado logico.
+
+TABLA: document_links
+Finalidad:
+Relacionar documentos o entidades con archivos adjuntos y respaldos.
+
+Campos:
+- id
+  Observacion: Identificador del vinculo.
+- document_type
+  Observacion: Tipo de documento o entidad relacionada.
+- document_id
+  Observacion: Id del registro de negocio relacionado.
+- file_id
+  Observacion: Archivo asociado.
+- link_type
+  Observacion: Tipo de relacion, por ejemplo pdf principal, evidencia o anexo.
+- notes
+  Observacion: Comentario libre sobre el vinculo.
+
+TABLA: app_settings
+Finalidad:
+Guardar configuraciones generales del sistema editables desde la vista de configuracion.
+
+Campos:
+- id
+  Observacion: Identificador del ajuste.
+- group_key
+  Observacion: Grupo funcional, por ejemplo mail, docs, cmdb o sync.
+- setting_key
+  Observacion: Clave puntual del ajuste.
+- setting_value
+  Observacion: Valor parametrizado sin entrar aun en definicion tecnica de tipo.
+- value_type
+  Observacion: Ayuda futura para interpretar el valor de manera uniforme.
+- is_sensitive
+  Observacion: Indica si el valor deberia tratarse como sensible.
+- updated_by
+  Observacion: Usuario que cambio el parametro.
+- updated_at
+  Observacion: Fecha del ultimo cambio.
+
+TABLA: integration_settings
+Finalidad:
+Guardar parametros de integracion con iTop u otros servicios externos.
+
+Campos:
+- id
+  Observacion: Identificador del bloque de integracion.
+- integration_name
+  Observacion: Nombre de la integracion, por ejemplo iTop.
+- base_url
+  Observacion: URL base del servicio integrado.
+- technical_user
+  Observacion: Usuario tecnico usado para la integracion.
+- token_ref
+  Observacion: Referencia al token o secreto, idealmente no el valor plano.
+- status
+  Observacion: Estado general de la integracion.
+- last_check_at
+  Observacion: Ultima verificacion o ping conocido.
+- last_check_result
+  Observacion: Resultado resumido de la verificacion.
+
+TABLA: sync_settings
+Finalidad:
+Guardar la configuracion funcional de las sincronizaciones.
+
+Campos:
+- id
+  Observacion: Identificador de la configuracion de sync.
+- schedule_mode
+  Observacion: Modo de automatizacion o programacion.
+- frequency_minutes
+  Observacion: Frecuencia estimada en minutos si aplica.
+- scope
+  Observacion: Alcance de la sincronizacion, por ejemplo incremental, completa o documental.
+- manual_enabled
+  Observacion: Indica si la ejecucion manual esta permitida.
+- last_sync_at
+  Observacion: Fecha y hora de la ultima sincronizacion conocida.
+- last_sync_status
+  Observacion: Estado resumido de la ultima sincronizacion.
+
+TABLA: sync_runs
+Finalidad:
+Registrar ejecuciones historicas de sincronizacion para auditoria y soporte.
+
+Campos:
+- id
+  Observacion: Identificador de la corrida.
+- started_at
+  Observacion: Inicio de la ejecucion.
+- finished_at
+  Observacion: Fin de la ejecucion.
+- scope
+  Observacion: Alcance ejecutado en esa corrida.
+- trigger_type
+  Observacion: Origen del disparo, por ejemplo manual o automatico.
+- status
+  Observacion: Resultado general de la corrida.
+- processed_count
+  Observacion: Volumen de registros procesados.
+- error_count
+  Observacion: Cantidad de errores detectados.
+- summary
+  Observacion: Resumen textual de la corrida.
+- executed_by
+  Observacion: Usuario que la disparo si fue manual.
+
+TABLA: mail_settings
+Finalidad:
+Guardar configuracion funcional del correo saliente.
+
+Campos:
+- id
+  Observacion: Identificador del set de correo.
+- display_sender_name
+  Observacion: Nombre visible del remitente.
+- sender_email
+  Observacion: Correo remitente.
+- smtp_host
+  Observacion: Servidor SMTP.
+- smtp_port
+  Observacion: Puerto de salida.
+- smtp_user
+  Observacion: Usuario tecnico SMTP.
+- smtp_secret_ref
+  Observacion: Referencia al secreto del correo.
+- security_mode
+  Observacion: Modo de seguridad, por ejemplo TLS o SSL.
+- footer_text
+  Observacion: Pie por defecto de correos documentales.
+- status
+  Observacion: Estado funcional de la configuracion.
+- updated_at
+  Observacion: Fecha de ultimo cambio.
+
+TABLA: mail_test_logs
+Finalidad:
+Registrar pruebas SMTP realizadas desde configuracion.
+
+Campos:
+- id
+  Observacion: Identificador de la prueba.
+- recipient_email
+  Observacion: Destinatario usado en la prueba.
+- subject
+  Observacion: Asunto enviado.
+- message_body
+  Observacion: Cuerpo del mensaje de prueba.
+- sent_by
+  Observacion: Usuario que lanzo la prueba.
+- sent_at
+  Observacion: Fecha de envio.
+- status
+  Observacion: Resultado de la prueba.
+- error_message
+  Observacion: Mensaje de error si la prueba falla.
+
+TABLA: document_settings
+Finalidad:
+Guardar reglas funcionales de numeracion y textos por defecto para documentos.
+
+Campos:
+- id
+  Observacion: Identificador del bloque de reglas.
+- handover_prefix
+  Observacion: Prefijo de actas de entrega.
+- reception_prefix
+  Observacion: Prefijo de actas de recepcion.
+- lab_prefix
+  Observacion: Prefijo de registros de laboratorio.
+- number_format
+  Observacion: Mascara o criterio de numeracion visible.
+- default_observation
+  Observacion: Texto por defecto para observaciones documentales.
+- updated_at
+  Observacion: Fecha de ultimo ajuste.
+
+TABLA: cmdb_scope_settings
+Finalidad:
+Guardar que clases CMDB quedan habilitadas para operacion dentro del Hub.
+
+Campos:
+- id
+  Observacion: Identificador del parametro.
+- asset_class_id
+  Observacion: Clase CMDB afectada.
+- is_enabled
+  Observacion: Indica si la clase entra en el alcance funcional.
+- updated_at
+  Observacion: Fecha de cambio.
+
+TABLA: replacement_policy_settings
+Finalidad:
+Configurar la estrategia de recambio o renovacion de activos.
+
+Campos:
+- id
+  Observacion: Identificador de la politica.
+- use_age
+  Observacion: Indica si se considera antiguedad.
+- use_status
+  Observacion: Indica si se considera estado del activo.
+- use_recurrent_failures
+  Observacion: Indica si se consideran fallas reiteradas.
+- threshold_value
+  Observacion: Valor base del umbral de recambio.
+- threshold_unit
+  Observacion: Unidad del umbral, por ejemplo meses o anos.
+- updated_at
+  Observacion: Fecha del ultimo cambio.
+
+TABLA: replacement_policy_statuses
+Finalidad:
+Guardar los estados que hacen que un activo entre en criterio de recambio.
+
+Campos:
+- id
+  Observacion: Identificador del estado configurado.
+- policy_id
+  Observacion: Politica principal relacionada.
+- status_name
+  Observacion: Nombre del estado considerado.
+- is_enabled
+  Observacion: Permite activar o desactivar el estado dentro de la regla.
+
+TABLA: recurrent_failure_rules
+Finalidad:
+Guardar reglas para determinar cuando un activo presenta fallas reiteradas.
+
+Campos:
+- id
+  Observacion: Identificador de la regla.
+- policy_id
+  Observacion: Politica de recambio asociada.
+- window_value
+  Observacion: Cantidad de tiempo o eventos a revisar.
+- window_unit
+  Observacion: Unidad del rango de observacion.
+- min_failures
+  Observacion: Minimo de fallas para disparar criterio.
+- asset_scope
+  Observacion: Alcance de clases o familias afectadas por la regla.
+- status
+  Observacion: Estado de la regla.
+
+TABLA: report_definitions
+Finalidad:
+Mantener el catalogo de informes disponibles en el sistema.
+
+Campos:
+- id
+  Observacion: Identificador del informe.
+- code
+  Observacion: Codigo tecnico o clave interna.
+- name
+  Observacion: Nombre visible del informe.
+- category
+  Observacion: Categoria funcional del informe.
+- frequency
+  Observacion: Frecuencia sugerida de uso o generacion.
+- description
+  Observacion: Explicacion funcional del reporte.
+- sample_result
+  Observacion: Texto de ejemplo mostrado en el draft.
+- status
+  Observacion: Indica si el informe esta publicado o reservado.
+
+TABLA: report_parameters
+Finalidad:
+Guardar los parametros configurables de cada informe.
+
+Campos:
+- id
+  Observacion: Identificador del parametro.
+- report_definition_id
+  Observacion: Informe al que pertenece.
+- parameter_key
+  Observacion: Clave interna del parametro.
+- label
+  Observacion: Texto visible en la interfaz.
+- input_type
+  Observacion: Tipo funcional del control, por ejemplo select, date o search.
+- options_source
+  Observacion: Fuente de opciones o lista esperada si el parametro usa selector.
+- sort_order
+  Observacion: Orden en que aparece dentro del formulario del informe.
+
+TABLA: auth_sessions
+Finalidad:
+Registrar sesiones de acceso al Hub.
+
+Campos:
+- id
+  Observacion: Identificador de la sesion.
+- system_user_id
+  Observacion: Usuario autenticado.
+- session_token
+  Observacion: Token o clave de sesion.
+- remember_me
+  Observacion: Indica si la sesion fue marcada para persistencia.
+- started_at
+  Observacion: Fecha y hora de inicio.
+- expires_at
+  Observacion: Fecha y hora de expiracion prevista.
+- last_activity_at
+  Observacion: Ultima actividad registrada.
+- ip_address
+  Observacion: IP de origen si se decide auditar accesos.
+- user_agent
+  Observacion: Huella basica del cliente que abre la sesion.
+- status
+  Observacion: Estado de la sesion, por ejemplo activa, cerrada o expirada.
+
+TABLA: auth_audit_logs
+Finalidad:
+Guardar eventos de acceso y autenticacion para auditoria.
+
+Campos:
+- id
+  Observacion: Identificador del evento.
+- login_identifier
+  Observacion: Usuario o correo ingresado al intentar acceso.
+- system_user_id
+  Observacion: Usuario relacionado si pudo resolverse.
+- event_type
+  Observacion: Tipo de evento, por ejemplo login_ok, login_fail o logout.
+- result
+  Observacion: Resultado del intento o evento.
+- ip_address
+  Observacion: Direccion IP de origen.
+- user_agent
+  Observacion: Cliente usado en el acceso.
+- created_at
+  Observacion: Fecha y hora del evento.
+- details
+  Observacion: Texto adicional para diagnostico o auditoria.
+
+Notas de iteracion:
+- Este listado mezcla tablas muy probables con tablas que aun deben validarse.
+- Algunas tablas pueden fusionarse en iteraciones futuras si decides simplificar.
+- Algunas tablas pueden separarse mas si luego necesitas auditoria fuerte o alta trazabilidad.
+- Para autenticacion, el draft sugiere acceso con credenciales de iTop; por eso no se propuso una tabla local de passwords como base principal.
+- Antes de pasar a DDL conviene validar: origen maestro de personas, relacion real con iTop, numeracion documental, archivos, permisos, y si los reportes seran configurables o fijos.
