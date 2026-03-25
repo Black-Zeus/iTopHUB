@@ -9,7 +9,7 @@ export function HeaderThemeToggle() {
       onClick={toggle}
       aria-label="Alternar tema"
       title={theme === "dark" ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
-      className="topbar-theme-toggle"
+      className="flex h-9 w-9 items-center justify-center rounded-full border border-[var(--border-color)] bg-[var(--bg-panel)] text-[var(--text-secondary)] transition hover:-translate-y-px hover:bg-[var(--bg-hover)]"
     >
       {theme === "dark" ? (
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">

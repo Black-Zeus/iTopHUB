@@ -2,14 +2,16 @@ import { useLocation } from "react-router-dom";
 
 const ROUTE_MAP = {
   "/dashboard": { breadcrumb: "Inicio / Dashboard", title: "Dashboard" },
-  "/handover": { breadcrumb: "Operación / Actas de Entrega", title: "Actas de Entrega" },
-  "/reception": { breadcrumb: "Operación / Actas de Recepción", title: "Actas de Recepción" },
+  "/handover": { breadcrumb: "Operacion / Actas de Entrega", title: "Actas de Entrega" },
+  "/reception": { breadcrumb: "Operacion / Actas de Recepcion", title: "Actas de Recepcion" },
+  "/reassignment": { breadcrumb: "Operacion / Acta de Reasignacion", title: "Acta de Reasignacion" },
   "/lab": { breadcrumb: "Laboratorio / Registro", title: "Laboratorio" },
+  "/devices": { breadcrumb: "Laboratorio / Dispositivos", title: "Dispositivos" },
   "/assets": { breadcrumb: "CMDB / Activos", title: "Activos CMDB" },
   "/people": { breadcrumb: "Consultas / Personas", title: "Personas" },
-  "/users": { breadcrumb: "Administración / Usuarios", title: "Usuarios del Sistema" },
-  "/reports": { breadcrumb: "Analítica / Informes", title: "Informes" },
-  "/settings": { breadcrumb: "Sistema / Configuración", title: "Configuración" },
+  "/users": { breadcrumb: "Administracion / Usuarios", title: "Usuarios del Sistema" },
+  "/reports": { breadcrumb: "Analitica / Informes", title: "Informes" },
+  "/settings": { breadcrumb: "Sistema / Configuracion", title: "Configuracion" },
 };
 
 export function HeaderBreadcrumb() {
@@ -21,9 +23,9 @@ export function HeaderBreadcrumb() {
     { breadcrumb: "iTop Hub", title: "" };
 
   return (
-    <div className="breadcrumb-copy">
-      <p className="breadcrumb-text">{match.breadcrumb}</p>
-      <h2 className="module-title">{match.title}</h2>
+    <div className="min-w-0">
+      <p className="mb-2 text-xs text-[var(--text-muted)]">{match.breadcrumb}</p>
+      <h2 className="text-base font-semibold text-[var(--text-primary)]">{match.title}</h2>
     </div>
   );
 }

@@ -7,7 +7,9 @@ import { LoginPage } from "@pages/login/LoginPage";
 import { DashboardPage } from "@pages/dashboard/DashboardPage";
 import { HandoverPage } from "@pages/handover/HandoverPage";
 import { ReceptionPage } from "@pages/reception/ReceptionPage";
+import { ReassignmentPage } from "@pages/reassignment/ReassignmentPage";
 import { LabPage } from "@pages/lab/LabPage";
+import { DevicesPage } from "@pages/devices/DevicesPage";
 import { AssetsPage } from "@pages/assets/AssetsPage";
 import { PeoplePage } from "@pages/people/PeoplePage";
 import { UsersPage } from "@pages/users/UsersPage";
@@ -43,7 +45,9 @@ export const router = createBrowserRouter(
         { path: "dashboard",  element: <DashboardPage /> },
         { path: "handover",   element: <HandoverPage /> },
         { path: "reception",  element: <ReceptionPage /> },
+        { path: "reassignment", element: <ReassignmentPage /> },
         { path: "lab",        element: <LabPage /> },
+        { path: "devices",    element: <DevicesPage /> },
         { path: "assets",     element: <AssetsPage /> },
         { path: "people",     element: <PeoplePage /> },
         { path: "users",      element: <UsersPage /> },
