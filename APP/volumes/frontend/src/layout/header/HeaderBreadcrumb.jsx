@@ -5,7 +5,7 @@ const ROUTE_MAP = {
   "/handover": { breadcrumb: "Operacion / Actas de Entrega", title: "Actas de Entrega" },
   "/reception": { breadcrumb: "Operacion / Actas de Recepcion", title: "Actas de Recepcion" },
   "/reassignment": { breadcrumb: "Operacion / Acta de Reasignacion", title: "Acta de Reasignacion" },
-  "/lab": { breadcrumb: "Laboratorio / Registro", title: "Laboratorio" },
+  "/lab": { breadcrumb: "Laboratorio / Actas", title: "Actas de Laboratorio" },
   "/devices": { breadcrumb: "Laboratorio / Dispositivos", title: "Dispositivos" },
   "/assets": { breadcrumb: "CMDB / Activos", title: "Activos CMDB" },
   "/people": { breadcrumb: "Consultas / Personas", title: "Personas" },

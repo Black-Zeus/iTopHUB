@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useContext } from "react";
 import { useNavigate } from "react-router-dom";
 import { AuthContext } from "@/App";
+import ModalManager from "@/components/ui/modal";
 
 export function HeaderUserMenu() {
   const { user, logout } = useContext(AuthContext);
@@ -28,6 +29,38 @@ export function HeaderUserMenu() {
   const handleLogout = () => {
     logout();
     navigate("/login");
+  };
+
+  const openProfileModal = () => {
+    setOpen(false);
+    ModalManager.info({
+      title: "Perfil",
+      message: "Placeholder inicial para la vista de perfil.",
+      content: (
+        <div className="space-y-3">
+          <p className="text-sm text-[var(--text-secondary)]">
+            Aqui mostraremos los datos del usuario autenticado.
+          </p>
+          <div className="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-app)] p-4 text-sm text-[var(--text-secondary)]">
+            <p><span className="font-semibold text-[var(--text-primary)]">Nombre:</span> {displayName}</p>
+            <p><span className="font-semibold text-[var(--text-primary)]">Referencia:</span> {displayMeta}</p>
+          </div>
+        </div>
+      ),
+    });
+  };
+
+  const openPasswordModal = () => {
+    setOpen(false);
+    ModalManager.info({
+      title: "Cambiar contrasena",
+      message: "Placeholder inicial para el cambio de contrasena.",
+      content: (
+        <p className="text-sm text-[var(--text-secondary)]">
+          Aqui conectaremos el formulario para actualizar la contrasena del usuario.
+        </p>
+      ),
+    });
   };
 
   return (
@@ -71,9 +104,31 @@ export function HeaderUserMenu() {
             <p className="block truncate text-[0.92rem] font-semibold text-[var(--text-primary)]">{displayName}</p>
             <p className="block truncate text-[0.82rem] text-[var(--text-muted)]">{displayMeta}</p>
           </div>
-          <div>
+          <div className="grid gap-1">
             <button
-              onClick={handleLogout}
+              onClick={openProfileModal}
+              className="flex w-full items-center gap-2 rounded-[10px] bg-transparent px-3 py-3 text-left text-[var(--text-primary)] transition hover:bg-[var(--bg-hover)]"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M20 21a8 8 0 0 0-16 0M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" />
+              </svg>
+              Perfil
+            </button>
+            <button
+              onClick={openPasswordModal}
+              className="flex w-full items-center gap-2 rounded-[10px] bg-transparent px-3 py-3 text-left text-[var(--text-primary)] transition hover:bg-[var(--bg-hover)]"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <rect x="3" y="11" width="18" height="10" rx="2" />
+                <path d="M7 11V8a5 5 0 0 1 10 0v3" />
+              </svg>
+              Cambiar contrasena
+            </button>
+            <button
+              onClick={() => {
+                setOpen(false);
+                handleLogout();
+              }}
               className="flex w-full items-center gap-2 rounded-[10px] bg-transparent px-3 py-3 text-left text-[var(--danger)] transition hover:bg-[rgba(210,138,138,0.1)]"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
