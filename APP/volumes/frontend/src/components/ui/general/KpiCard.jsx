@@ -1,4 +1,4 @@
-import { Badge } from "../ui";
+import { Badge } from "../../../ui";
 
 /**
  * KpiCard — tarjeta de métrica del dashboard

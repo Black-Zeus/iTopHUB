@@ -1,4 +1,4 @@
-import { Panel, PanelHeader } from "../../components/Panel";
+import { Panel, PanelHeader } from "../../components/ui/general/Panel";
 
 export function SettingsPage() {
   return (

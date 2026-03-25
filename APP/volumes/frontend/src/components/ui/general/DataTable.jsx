@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Spinner } from "../ui";
+import { Spinner } from "../../../ui";
 
 /**
  * DataTable — tabla de datos reutilizable

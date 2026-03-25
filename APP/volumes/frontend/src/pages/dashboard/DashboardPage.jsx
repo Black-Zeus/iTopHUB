@@ -1,5 +1,5 @@
-import { KpiCard }   from "../../components/KpiCard";
-import { Panel, PanelHeader } from "../../components/Panel";
+import { KpiCard }   from "../../components/ui/general/KpiCard";
+import { Panel, PanelHeader } from "../../components/ui/general/Panel";
 
 const KPI_DATA = [
   { label: "Activos registrados", value: "—",  helper: "Sin datos aún",    tone: "default" },
