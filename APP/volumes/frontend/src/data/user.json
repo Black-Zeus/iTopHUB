@@ -1,0 +1,52 @@
+[
+  {
+    "id": "sys-1",
+    "username": "victor.soto",
+    "apiCode": "usr_************************8f3a",
+    "name": "Victor Soto",
+    "email": "victor.soto@itophub.local",
+    "role": "Administrador",
+    "status": "Activo",
+    "pass": "acceso.2020"
+  },
+  {
+    "id": "sys-2",
+    "username": "marina.sosa",
+    "apiCode": "usr_************************2a91",
+    "name": "Marina Sosa",
+    "email": "marina.sosa@itophub.local",
+    "role": "Soporte General",
+    "status": "Activo",
+    "pass": "acceso.2020"
+  },
+  {
+    "id": "sys-3",
+    "username": "natalia.quiroga",
+    "apiCode": "usr_************************7c42",
+    "name": "Natalia Quiroga",
+    "email": "natalia.quiroga@itophub.local",
+    "role": "Soporte Laboratorio",
+    "status": "Activo",
+    "pass": "acceso.2020"
+  },
+  {
+    "id": "sys-4",
+    "username": "lucia.vera",
+    "apiCode": "usr_************************5d18",
+    "name": "Lucia Vera",
+    "email": "lucia.vera@itophub.local",
+    "role": "Soporte Terreno",
+    "status": "Activo",
+    "pass": "acceso.2020"
+  },
+  {
+    "id": "sys-5",
+    "username": "damian.ochoa",
+    "apiCode": "usr_************************9f62",
+    "name": "Damian Ochoa",
+    "email": "damian.ochoa@itophub.local",
+    "role": "Visualizador",
+    "status": "Activo",
+    "pass": "acceso.2020"
+  }
+]

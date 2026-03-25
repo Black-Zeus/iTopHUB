@@ -1,31 +1,31 @@
 import { useState, useEffect } from "react";
+import {
+  authenticateUser,
+  clearStoredSession,
+  getStoredSession,
+  persistSession,
+} from "@services/auth-session-service";
 
 export function useAuth() {
   // loading: true mientras se lee localStorage en el primer render
   const [loading, setLoading] = useState(true);
-  const [user, setUser]       = useState(null);
+  const [user, setUser] = useState(null);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem("itophub-user");
-      if (raw) setUser(JSON.parse(raw));
-    } catch {
-      localStorage.removeItem("itophub-user");
-      localStorage.removeItem("itophub-token");
-    } finally {
-      setLoading(false);
-    }
+    const session = getStoredSession();
+    if (session?.user) setUser(session.user);
+    setLoading(false);
   }, []);
 
-  const login = (userData, token) => {
-    localStorage.setItem("itophub-user", JSON.stringify(userData));
-    localStorage.setItem("itophub-token", token);
-    setUser(userData);
+  const login = async (credentials) => {
+    const session = await authenticateUser(credentials);
+    persistSession(session);
+    setUser(session.user);
+    return session;
   };
 
   const logout = () => {
-    localStorage.removeItem("itophub-user");
-    localStorage.removeItem("itophub-token");
+    clearStoredSession();
     setUser(null);
   };
 
