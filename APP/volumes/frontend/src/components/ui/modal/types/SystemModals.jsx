@@ -306,7 +306,10 @@ export const renderProgressModal = ({
       <div className={MODAL_CLASSES.bodyContent}>
         <div className="text-center py-6">
           {/* Spinner principal */}
-          <div className="w-16 h-16 border-4 border-gray-200 border-t-primary-500 rounded-full animate-spin mx-auto mb-6"></div>
+          <div
+            className="mx-auto mb-6 h-16 w-16 animate-spin rounded-full border-4 border-[var(--border-color)]"
+            style={{ borderTopColor: "var(--accent-strong)" }}
+          />
           
           {/* Mensaje actual */}
           <div className="mb-6">
@@ -349,13 +352,17 @@ export const renderProgressModal = ({
           {/* Barra de progreso */}
           {showProgress && (
             <div className="mb-4">
-              <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3">
+              <div className="h-3 w-full overflow-hidden rounded-full bg-[var(--bg-app)] border border-[var(--border-color)]">
                 <div 
-                  className="bg-primary-500 h-3 rounded-full transition-all duration-300 ease-out"
-                  style={{ width: `${Math.min(progress, 100)}%` }}
+                  className="h-full rounded-full transition-all duration-300 ease-out"
+                  style={{
+                    width: `${Math.max(0, Math.min(progress, 100))}%`,
+                    background: "linear-gradient(90deg, var(--accent-strong) 0%, #8ec5e8 100%)",
+                    boxShadow: "0 0 18px rgba(81,152,194,0.28)",
+                  }}
                 />
               </div>
-              <div className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+              <div className="mt-2 text-xs text-[var(--text-muted)]">
                 {Math.round(progress)}% completado
               </div>
             </div>
