@@ -1,6 +1,5 @@
 import { SidebarBrand } from "./SidebarBrand";
 import { SidebarNav } from "./SidebarNav";
-import { SidebarFooter } from "./SidebarFooter";
 import { SidebarToggle } from "./SidebarToggle";
 import "@styles/layout_side.css";
 
@@ -13,7 +12,6 @@ export function Sidebar({ collapsed, onToggle }) {
       <aside className={`sidebar${collapsed ? " sidebar-collapsed" : ""}`}>
         <SidebarBrand collapsed={collapsed} />
         <SidebarNav collapsed={collapsed} />
-        <SidebarFooter collapsed={collapsed} />
       </aside>
 
       <SidebarToggle collapsed={collapsed} onToggle={onToggle} />
