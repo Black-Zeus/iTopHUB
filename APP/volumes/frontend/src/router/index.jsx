@@ -1,18 +1,18 @@
 import { createBrowserRouter, Navigate } from "react-router-dom";
 import { useContext } from "react";
-import { AuthContext } from "../App";
+import { AuthContext } from "@/App";
 
-import { Layout }        from "../layout/Layout";
-import { LoginPage }     from "../pages/login/LoginPage";
-import { DashboardPage } from "../pages/dashboard/DashboardPage";
-import { HandoverPage }  from "../pages/handover/HandoverPage";
-import { ReceptionPage } from "../pages/reception/ReceptionPage";
-import { LabPage }       from "../pages/lab/LabPage";
-import { AssetsPage }    from "../pages/assets/AssetsPage";
-import { PeoplePage }    from "../pages/people/PeoplePage";
-import { UsersPage }     from "../pages/users/UsersPage";
-import { ReportsPage }   from "../pages/reports/ReportsPage";
-import { SettingsPage }  from "../pages/settings/SettingsPage";
+import { Layout } from "@layout/Layout";
+import { LoginPage } from "@pages/login/LoginPage";
+import { DashboardPage } from "@pages/dashboard/DashboardPage";
+import { HandoverPage } from "@pages/handover/HandoverPage";
+import { ReceptionPage } from "@pages/reception/ReceptionPage";
+import { LabPage } from "@pages/lab/LabPage";
+import { AssetsPage } from "@pages/assets/AssetsPage";
+import { PeoplePage } from "@pages/people/PeoplePage";
+import { UsersPage } from "@pages/users/UsersPage";
+import { ReportsPage } from "@pages/reports/ReportsPage";
+import { SettingsPage } from "@pages/settings/SettingsPage";
 
 /* ── Guard de ruta autenticada ── */
 function RequireAuth({ children }) {

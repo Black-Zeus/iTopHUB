@@ -1,10 +1,10 @@
 import { createContext, useMemo } from "react";
 import { RouterProvider } from "react-router-dom";
-import { router }         from "./router";
-import { useTheme }       from "./hooks/useTheme";
-import { useAuth }        from "./hooks/useAuth";
-import { ToastProvider }  from "./ui";
-import { ErrorBoundary }  from "./ui";
+import { router } from "@routes";
+import { useTheme } from "@hooks/useTheme";
+import { useAuth } from "@hooks/useAuth";
+import { ToastProvider } from "@ui";
+import { ErrorBoundary } from "@ui";
 
 export const ThemeContext = createContext({ theme: "dark", toggle: () => {} });
 export const AuthContext  = createContext({
