@@ -50,6 +50,7 @@ const NAV_GROUPS = [
   {
     label: "Administracion",
     items: [
+      { path: "/checklists", label: "Checklists", icon: <Icon d="M9 7h11M9 12h11M9 17h11M5 7h.01M5 12h.01M5 17h.01" /> },
       { path: "/users", label: "Usuarios", icon: <Icon d="M12 3l7 4v6c0 4.5-3 7-7 8-4-1-7-3.5-7-8V7l7-4zm0 6v4m0 4h.01" /> },
       { path: "/reports", label: "Informes", icon: <Icon d="M5 19V9m7 10V5m7 14v-8M3 19h18" /> },
       { path: "/settings", label: "Configuracion", icon: <Icon d="M12 8.5A3.5 3.5 0 1 0 12 15.5 3.5 3.5 0 0 0 12 8.5zm8 3.5-.9-.5a7.9 7.9 0 0 0-.5-1.3l.5-.9-1.8-1.8-.9.5c-.4-.2-.9-.4-1.3-.5L14 4h-4l-.5.9c-.4.1-.9.3-1.3.5l-.9-.5-1.8 1.8.5.9c-.2.4-.4.9-.5 1.3L4 12l.9.5c.1.4.3.9.5 1.3l-.5.9 1.8 1.8.9-.5c.4.2.9.4 1.3.5L10 20h4l.5-.9c.4-.1.9-.3 1.3-.5l.9.5 1.8-1.8-.5-.9c.2-.4.4-.9.5-1.3z" /> },

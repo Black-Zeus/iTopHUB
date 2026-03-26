@@ -9,6 +9,7 @@ const ROUTE_MAP = {
   "/devices": { breadcrumb: "Laboratorio / Dispositivos", title: "Dispositivos" },
   "/assets": { breadcrumb: "CMDB / Activos", title: "Activos CMDB" },
   "/people": { breadcrumb: "Consultas / Personas", title: "Personas" },
+  "/checklists": { breadcrumb: "Administracion / Checklists", title: "Checklists" },
   "/users": { breadcrumb: "Administracion / Usuarios", title: "Usuarios del Sistema" },
   "/reports": { breadcrumb: "Analitica / Informes", title: "Informes" },
   "/settings": { breadcrumb: "Sistema / Configuracion", title: "Configuracion" },

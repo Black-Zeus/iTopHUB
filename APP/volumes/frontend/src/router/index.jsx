@@ -12,6 +12,7 @@ import { LabPage } from "@pages/lab/LabPage";
 import { DevicesPage } from "@pages/devices/DevicesPage";
 import { AssetsPage } from "@pages/assets/AssetsPage";
 import { PeoplePage } from "@pages/people/PeoplePage";
+import { ChecklistsPage } from "@pages/checklists/ChecklistsPage";
 import { UsersPage } from "@pages/users/UsersPage";
 import { ReportsPage } from "@pages/reports/ReportsPage";
 import { SettingsPage } from "@pages/settings/SettingsPage";
@@ -50,6 +51,7 @@ export const router = createBrowserRouter(
         { path: "devices",    element: <DevicesPage /> },
         { path: "assets",     element: <AssetsPage /> },
         { path: "people",     element: <PeoplePage /> },
+        { path: "checklists", element: <ChecklistsPage /> },
         { path: "users",      element: <UsersPage /> },
         { path: "reports",    element: <ReportsPage /> },
         { path: "settings",   element: <SettingsPage /> },

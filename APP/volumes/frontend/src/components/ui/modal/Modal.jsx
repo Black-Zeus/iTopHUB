@@ -355,7 +355,7 @@ const Modal = ({
   const cssClasses = useMemo(() => ({
     overlay: `${MODAL_CLASSES.overlay.base} ${getModalPositionClasses(position)}`,
     backdrop: `${MODAL_CLASSES.overlay.backdrop} ${isAnimating ? 'opacity-100' : 'opacity-0'}`,
-    modal: `${MODAL_CLASSES.modal.base} ${getModalSizeClasses(modalSize)} ${['clientWide', 'minuteWide'].includes(modalSize) ? 'bg-transparent dark:bg-transparent shadow-none border-0 overflow-visible rounded-[26px]' : ''} ${isAnimating
+    modal: `${MODAL_CLASSES.modal.base} ${getModalSizeClasses(modalSize)} ${['clientWide', 'minuteWide'].includes(modalSize) ? 'overflow-visible rounded-[26px] border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-[var(--shadow-soft)]' : ''} ${isAnimating
         ? MODAL_CLASSES.modal.enterActive
         : MODAL_CLASSES.modal.enter
       }`,
