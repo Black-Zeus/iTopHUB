@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { DataTable } from "./DataTable";
+import { FilterDropdown } from "./FilterDropdown";
 import { KpiCard } from "./KpiCard";
 import { Panel, PanelHeader } from "./Panel";
+import { SoftActionButton } from "./SoftActionButton";
 import { StatusChip, getStatusChipConfig, normalizeStatus } from "./StatusChip";
 import { Button } from "../../../ui/Button";
 import { Icon } from "../icon/Icon";
@@ -145,8 +147,6 @@ export function ActaModulePage({
 }) {
   const [query, setQuery] = useState("");
   const [selectedStatuses, setSelectedStatuses] = useState([]);
-  const [isStatusMenuOpen, setIsStatusMenuOpen] = useState(false);
-  const statusMenuRef = useRef(null);
 
   const statusFilters = useMemo(() => {
     const availableStatuses = statusOptions.map((option) => {
@@ -195,17 +195,6 @@ export function ActaModulePage({
   const selectedStatusOptions = statusFilters.filter((option) =>
     selectedStatuses.includes(normalizeStatus(option.value))
   );
-
-  useEffect(() => {
-    const handleOutsideClick = (event) => {
-      if (!statusMenuRef.current?.contains(event.target)) {
-        setIsStatusMenuOpen(false);
-      }
-    };
-
-    document.addEventListener("mousedown", handleOutsideClick);
-    return () => document.removeEventListener("mousedown", handleOutsideClick);
-  }, []);
 
   const toggleStatusSelection = (value) => {
     const normalizedValue = normalizeStatus(value);
@@ -271,21 +260,20 @@ export function ActaModulePage({
           eyebrow={eyebrow}
           title={title}
           actions={primaryActionLabel ? (
-            <Button
+            <SoftActionButton
               type="button"
-              variant="primary"
               size="sm"
               className="whitespace-nowrap"
               onClick={onPrimaryAction}
             >
               <Icon name={primaryActionIcon} size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
               {primaryActionLabel}
-            </Button>
+            </SoftActionButton>
           ) : null}
         />
 
         <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <label className="flex min-w-0 flex-1 items-center gap-3 rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-3">
+          <label className="flex min-h-[66px] min-w-0 flex-1 items-center gap-3 rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-3">
             <span className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
               Filtro
             </span>
@@ -298,18 +286,23 @@ export function ActaModulePage({
             />
           </label>
 
-          <div ref={statusMenuRef} className="relative lg:w-[22rem] lg:max-w-[22rem]">
-            <button
-              type="button"
-              onClick={() => setIsStatusMenuOpen((currentValue) => !currentValue)}
-              aria-haspopup="menu"
-              aria-expanded={isStatusMenuOpen}
-              className="flex w-full items-center gap-3 rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-3 text-left transition hover:border-[var(--accent-strong)] hover:bg-[var(--bg-panel)]"
-            >
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--accent-soft)] text-[var(--accent-strong)]">
-                <Icon name="sliders" size={14} className="h-3.5 w-3.5" aria-hidden="true" />
-              </span>
-              <span className="min-w-0 flex-1">
+          <FilterDropdown
+            label="Estado"
+            align="right"
+            options={statusFilters.map((option) => ({
+              ...option,
+              normalizedValue: normalizeStatus(option.value),
+            }))}
+            selectedValues={selectedStatuses}
+            onToggleOption={toggleStatusSelection}
+            onClear={() => setSelectedStatuses([])}
+            triggerClassName="py-3 lg:w-[22rem] lg:max-w-[22rem]"
+            buttonHeightClassName="min-h-[66px]"
+            menuOffsetClassName="top-[calc(100%+0.55rem)]"
+            title="Filtrar por estado"
+            description="Puedes seleccionar uno o varios estados"
+            renderSelection={() => (
+              <>
                 <span className="block text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
                   Estado
                 </span>
@@ -331,78 +324,26 @@ export function ActaModulePage({
                     <span className="text-xs text-[var(--text-muted)]">Seleccion multiple activa</span>
                   ) : null}
                 </span>
-              </span>
-              <span className="inline-flex items-center justify-center text-[var(--text-secondary)]">
-                <Icon
-                  name="chevronDown"
-                  size={14}
-                  className={`h-3.5 w-3.5 transition ${isStatusMenuOpen ? "rotate-180" : ""}`}
-                  aria-hidden="true"
-                />
-              </span>
-            </button>
-
-            {isStatusMenuOpen ? (
-              <div className="absolute right-0 top-[calc(100%+0.55rem)] z-20 w-full rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-2 shadow-[var(--shadow-soft)]">
-                <div className="mb-2 flex items-center justify-between gap-3 border-b border-[var(--border-color)] px-3 py-2">
-                  <div>
-                    <p className="text-sm font-semibold text-[var(--text-primary)]">Filtrar por estado</p>
-                    <p className="text-xs text-[var(--text-muted)]">Puedes seleccionar uno o varios estados</p>
-                  </div>
-                  {selectedStatuses.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedStatuses([]);
-                      }}
-                      className="inline-flex items-center gap-2 rounded-full border border-[var(--border-color)] bg-[var(--bg-app)] px-3 py-1.5 text-xs font-semibold text-[var(--text-secondary)] transition hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-                    >
-                      <Icon name="xmark" size={12} className="h-3 w-3" aria-hidden="true" />
-                      Limpiar
-                    </button>
-                  )}
-                </div>
-
-                <div className="grid gap-1">
-                  {statusFilters.map((option) => {
-                    const isActive =
-                      option.value === "all"
-                        ? selectedStatuses.length === 0
-                        : selectedStatuses.includes(normalizeStatus(option.value));
-
-                    return (
-                      <button
-                        key={option.value}
-                        type="button"
-                        onClick={() => toggleStatusSelection(option.value)}
-                        className={`flex items-center justify-between gap-3 rounded-[14px] border px-3 py-3 text-left transition ${
-                          isActive
-                            ? `border-transparent shadow-[0_10px_22px_rgba(81,152,194,0.14)] ${option.visual.cls}`
-                            : "border-transparent bg-transparent text-[var(--text-secondary)] hover:border-[var(--border-color)] hover:bg-[var(--bg-app)] hover:text-[var(--text-primary)]"
-                        }`}
-                        aria-pressed={isActive}
-                      >
-                        <span className="flex min-w-0 items-center gap-3">
-                          <span className="inline-flex h-2.5 w-2.5 rounded-full bg-current opacity-70" />
-                          <span className="min-w-0">
-                            <span className="block truncate text-sm font-semibold">{option.label}</span>
-                            <span className="block text-xs opacity-75">
-                              {option.value === "all" ? "Sin restriccion aplicada" : "Combina este estado con otros"}
-                            </span>
-                          </span>
-                        </span>
-                        <span className="inline-flex items-center gap-2">
-                          {isActive ? (
-                            <Icon name="check" size={12} className="h-3 w-3" aria-hidden="true" />
-                          ) : null}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : null}
-          </div>
+              </>
+            )}
+            renderOptionDescription={(option) =>
+              option.value === "all" ? "Sin restriccion aplicada" : "Combina este estado con otros"
+            }
+            renderOptionLeading={() => (
+              <span className="inline-flex h-2.5 w-2.5 rounded-full bg-current opacity-70" />
+            )}
+            getOptionClassName={(option, isActive) =>
+              isActive
+                ? `border-transparent shadow-[0_10px_22px_rgba(81,152,194,0.14)] ${option.visual.cls}`
+                : "border-transparent bg-transparent text-[var(--text-secondary)] hover:border-[var(--border-color)] hover:bg-[var(--bg-app)] hover:text-[var(--text-primary)]"
+            }
+            menuClassName="rounded-[18px]"
+            renderOptionTrailing={(_, isActive) =>
+              isActive ? (
+                <Icon name="check" size={12} className="h-3 w-3" aria-hidden="true" />
+              ) : null
+            }
+          />
         </div>
 
         <DataTable
