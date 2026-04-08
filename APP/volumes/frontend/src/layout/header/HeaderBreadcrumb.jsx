@@ -7,6 +7,7 @@ const ROUTE_MAP = {
   "/reassignment": { breadcrumb: "Operacion / Acta de Reasignacion", title: "Acta de Reasignacion" },
   "/lab": { breadcrumb: "Laboratorio / Actas", title: "Actas de Laboratorio" },
   "/devices": { breadcrumb: "Laboratorio / Dispositivos", title: "Dispositivos" },
+  "/pdq": { breadcrumb: "Laboratorio / PDQ", title: "Consulta PDQ" },
   "/assets": { breadcrumb: "CMDB / Activos", title: "Activos CMDB" },
   "/people": { breadcrumb: "Consultas / Personas", title: "Personas" },
   "/checklists": { breadcrumb: "Administracion / Checklists", title: "Checklists" },

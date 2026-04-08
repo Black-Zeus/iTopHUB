@@ -137,6 +137,7 @@ export function ActaModulePage({
   searchPlaceholder = "Buscar por acta, persona o activo",
   statusOptions = [],
   rows = [],
+  loading = false,
   columns,
   searchKeys = ["code", "person", "asset", "area", "date"],
   buildKpis: buildKpisOverride,
@@ -349,6 +350,7 @@ export function ActaModulePage({
         <DataTable
           columns={tableColumns}
           rows={filteredRows}
+          loading={loading}
           emptyMessage={emptyMessage}
         />
       </Panel>
