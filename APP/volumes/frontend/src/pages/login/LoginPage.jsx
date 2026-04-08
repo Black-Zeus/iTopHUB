@@ -2,6 +2,7 @@ import { useContext, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AuthContext, ThemeContext } from "@/App";
 import { Spinner } from "@ui";
+import { getDefaultRoute } from "@services/authz-service";
 
 const highlightCards = [
   {
@@ -35,7 +36,6 @@ export function LoginPage() {
 
   const [form, setForm] = useState({ username: "", password: "" });
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberSession, setRememberSession] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -48,8 +48,8 @@ export function LoginPage() {
     setLoading(true);
 
     try {
-      await login(form);
-      navigate("/dashboard", { replace: true });
+      const session = await login(form);
+      navigate(getDefaultRoute(session.user), { replace: true });
     } catch (submitError) {
       setError(submitError.message ?? "Error al iniciar sesion");
     } finally {
@@ -190,19 +190,6 @@ export function LoginPage() {
                 </button>
               </div>
             </label>
-
-            <div className="flex items-center justify-start gap-4 text-[0.9rem] text-[var(--text-secondary)] max-[720px]:flex-col max-[720px]:items-start">
-              <label className="inline-flex cursor-pointer items-center gap-2.5 text-[#4f6982] dark:text-[var(--text-secondary)]">
-                <input
-                  type="checkbox"
-                  name="remember"
-                  checked={rememberSession}
-                  onChange={(event) => setRememberSession(event.target.checked)}
-                  className="m-0 h-4 w-4 accent-[var(--accent-strong)]"
-                />
-                <span>Mantener sesion en este equipo</span>
-              </label>
-            </div>
 
             {error ? (
               <p className="m-0 rounded-[var(--radius-sm)] bg-[rgba(210,138,138,0.12)] px-4 py-3 text-[0.88rem] text-[var(--danger)]">

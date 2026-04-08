@@ -1,73 +1,68 @@
-import users from "@data/user.json";
+import { apiRequest, setApiClientHandlers } from "@services/api-client";
 
-const USER_STORAGE_KEY = "itophub-user";
-const TOKEN_STORAGE_KEY = "itophub-token";
+let runtimeTokenPromptHandler = null;
+let sessionExpiredHandler = null;
 
-function sanitizeUser(userRecord) {
-  return {
-    id: userRecord.id,
-    username: userRecord.username,
-    apiCode: userRecord.apiCode,
-    name: userRecord.name,
-    email: userRecord.email,
-    role: userRecord.role,
-    status: userRecord.status,
-  };
-}
+export function configureAuthSessionHandlers({ onRuntimeTokenPrompt, onSessionExpired } = {}) {
+  runtimeTokenPromptHandler = onRuntimeTokenPrompt || null;
+  sessionExpiredHandler = onSessionExpired || null;
 
-function buildSession(userRecord) {
-  return {
-    user: sanitizeUser(userRecord),
-    token: userRecord.apiCode,
-  };
+  setApiClientHandlers({
+    onTokenRevalidationRequired: async () => {
+      if (!runtimeTokenPromptHandler) {
+        throw new Error("No existe manejador para revalidar el token.");
+      }
+      await runtimeTokenPromptHandler();
+    },
+    onSessionExpired: async () => {
+      if (sessionExpiredHandler) {
+        await sessionExpiredHandler();
+      }
+    },
+  });
 }
 
 export async function authenticateUser(credentials) {
-  const username = credentials.username.trim().toLowerCase();
-  const password = credentials.password;
-
-  const matchedUser = users.find((userRecord) => {
-    const sameUsername = userRecord.username.toLowerCase() === username;
-    const sameEmail = userRecord.email.toLowerCase() === username;
-    return (sameUsername || sameEmail) && userRecord.pass === password;
+  return apiRequest("/v1/auth/login", {
+    method: "POST",
+    body: JSON.stringify({
+      username: credentials.username.trim(),
+      password: credentials.password,
+    }),
+    fallbackMessage: "No fue posible iniciar sesion.",
   });
-
-  if (!matchedUser) {
-    throw new Error("Credenciales incorrectas");
-  }
-
-  if (matchedUser.status !== "Activo") {
-    throw new Error("Usuario sin acceso");
-  }
-
-  return buildSession(matchedUser);
 }
 
-export function getStoredSession() {
-  try {
-    const rawUser = localStorage.getItem(USER_STORAGE_KEY);
-    const rawToken = localStorage.getItem(TOKEN_STORAGE_KEY);
-
-    if (!rawUser || !rawToken) {
-      return null;
-    }
-
-    return {
-      user: JSON.parse(rawUser),
-      token: rawToken,
-    };
-  } catch {
-    clearStoredSession();
-    return null;
-  }
+export async function restoreUserSession() {
+  return apiRequest("/v1/auth/session", {
+    fallbackMessage: "No fue posible recuperar la sesion.",
+  });
 }
 
-export function persistSession(session) {
-  localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(session.user));
-  localStorage.setItem(TOKEN_STORAGE_KEY, session.token);
+export async function refreshCurrentSession() {
+  return apiRequest("/v1/auth/session", {
+    fallbackMessage: "No fue posible recargar la sesion.",
+  });
 }
 
-export function clearStoredSession() {
-  localStorage.removeItem(USER_STORAGE_KEY);
-  localStorage.removeItem(TOKEN_STORAGE_KEY);
+export async function keepAliveCurrentSession() {
+  return apiRequest("/v1/auth/keep-alive", {
+    method: "POST",
+    fallbackMessage: "No fue posible extender la sesion.",
+  });
+}
+
+export async function revalidateCurrentToken(password) {
+  return apiRequest("/v1/auth/revalidate", {
+    method: "POST",
+    body: JSON.stringify({ password }),
+    fallbackMessage: "No fue posible revalidar el token personal.",
+  });
+}
+
+export async function logoutCurrentSession() {
+  return apiRequest("/v1/auth/logout", {
+    method: "POST",
+    fallbackMessage: "No fue posible cerrar la sesion.",
+  });
 }

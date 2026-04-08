@@ -9,20 +9,58 @@ import { ErrorBoundary } from "@ui";
 export const ThemeContext = createContext({ theme: "dark", toggle: () => {} });
 export const AuthContext  = createContext({
   user: null,
+  expiresAt: null,
+  warningSeconds: 30,
   login: () => {},
   logout: () => {},
+  refreshSession: () => {},
+  keepSessionAlive: () => {},
+  requestRuntimeTokenRevalidation: () => {},
   isAuthenticated: false,
   loading: true,
 });
 
 export default function App() {
   const { theme, toggle }                          = useTheme();
-  const { user, login, logout, isAuthenticated, loading } = useAuth();
+  const {
+    user,
+    expiresAt,
+    warningSeconds,
+    login,
+    logout,
+    refreshSession,
+    keepSessionAlive,
+    requestRuntimeTokenRevalidation,
+    isAuthenticated,
+    loading,
+  } = useAuth();
 
   const themeValue = useMemo(() => ({ theme, toggle }), [theme, toggle]);
   const authValue  = useMemo(
-    () => ({ user, login, logout, isAuthenticated, loading }),
-    [user, isAuthenticated, loading]
+    () => ({
+      user,
+      expiresAt,
+      warningSeconds,
+      login,
+      logout,
+      refreshSession,
+      keepSessionAlive,
+      requestRuntimeTokenRevalidation,
+      isAuthenticated,
+      loading,
+    }),
+    [
+      user,
+      expiresAt,
+      warningSeconds,
+      login,
+      logout,
+      refreshSession,
+      keepSessionAlive,
+      requestRuntimeTokenRevalidation,
+      isAuthenticated,
+      loading,
+    ]
   );
 
   return (

@@ -4,8 +4,9 @@ import { AuthContext } from "@/App";
 import ModalManager from "@/components/ui/modal";
 
 export function HeaderUserMenu() {
-  const { user, logout } = useContext(AuthContext);
+  const { user, logout, refreshSession } = useContext(AuthContext);
   const [open, setOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const ref = useRef(null);
   const navigate = useNavigate();
   const displayName = user?.name ?? "Usuario";
@@ -27,8 +28,9 @@ export function HeaderUserMenu() {
     : "??";
 
   const handleLogout = () => {
-    logout();
-    navigate("/login");
+    Promise.resolve(logout()).finally(() => {
+      navigate("/login");
+    });
   };
 
   const openProfileModal = () => {
@@ -61,6 +63,25 @@ export function HeaderUserMenu() {
         </p>
       ),
     });
+  };
+
+  const handleRefreshSession = async () => {
+    setOpen(false);
+    setRefreshing(true);
+    try {
+      await refreshSession();
+      ModalManager.success({
+        title: "Permisos recargados",
+        message: "La sesion se actualizo con la parametrizacion vigente del Hub.",
+      });
+    } catch (error) {
+      ModalManager.error({
+        title: "No fue posible recargar",
+        message: error.message || "No se pudo actualizar la sesion actual.",
+      });
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   return (
@@ -113,6 +134,17 @@ export function HeaderUserMenu() {
                 <path d="M20 21a8 8 0 0 0-16 0M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" />
               </svg>
               Perfil
+            </button>
+            <button
+              onClick={handleRefreshSession}
+              disabled={refreshing}
+              className="flex w-full items-center gap-2 rounded-[10px] bg-transparent px-3 py-3 text-left text-[var(--text-primary)] transition hover:bg-[var(--bg-hover)] disabled:opacity-60"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+                <path d="M21 3v6h-6" />
+              </svg>
+              {refreshing ? "Recargando..." : "Recargar permisos"}
             </button>
             <button
               onClick={openPasswordModal}

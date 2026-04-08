@@ -1,6 +1,7 @@
 import { createBrowserRouter, Navigate } from "react-router-dom";
-import { useContext } from "react";
+import { useContext, useEffect, useState } from "react";
 import { AuthContext } from "@/App";
+import { canViewModule, getDefaultRoute } from "@services/authz-service";
 
 import { Layout } from "@layout/Layout";
 import { LoginPage } from "@pages/login/LoginPage";
@@ -10,22 +11,62 @@ import { ReceptionPage } from "@pages/reception/ReceptionPage";
 import { ReassignmentPage } from "@pages/reassignment/ReassignmentPage";
 import { LabPage } from "@pages/lab/LabPage";
 import { DevicesPage } from "@pages/devices/DevicesPage";
+import { PDQPage } from "@pages/pdq/PDQPage";
 import { AssetsPage } from "@pages/assets/AssetsPage";
 import { PeoplePage } from "@pages/people/PeoplePage";
 import { ChecklistsPage } from "@pages/checklists/ChecklistsPage";
 import { UsersPage } from "@pages/users/UsersPage";
 import { ReportsPage } from "@pages/reports/ReportsPage";
 import { SettingsPage } from "@pages/settings/SettingsPage";
+import { isPdqModuleEnabled, subscribeToModuleVisibility } from "../services/module-visibility-service";
 
 /* ── Guard de ruta autenticada ── */
 function RequireAuth({ children }) {
-  const { isAuthenticated, loading } = useContext(AuthContext);
+  const { isAuthenticated, loading, user } = useContext(AuthContext);
 
-  // Mientras se lee localStorage no tomamos ninguna decisión de navegación.
-  // Evita el loop: loading=true → no redirect → loading=false → evalúa auth.
+  // Mientras se consulta la sesion server-side no tomamos ninguna decision de navegacion.
+  // Evita el loop: loading=true -> no redirect -> loading=false -> evalua auth.
   if (loading) return null;
 
   if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (!user) return <Navigate to="/login" replace />;
+  return children;
+}
+
+function RequireModuleAccess({ moduleCode, children }) {
+  const { user, loading } = useContext(AuthContext);
+
+  if (loading) return null;
+
+  if (!user) return <Navigate to="/login" replace />;
+  if (!canViewModule(user, moduleCode)) {
+    return <Navigate to={getDefaultRoute(user)} replace />;
+  }
+
+  return children;
+}
+
+function DefaultHomeRedirect() {
+  const { user, loading } = useContext(AuthContext);
+
+  if (loading) return null;
+  return <Navigate to={getDefaultRoute(user)} replace />;
+}
+
+function RequirePdqEnabled({ children }) {
+  const { user } = useContext(AuthContext);
+  const [enabled, setEnabled] = useState(() => isPdqModuleEnabled());
+
+  useEffect(() => {
+    return subscribeToModuleVisibility(() => {
+      setEnabled(isPdqModuleEnabled());
+    });
+  }, []);
+
+  if (!enabled) {
+    return <Navigate to={getDefaultRoute(user)} replace />;
+  }
+
   return children;
 }
 
@@ -42,20 +83,30 @@ export const router = createBrowserRouter(
         </RequireAuth>
       ),
       children: [
-        { index: true,        element: <Navigate to="/dashboard" replace /> },
-        { path: "dashboard",  element: <DashboardPage /> },
-        { path: "handover",   element: <HandoverPage /> },
-        { path: "reception",  element: <ReceptionPage /> },
-        { path: "reassignment", element: <ReassignmentPage /> },
-        { path: "lab",        element: <LabPage /> },
-        { path: "devices",    element: <DevicesPage /> },
-        { path: "assets",     element: <AssetsPage /> },
-        { path: "people",     element: <PeoplePage /> },
-        { path: "checklists", element: <ChecklistsPage /> },
-        { path: "users",      element: <UsersPage /> },
-        { path: "reports",    element: <ReportsPage /> },
-        { path: "settings",   element: <SettingsPage /> },
-        { path: "*",          element: <Navigate to="/dashboard" replace /> },
+        { index: true,        element: <DefaultHomeRedirect /> },
+        { path: "dashboard",  element: <RequireModuleAccess moduleCode="dashboard"><DashboardPage /></RequireModuleAccess> },
+        { path: "handover",   element: <RequireModuleAccess moduleCode="handover"><HandoverPage /></RequireModuleAccess> },
+        { path: "reception",  element: <RequireModuleAccess moduleCode="reception"><ReceptionPage /></RequireModuleAccess> },
+        { path: "reassignment", element: <RequireModuleAccess moduleCode="reassignment"><ReassignmentPage /></RequireModuleAccess> },
+        { path: "lab",        element: <RequireModuleAccess moduleCode="lab"><LabPage /></RequireModuleAccess> },
+        { path: "devices",    element: <RequireModuleAccess moduleCode="devices"><DevicesPage /></RequireModuleAccess> },
+        {
+          path: "pdq",
+          element: (
+            <RequireModuleAccess moduleCode="pdq">
+              <RequirePdqEnabled>
+                <PDQPage />
+              </RequirePdqEnabled>
+            </RequireModuleAccess>
+          ),
+        },
+        { path: "assets",     element: <RequireModuleAccess moduleCode="assets"><AssetsPage /></RequireModuleAccess> },
+        { path: "people",     element: <RequireModuleAccess moduleCode="people"><PeoplePage /></RequireModuleAccess> },
+        { path: "checklists", element: <RequireModuleAccess moduleCode="checklists"><ChecklistsPage /></RequireModuleAccess> },
+        { path: "users",      element: <RequireModuleAccess moduleCode="users"><UsersPage /></RequireModuleAccess> },
+        { path: "reports",    element: <RequireModuleAccess moduleCode="reports"><ReportsPage /></RequireModuleAccess> },
+        { path: "settings",   element: <RequireModuleAccess moduleCode="settings"><SettingsPage /></RequireModuleAccess> },
+        { path: "*",          element: <DefaultHomeRedirect /> },
       ],
     },
   ],
