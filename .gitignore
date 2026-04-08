@@ -33,6 +33,12 @@ coverage/
 APP/data/dev/*/
 APP/data/qa/*/
 APP/data/prd/*/
+APP/data/dev/pdq/*.db
+APP/data/dev/pdq/*.sqlite
+APP/data/dev/pdq/*.sqlite3
+Draft/Database/*.db
+Draft/Database/*.sqlite
+Draft/Database/*.sqlite3
 
 # Local certs
 APP/config/nginx/certs/
