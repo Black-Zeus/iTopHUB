@@ -1,2 +1,0 @@
--- Core seed data block.
--- Add mandatory bootstrap data here.

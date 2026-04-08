@@ -1,2 +1,0 @@
--- Indexes and performance block.
--- Add CREATE INDEX or ALTER TABLE ... ADD INDEX statements here.
