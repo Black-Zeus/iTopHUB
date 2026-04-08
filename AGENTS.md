@@ -146,6 +146,7 @@ When a new cross-project concern appears, create a dedicated place for it early 
 - Mailpit container: `docs/containers/mailpit.md`
 - Gotenberg container: `docs/containers/gotenberg.md`
 - Nginx container: `docs/containers/nginx.md`
+- Access control domain: `docs/domains/access-control.md`
 - CMDB domain: `docs/domains/cmdb.md`
 - Handover domain: `docs/domains/handover.md`
 - Reception domain: `docs/domains/reception.md`
@@ -164,6 +165,7 @@ When a new cross-project concern appears, create a dedicated place for it early 
 - If the task mentions reverse proxy, routing, hostnames, or public path layout, read `docs/containers/nginx.md`.
 - If the task mentions cache, broker-like behavior, or transient job state, read `docs/containers/redis.md`.
 - If the task mentions SMTP, captured emails, or dev notifications, read `docs/containers/mailpit.md`.
+- If the task mentions login, session handling, roles, permissions, user linking, token registration, or access restrictions, read `docs/domains/access-control.md`.
 - If the task mentions assets, inventory, lifecycle, or CMDB synchronization, read `docs/domains/cmdb.md`.
 - If the task mentions delivery certificates, assignment records, or handover flows, read `docs/domains/handover.md`.
 - If the task mentions intake, returns, receiving, or incoming asset workflows, read `docs/domains/reception.md`.
