@@ -6,13 +6,9 @@ This folder is executed in lexicographic order by the MariaDB entrypoint.
 
 - `00_bootstrap_databases.sh`: creates the app and iTop databases using environment variables.
 - `00_preamble.sql`: reserved SQL slot before the schema blocks.
-- `10_schema_core.sql`: base schema.
-- `20_schema_alter.sql`: schema changes after base creation.
-- `30_schema_indexes.sql`: indexes and performance objects.
-- `40_triggers.sql`: triggers and related automation.
-- `70_seed_core.sql`: mandatory seed data.
-- `80_seed_catalog.sql`: support or extended seed data.
-- `90_postamble.sql`: final SQL tasks.
+- `10_hub_app_init.sh`: applies the Hub schema and seeds explicitly to `APP_DB_NAME`.
+
+The SQL source files for the Hub now live under `APP/config/mariadb/init/app/`.
 
 ## Suggested grouping
 
@@ -25,7 +21,11 @@ This folder is executed in lexicographic order by the MariaDB entrypoint.
 - `70-89`: seeds and catalogs.
 - `90-99`: postamble and validations.
 
-`00_bootstrap_databases.sh` stays as shell because the database names come from environment variables. Everything else follows the decadal grouping so you can grow the folder without losing order.
+`00_bootstrap_databases.sh` stays as shell because the database names come from environment variables. `10_hub_app_init.sh` also stays as shell so the Hub SQL can run explicitly against `APP_DB_NAME` and never depend on the MariaDB default database context.
+
+## Manual recovery
+
+- `APP/config/mariadb/reset_hub_db.sh`: recreates only `APP_DB_NAME` and reapplies the Hub SQL blocks. Use this only when the MariaDB volume already exists and you need to rebuild the Hub database manually without touching `ITOP_DB_NAME`.
 
 ## Security note
 

@@ -37,8 +37,10 @@ services:
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
+    ports:
+      - "${MARIADB_PORT}:3306"
     volumes:
-      - ${DATA_ROOT}/mariadb_data:/var/lib/mysql
+      - mariadb_data:/var/lib/mysql
       - ${SETTINGS_ROOT}/mariadb/init:/docker-entrypoint-initdb.d:ro
       - ${LOGS_ROOT}/mariadb:/var/log/mysql
     healthcheck:
@@ -96,6 +98,8 @@ services:
       APP_DB_USER: ${MARIADB_USER}
       APP_DB_PASSWORD: ${MARIADB_PASSWORD}
       ITOP_URL: http://itop
+      ITOP_VERIFY_SSL: ${ITOP_VERIFY_SSL}
+      ITOP_TIMEOUT_SECONDS: ${ITOP_TIMEOUT_SECONDS}
       ITOP_DB_HOST: mariadb
       ITOP_DB_PORT: 3306
       ITOP_DB_NAME: ${ITOP_DB_NAME}
@@ -104,15 +108,26 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_DB: ${REDIS_DB}
+      HUB_TOKEN_KEK: ${HUB_TOKEN_KEK}
+      HUB_TOKEN_KEK_VERSION: ${HUB_TOKEN_KEK_VERSION}
+      HUB_SESSION_TTL_SECONDS: ${HUB_SESSION_TTL_SECONDS}
+      HUB_RUNTIME_TOKEN_TTL_SECONDS: ${HUB_RUNTIME_TOKEN_TTL_SECONDS}
+      HUB_SESSION_WARNING_SECONDS: ${HUB_SESSION_WARNING_SECONDS}
       SMTP_HOST: ${SMTP_HOST}
       SMTP_PORT: ${SMTP_PORT}
       SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL}
       PDF_WORKER_QUEUE: ${PDF_WORKER_QUEUE}
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
       JWT_SECRET: ${JWT_SECRET}
+      PDQ_ENABLED: ${PDQ_ENABLED:-1}
+      PDQ_SQLITE_DIR: ${PDQ_SQLITE_DIR:-/app/data/pdq}
+      PDQ_SQLITE_FILE_NAME: ${PDQ_SQLITE_FILE_NAME:-}
+      PDQ_SQLITE_FILE_GLOB: ${PDQ_SQLITE_FILE_GLOB:-*.db;*.sqlite;*.sqlite3}
+      PDQ_SEARCH_MIN_CHARS: ${PDQ_SEARCH_MIN_CHARS:-2}
     volumes:
       - ${VOLUMES_ROOT}/backend/app:/app
       - ${DATA_ROOT}/backend_data:/app/data
+      - ${PDQ_SHARED_ROOT:-./APP/data/dev/pdq}:${PDQ_SQLITE_DIR:-/app/data/pdq}:ro
       - ${LOGS_ROOT}/backend:/var/log/app
     command: >
       sh -c "if [ -f requirements.txt ]; then pip install --user --no-cache-dir -r requirements.txt; fi &&
@@ -374,6 +389,8 @@ networks:
     name: ${PROJECT_NAME}_internal
 
 volumes:
+  mariadb_data:
+    name: ${PROJECT_NAME}_mariadb_data
   frontend_node_modules:
     name: ${PROJECT_NAME}_frontend_node_modules
   itop_data:
