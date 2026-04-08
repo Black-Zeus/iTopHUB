@@ -8,7 +8,7 @@ Provides the relational database server shared by the custom backend and iTop, u
 
 - Service name: `mariadb`
 - Main port in dev: `MARIADB_PORT -> 3306`
-- Data mount: `APP/data/<env>/mariadb_data`
+- Data volume in dev: `${PROJECT_NAME}_mariadb_data`
 - Init scripts: `APP/config/mariadb/init`
 - Logs mount: `APP/logs/<env>/mariadb`
 
@@ -26,3 +26,5 @@ Provides the relational database server shared by the custom backend and iTop, u
 ## Notes
 
 - If a task touches schemas, grants, seeds, or indexes, start here.
+- `APP_DB_NAME` stores Hub auth metadata separately from `ITOP_DB_NAME`.
+- Personal iTop tokens for Hub users are persisted encrypted in `hub_user_auth`; Redis only keeps short-lived runtime cache.

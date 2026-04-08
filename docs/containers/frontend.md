@@ -35,3 +35,11 @@ Runs the custom React/Vite interface for the Hub layer on top of iTop.
 
 - Runs as a non-root user.
 - Keep frontend-specific environment variables in the layered `.env` files.
+- The frontend must treat auth as a server-side session concern:
+  - session cookie only in the browser
+  - no personal token returned to client code
+  - modal warning before session expiry
+  - password revalidation modal when runtime token must be reloaded
+- User management UI must use `Vincular usuario` semantics, meaning link existing iTop accounts instead of creating identities in iTop.
+- The PDQ module exposes a MAC search workflow and device detail modal backed by the backend SQLite integration.
+- `Settings` now shows whether the PDQ SQLite file was detected in the configured shared folder.

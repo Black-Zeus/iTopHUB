@@ -23,6 +23,7 @@ Esta carpeta centraliza notas operativas y tecnicas de la arquitectura basada en
 
 ## Dominios
 
+- `domains/access-control.md`
 - `domains/cmdb.md`
 - `domains/handover.md`
 - `domains/reception.md`

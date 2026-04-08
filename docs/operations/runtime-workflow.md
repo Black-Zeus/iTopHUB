@@ -43,6 +43,17 @@ The AI agent should prepare files, configuration, and documentation, but should 
 - `.env.qa`: QA-specific overrides.
 - `.env.prd`: production-specific overrides.
 
+Practical rule:
+
+- Keep in `.env` only values that should exist the same way in every environment.
+- Move into `.env.dev` anything tied to local development runtime, such as:
+  - `ENV_NAME`
+  - `DATA_ROOT`
+  - `LOGS_ROOT`
+  - local published ports
+  - local frontend URLs
+  - development-only data mounts like `PDQ_SHARED_ROOT`
+
 ## Versioned Templates
 
 - `.env.example`
@@ -75,3 +86,10 @@ La fase activa hoy es `dev`.
 - Put dependency changes in dependency manifests.
 - Put database bootstrap and schema work in ordered init files.
 - Keep runtime commands user-driven and documented.
+
+## Auth Runtime Notes
+
+- Hub auth is a combined concern across MariaDB, Redis, backend, and frontend.
+- Treat encrypted personal token persistence as repository-owned configuration and schema work.
+- Treat Redis token/session TTL as runtime policy, configured through layered `.env*` files.
+- Business rules for login, token registration, and limited admin access are documented in `docs/domains/access-control.md`.

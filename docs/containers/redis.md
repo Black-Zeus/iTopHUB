@@ -16,6 +16,10 @@ Provides transient state and queue coordination for background processing.
 
 - Use Redis for async coordination and short-lived operational state.
 - Avoid turning it into a source of truth for business data.
+- Hub auth uses Redis only as runtime cache, not as primary persistence.
+- Current session key convention:
+  - `hub:session:{session_id}:meta`
+  - `hub:session:{session_id}:token`
 
 ## Tooling
 
