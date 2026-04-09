@@ -1,82 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { DataTable } from "../../components/ui/general/DataTable";
+import { DetailRows } from "../../components/ui/general/DetailRows";
 import { CollapseToggleButton } from "../../components/ui/general/CollapseToggleButton";
-import { KpiCard } from "../../components/ui/general/KpiCard";
 import { Panel, PanelHeader } from "../../components/ui/general/Panel";
+import { SearchFilterInput } from "../../components/ui/general/SearchFilterInput";
 import { StatusChip } from "../../components/ui/general/StatusChip";
 import { Icon } from "../../components/ui/icon/Icon";
 import ModalManager from "../../components/ui/modal";
 import { Button } from "../../ui/Button";
 import { getItopPersonDetail, searchItopPeople } from "../../services/people-service";
-
-function buildPeopleKpis(rows) {
-  return [
-    {
-      label: "Total personas",
-      value: String(rows.length).padStart(2, "0"),
-      helper: "Resultado actual",
-      tone: "default",
-    },
-    {
-      label: "Activas",
-      value: String(rows.filter((row) => row.status.toLowerCase() === "active").length).padStart(2, "0"),
-      helper: "Estado iTop activo",
-      tone: "success",
-    },
-    {
-      label: "Con correo",
-      value: String(rows.filter((row) => row.asset).length).padStart(2, "0"),
-      helper: "Dato disponible",
-      tone: "warning",
-    },
-    {
-      label: "Con cargo",
-      value: String(rows.filter((row) => row.role).length).padStart(2, "0"),
-      helper: "Funcion registrada",
-      tone: "danger",
-    },
-  ];
-}
-
-
-function DetailRows({ items = [], loading = false, columns = 2 }) {
-  const resolvedColumns = columns === 2 ? 2 : 1;
-  const itemsPerColumn = Math.ceil(items.length / resolvedColumns);
-  const columnSets = Array.from({ length: resolvedColumns }, (_, index) =>
-    items.slice(index * itemsPerColumn, (index + 1) * itemsPerColumn)
-  );
-
-  return (
-    <div className={`grid gap-x-8 ${columns === 2 ? "md:grid-cols-2" : ""}`}>
-      {columnSets.map((columnItems, columnIndex) => (
-        <div key={`detail-column-${columnIndex}`} className="grid gap-y-4">
-          {columnItems.map((item) => (
-            <div
-              key={`${columnIndex}-${item.label}`}
-              className={`grid grid-cols-[9rem_minmax(0,1fr)] items-start gap-3 border-b border-[rgba(255,255,255,0.05)] pb-3 ${loading ? "animate-pulse" : ""}`}
-            >
-              <span className="text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
-                {item.label}
-              </span>
-              <span className="min-w-0">
-                <span className="break-words text-sm font-medium text-[var(--text-primary)]">
-                  {item.value}
-                </span>
-                {item.alert ? (
-                  <span className="mt-1 inline-flex items-center gap-2 text-xs font-semibold text-[var(--warning)]">
-                    <Icon name="warning" size={12} className="h-3 w-3 shrink-0" aria-hidden="true" />
-                    {item.alert}
-                  </span>
-                ) : null}
-              </span>
-            </div>
-          ))}
-        </div>
-      ))}
-    </div>
-  );
-}
-
+import { downloadRowsAsCsv } from "../../utils/export-csv";
 
 const CMDB_FIELD_ORDER = [
   "Estado",
@@ -112,18 +45,69 @@ function sortCmdbFields(fields = []) {
 }
 
 
+function formatHistoryDate(value) {
+  if (!value) return "";
+  const date = new Date(String(value).replace(" ", "T"));
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat("es-CL", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
+
+
+function formatAssignmentDate(value) {
+  if (!value) return "";
+  const date = new Date(String(value).replace(" ", "T"));
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat("es-CL", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
+
+
+function downloadPeopleCsv(rows) {
+  const header = [
+    "Codigo",
+    "Nombre",
+    "Correo",
+    "Telefono",
+    "Cargo",
+    "Estado",
+  ];
+
+  const csvRows = rows.map((row) => [
+    row.code || "",
+    row.person || "",
+    row.asset || "",
+    row.phone || "",
+    row.role || "",
+    row.status || "",
+  ]);
+
+  downloadRowsAsCsv({
+    filename: "personas_itop.csv",
+    header,
+    rows: csvRows,
+  });
+}
+
+
 function getCmdbHeaderMeta(item) {
   const typeField = Array.isArray(item.fields) ? item.fields.find((field) => field.label === "Tipo") : null;
   const classLabel = item.className ? `Clase ${item.className}` : "";
   const typeLabel = typeField?.value ? `Tipo ${typeField.value}` : "";
+  const assignedLabel = item.assignedAt ? `Asignado ${formatAssignmentDate(item.assignedAt)}` : "";
+  const assignedByLabel = item.assignedBy ? `Por ${item.assignedBy}` : "";
 
-  return [classLabel, typeLabel].filter(Boolean).join(" - ");
+  return [classLabel, typeLabel, assignedLabel, assignedByLabel].filter(Boolean).join(" - ");
 }
 
 
 function PersonDetailModalContent({ row }) {
   const [activeTab, setActiveTab] = useState("summary");
-  const [expandedCmdbId, setExpandedCmdbId] = useState(null);
+  const [expandedCmdbIds, setExpandedCmdbIds] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [detail, setDetail] = useState(null);
@@ -157,8 +141,10 @@ function PersonDetailModalContent({ row }) {
   const tabs = [
     { id: "summary", label: "Resumen" },
     { id: "cmdb", label: "Objetos CMDB" },
+    { id: "history", label: "Historial" },
   ];
   const cmdbItems = detail?.cmdbItems ?? [];
+  const historyItems = detail?.cmdbHistory ?? [];
   const summaryItems = loading
     ? [
         { label: "Codigo", value: "Cargando..." },
@@ -227,7 +213,7 @@ function PersonDetailModalContent({ row }) {
 
             <DetailRows items={summaryItems} loading={loading} columns={2} />
           </section>
-        ) : (
+        ) : activeTab === "cmdb" ? (
           <div className="grid gap-3">
             {loading ? (
               Array.from({ length: 3 }).map((_, index) => (
@@ -252,7 +238,7 @@ function PersonDetailModalContent({ row }) {
               </div>
             ) : !loading ? (
               cmdbItems.map((item) => {
-                const isExpanded = expandedCmdbId === item.id;
+                const isExpanded = expandedCmdbIds.includes(item.id);
                 const sortedFields = sortCmdbFields(item.fields);
                 const headerMeta = getCmdbHeaderMeta(item);
                 return (
@@ -263,7 +249,13 @@ function PersonDetailModalContent({ row }) {
                     <div className="flex items-center justify-between gap-4 px-5 py-4 transition hover:bg-[var(--bg-hover)]">
                       <button
                         type="button"
-                        onClick={() => setExpandedCmdbId((current) => (current === item.id ? null : item.id))}
+                        onClick={() =>
+                          setExpandedCmdbIds((current) =>
+                            current.includes(item.id)
+                              ? current.filter((value) => value !== item.id)
+                              : [...current, item.id]
+                          )
+                        }
                         className="min-w-0 flex-1 text-left"
                       >
                         <p className="truncate text-base font-semibold uppercase text-[var(--text-primary)]">
@@ -281,7 +273,11 @@ function PersonDetailModalContent({ row }) {
                         <CollapseToggleButton
                           isCollapsed={!isExpanded}
                           onClick={() => {
-                            setExpandedCmdbId((current) => (current === item.id ? null : item.id));
+                            setExpandedCmdbIds((current) =>
+                              current.includes(item.id)
+                                ? current.filter((value) => value !== item.id)
+                                : [...current, item.id]
+                            );
                           }}
                           collapsedLabel="Expandir objeto CMDB"
                           expandedLabel="Colapsar objeto CMDB"
@@ -305,6 +301,65 @@ function PersonDetailModalContent({ row }) {
               })
             ) : null}
           </div>
+        ) : (
+          <div className="rounded-[22px] border border-[var(--border-color)] bg-[var(--bg-app)] shadow-[var(--shadow-subtle)]">
+            {loading ? (
+              Array.from({ length: 3 }).map((_, index) => (
+                <div
+                  key={`history-loading-${index}`}
+                  className="border-b border-[var(--border-color)] px-5 py-4 last:border-b-0 animate-pulse"
+                >
+                  <div className="h-4 w-56 rounded-full bg-[var(--bg-hover)]" />
+                  <div className="mt-2 h-3 w-36 rounded-full bg-[var(--bg-hover)]" />
+                </div>
+              ))
+            ) : null}
+
+            {!loading && historyItems.length === 0 ? (
+              <div className="p-5 text-sm text-[var(--text-secondary)]">
+                Esta persona no tiene historial de asignaciones o remociones de objetos CMDB en iTop.
+              </div>
+            ) : null}
+
+            {!loading
+              ? historyItems.map((entry) => (
+                  <div
+                    key={`${entry.id}-${entry.ciId}`}
+                    className="border-b border-[var(--border-color)] px-5 py-4 last:border-b-0"
+                  >
+                    <div className="grid gap-3 md:grid-cols-[auto_minmax(0,1.4fr)_minmax(0,1fr)] md:items-start">
+                      <div>
+                        <span
+                          className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
+                            entry.action === "Agregado"
+                              ? "bg-[rgba(127,191,156,0.14)] text-[var(--success)]"
+                              : "bg-[rgba(210,138,138,0.14)] text-[var(--danger)]"
+                          }`}
+                        >
+                          {entry.action}
+                        </span>
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-[var(--text-primary)]">
+                          {entry.ciName}
+                        </p>
+                        <p className="mt-1 truncate text-sm text-[var(--text-secondary)]">
+                          {entry.ciClass || "Clase no informada"}
+                        </p>
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-[var(--text-primary)]">
+                          {formatHistoryDate(entry.changedAt)}
+                        </p>
+                        <p className="mt-1 truncate text-xs text-[var(--text-secondary)]">
+                          {entry.changedBy ? `Por ${entry.changedBy}` : "Usuario no disponible"}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              : null}
+          </div>
         )}
       </div>
     </div>
@@ -312,8 +367,8 @@ function PersonDetailModalContent({ row }) {
 }
 
 
-function openPersonModal(row) {
-  const modalId = ModalManager.custom({
+export function openPersonModal(row) {
+  ModalManager.custom({
     title: `Persona: ${row.person}`,
     size: "personDetail",
     showFooter: false,
@@ -356,8 +411,6 @@ export function PeoplePage() {
     []
   );
 
-  const kpis = useMemo(() => buildPeopleKpis(rows), [rows]);
-
   const handleSubmit = async (event) => {
     event.preventDefault();
     setLoading(true);
@@ -377,12 +430,6 @@ export function PeoplePage() {
 
   return (
     <div className="grid gap-5">
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {kpis.map((kpi) => (
-          <KpiCard key={kpi.label} {...kpi} />
-        ))}
-      </div>
-
       {error ? (
         <div className="rounded-[18px] border border-[rgba(210,138,138,0.45)] bg-[rgba(210,138,138,0.12)] px-4 py-3 text-sm text-[var(--text-primary)]">
           {error}
@@ -390,24 +437,30 @@ export function PeoplePage() {
       ) : null}
 
       <Panel>
-        <PanelHeader eyebrow="Consultas" title="Personas" />
+        <PanelHeader
+          eyebrow="Consultas"
+          title="Personas"
+          actions={rows.length ? (
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => downloadPeopleCsv(rows)}
+            >
+              <Icon name="download" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              Descargar Excel
+            </Button>
+          ) : null}
+        />
 
-        <form className="mb-5 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]" onSubmit={handleSubmit}>
-          <label className="grid gap-2">
-            <span className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
-              Filtro
-            </span>
-            <input
-              type="search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Buscar por nombre y/o correo"
-              className="h-[52px] rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 text-sm text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
-            />
-          </label>
+        <form className="mb-5 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-stretch" onSubmit={handleSubmit}>
+          <SearchFilterInput
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Nombre persona, correo o cargo"
+          />
 
-          <div className="flex items-end">
-            <Button type="submit" variant="primary" className="h-[52px] w-full lg:w-auto" disabled={loading}>
+          <div className="flex items-stretch">
+            <Button type="submit" variant="primary" className="h-[66px] w-full lg:w-auto" disabled={loading}>
               <Icon name="search" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
               {loading ? "Buscando..." : "Buscar"}
             </Button>

@@ -733,12 +733,6 @@ export function PDQPage() {
           <PanelHeader
             eyebrow="Integracion"
             title="Buscar equipo en PDQ"
-            actions={status?.selected_file ? (
-              <div className="text-right text-xs text-[var(--text-muted)]">
-                <p>{status.selected_file.name}</p>
-                <p>{formatBytes(status.selected_file.size_bytes)} | {formatDate(status.selected_file.modified_at)}</p>
-              </div>
-            ) : null}
           />
 
           {staleDatabaseWarning ? (

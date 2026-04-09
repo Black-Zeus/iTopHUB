@@ -3,6 +3,7 @@ import { DataTable } from "./DataTable";
 import { FilterDropdown } from "./FilterDropdown";
 import { KpiCard } from "./KpiCard";
 import { Panel, PanelHeader } from "./Panel";
+import { SearchFilterInput } from "./SearchFilterInput";
 import { SoftActionButton } from "./SoftActionButton";
 import { StatusChip, getStatusChipConfig, normalizeStatus } from "./StatusChip";
 import { Button } from "../../../ui/Button";
@@ -145,6 +146,7 @@ export function ActaModulePage({
   primaryActionIcon = "plus",
   onPrimaryAction,
   emptyMessage = "No hay actas que coincidan con los filtros actuales.",
+  useRichSearchInput = false,
 }) {
   const [query, setQuery] = useState("");
   const [selectedStatuses, setSelectedStatuses] = useState([]);
@@ -273,79 +275,98 @@ export function ActaModulePage({
           ) : null}
         />
 
-        <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <label className="flex min-h-[66px] min-w-0 flex-1 items-center gap-3 rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-3">
-            <span className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
-              Filtro
-            </span>
-            <input
-              type="search"
+        <form
+          className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-stretch lg:justify-between"
+          onSubmit={(event) => event.preventDefault()}
+        >
+          {useRichSearchInput ? (
+            <SearchFilterInput
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder={searchPlaceholder}
-              className="w-full min-w-0 border-0 bg-transparent text-sm text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
+              className="flex-1"
             />
-          </label>
+          ) : (
+            <label className="flex min-h-[66px] min-w-0 flex-1 items-center gap-3 rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-3">
+              <span className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+                Filtro
+              </span>
+              <input
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder={searchPlaceholder}
+                className="w-full min-w-0 border-0 bg-transparent text-sm text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
+              />
+            </label>
+          )}
 
-          <FilterDropdown
-            label="Estado"
-            align="right"
-            options={statusFilters.map((option) => ({
-              ...option,
-              normalizedValue: normalizeStatus(option.value),
-            }))}
-            selectedValues={selectedStatuses}
-            onToggleOption={toggleStatusSelection}
-            onClear={() => setSelectedStatuses([])}
-            triggerClassName="py-3 lg:w-[22rem] lg:max-w-[22rem]"
-            buttonHeightClassName="min-h-[66px]"
-            menuOffsetClassName="top-[calc(100%+0.55rem)]"
-            title="Filtrar por estado"
-            description="Puedes seleccionar uno o varios estados"
-            renderSelection={() => (
-              <>
-                <span className="block text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
-                  Estado
-                </span>
-                <span className="mt-1 flex min-h-[1.75rem] flex-wrap items-center gap-2">
-                  {selectedStatusOptions.length === 0 ? (
-                    <span className="text-sm font-semibold text-[var(--text-primary)]">
-                      Todos los estados
-                    </span>
-                  ) : selectedStatusOptions.length <= 2 ? (
-                    selectedStatusOptions.map((option) => (
-                      <StatusChip key={option.value} status={getStatusChipConfig(option.value).label} />
-                    ))
-                  ) : (
-                    <span className="text-sm font-semibold text-[var(--text-primary)]">
-                      {selectedStatusOptions.length} estados seleccionados
-                    </span>
-                  )}
-                  {selectedStatusOptions.length > 0 ? (
-                    <span className="text-xs text-[var(--text-muted)]">Seleccion multiple activa</span>
-                  ) : null}
-                </span>
-              </>
-            )}
-            renderOptionDescription={(option) =>
-              option.value === "all" ? "Sin restriccion aplicada" : "Combina este estado con otros"
-            }
-            renderOptionLeading={() => (
-              <span className="inline-flex h-2.5 w-2.5 rounded-full bg-current opacity-70" />
-            )}
-            getOptionClassName={(option, isActive) =>
-              isActive
-                ? `border-transparent shadow-[0_10px_22px_rgba(81,152,194,0.14)] ${option.visual.cls}`
-                : "border-transparent bg-transparent text-[var(--text-secondary)] hover:border-[var(--border-color)] hover:bg-[var(--bg-app)] hover:text-[var(--text-primary)]"
-            }
-            menuClassName="rounded-[18px]"
-            renderOptionTrailing={(_, isActive) =>
-              isActive ? (
-                <Icon name="check" size={12} className="h-3 w-3" aria-hidden="true" />
-              ) : null
-            }
-          />
-        </div>
+          <div className="flex flex-col gap-3 lg:w-auto lg:flex-row lg:items-stretch">
+            <FilterDropdown
+              label="Estado"
+              align="right"
+              options={statusFilters.map((option) => ({
+                ...option,
+                normalizedValue: normalizeStatus(option.value),
+              }))}
+              selectedValues={selectedStatuses}
+              onToggleOption={toggleStatusSelection}
+              onClear={() => setSelectedStatuses([])}
+              triggerClassName="py-3 lg:w-[22rem] lg:max-w-[22rem]"
+              buttonHeightClassName="min-h-[66px]"
+              menuOffsetClassName="top-[calc(100%+0.55rem)]"
+              title="Filtrar por estado"
+              description="Puedes seleccionar uno o varios estados"
+              renderSelection={() => (
+                <>
+                  <span className="block text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+                    Estado
+                  </span>
+                  <span className="mt-1 flex min-h-[1.75rem] flex-wrap items-center gap-2">
+                    {selectedStatusOptions.length === 0 ? (
+                      <span className="text-sm font-semibold text-[var(--text-primary)]">
+                        Todos los estados
+                      </span>
+                    ) : selectedStatusOptions.length <= 2 ? (
+                      selectedStatusOptions.map((option) => (
+                        <StatusChip key={option.value} status={getStatusChipConfig(option.value).label} />
+                      ))
+                    ) : (
+                      <span className="text-sm font-semibold text-[var(--text-primary)]">
+                        {selectedStatusOptions.length} estados seleccionados
+                      </span>
+                    )}
+                    {selectedStatusOptions.length > 0 ? (
+                      <span className="text-xs text-[var(--text-muted)]">Seleccion multiple activa</span>
+                    ) : null}
+                  </span>
+                </>
+              )}
+              renderOptionDescription={(option) =>
+                option.value === "all" ? "Sin restriccion aplicada" : "Combina este estado con otros"
+              }
+              renderOptionLeading={() => (
+                <span className="inline-flex h-2.5 w-2.5 rounded-full bg-current opacity-70" />
+              )}
+              getOptionClassName={(option, isActive) =>
+                isActive
+                  ? `border-transparent shadow-[0_10px_22px_rgba(81,152,194,0.14)] ${option.visual.cls}`
+                  : "border-transparent bg-transparent text-[var(--text-secondary)] hover:border-[var(--border-color)] hover:bg-[var(--bg-app)] hover:text-[var(--text-primary)]"
+              }
+              menuClassName="rounded-[18px]"
+              renderOptionTrailing={(_, isActive) =>
+                isActive ? (
+                  <Icon name="check" size={12} className="h-3 w-3" aria-hidden="true" />
+                ) : null
+              }
+            />
+
+            <Button type="submit" variant="primary" className="h-[66px] w-full lg:w-auto">
+              <Icon name="search" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              Buscar
+            </Button>
+          </div>
+        </form>
 
         <DataTable
           columns={tableColumns}

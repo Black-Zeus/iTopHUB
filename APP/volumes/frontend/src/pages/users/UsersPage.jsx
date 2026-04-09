@@ -485,6 +485,7 @@ export function UsersPage() {
         eyebrow="Administracion"
         title="Usuarios del Sistema"
         searchPlaceholder="Buscar por codigo, usuario, correo, area o rol"
+        useRichSearchInput
         statusOptions={STATUS_OPTIONS}
         rows={rows}
         loading={loading}
