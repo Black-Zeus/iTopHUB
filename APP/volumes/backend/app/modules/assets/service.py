@@ -2,9 +2,9 @@ import os
 from typing import Any
 
 import pymysql
-from auth_service import AuthenticationError
+from modules.auth.service import AuthenticationError
 from integrations.itop_cmdb_connector import iTopCMDBConnector
-from people_service import _build_ci_detail, _format_ci_status
+from modules.people.service import _build_ci_detail, _format_ci_status
 from pymysql.cursors import DictCursor
 
 
@@ -379,7 +379,7 @@ def _list_assigned_user_catalog(asset_ids: list[int]) -> list[dict[str, str]]:
 
 
 def list_itop_asset_catalog(runtime_token: str) -> dict[str, list[dict[str, object]]]:
-    from settings_service import get_settings_panel
+    from modules.settings.service import get_settings_panel
 
     cmdb_settings = get_settings_panel("cmdb")
     enabled_labels = [str(item).strip() for item in cmdb_settings.get("enabledAssetTypes") or [] if str(item).strip()]
@@ -519,7 +519,7 @@ def _find_asset_by_id(connector: iTopCMDBConnector, asset_id: int, enabled_label
 
 
 def search_itop_assets(query: str, runtime_token: str, limit: int = 200) -> list[dict[str, str | int]]:
-    from settings_service import get_settings_panel
+    from modules.settings.service import get_settings_panel
 
     normalized_query = " ".join(query.strip().split())
     if normalized_query and len(normalized_query) < 2:
@@ -566,7 +566,7 @@ def search_itop_assets(query: str, runtime_token: str, limit: int = 200) -> list
 
 
 def get_itop_asset_detail(asset_id: int, runtime_token: str) -> dict[str, object]:
-    from settings_service import get_settings_panel
+    from modules.settings.service import get_settings_panel
 
     connector = iTopCMDBConnector(
         base_url=os.getenv("ITOP_URL", ""),

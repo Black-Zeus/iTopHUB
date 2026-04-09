@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from db import get_db_connection
+from infrastructure.db import get_db_connection
 
 
 def fetch_checklist_rows() -> list[dict[str, Any]]:

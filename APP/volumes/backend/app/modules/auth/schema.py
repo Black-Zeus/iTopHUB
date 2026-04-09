@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from db import get_db_connection
+from infrastructure.db import get_db_connection
 
 
 AUTH_SELECT_COLUMNS = (

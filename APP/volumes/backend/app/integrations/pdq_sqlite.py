@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from settings_service import get_settings_panel
+from modules.settings.service import get_settings_panel
 
 
 class PDQError(Exception):

@@ -2,17 +2,8 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
-from auth_repository import (
-    fetch_role_modules,
-    fetch_user_by_id,
-    fetch_user_by_identity,
-    touch_login,
-    touch_revalidation,
-    upsert_user_token,
-)
-from crypto_service import decrypt_token, encrypt_token
-from integrations.itop_cmdb_connector import iTopCMDBConnector
-from session_service import (
+from infrastructure.crypto_service import decrypt_token, encrypt_token
+from infrastructure.session_service import (
     get_active_session,
     get_runtime_token_for_session,
     invalidate_session,
@@ -21,6 +12,15 @@ from session_service import (
     start_session,
     update_session_user,
 )
+from modules.auth.repository import (
+    fetch_role_modules,
+    fetch_user_by_id,
+    fetch_user_by_identity,
+    touch_login,
+    touch_revalidation,
+    upsert_user_token,
+)
+from integrations.itop_cmdb_connector import iTopCMDBConnector
 
 
 ADMIN_MODULES_WITHOUT_TOKEN = ["settings", "users"]

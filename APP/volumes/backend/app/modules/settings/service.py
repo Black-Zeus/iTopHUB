@@ -5,8 +5,8 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from redis_cache import cache_settings_panel, get_cached_settings_panel
-from settings_repository import (
+from infrastructure.redis_cache import cache_settings_panel, get_cached_settings_panel
+from modules.settings.repository import (
     create_profile,
     create_sync_task,
     delete_sync_task,

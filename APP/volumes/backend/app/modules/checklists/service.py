@@ -4,7 +4,7 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from checklists_repository import (
+from modules.checklists.repository import (
     create_checklist_template,
     fetch_checklist_item_rows,
     fetch_checklist_rows,

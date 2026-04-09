@@ -1,11 +1,11 @@
 import os
 from typing import Any
 
-from auth_repository import upsert_user_token
-from auth_schema import build_auth_select_fragment, ensure_token_storage_supported
-from crypto_service import decrypt_token, encrypt_token, mask_token_from_fingerprint
-from db import get_db_connection
+from infrastructure.crypto_service import decrypt_token, encrypt_token, mask_token_from_fingerprint
+from infrastructure.db import get_db_connection
 from integrations.itop_cmdb_connector import iTopCMDBConnector
+from modules.auth.repository import upsert_user_token
+from modules.auth.schema import build_auth_select_fragment, ensure_token_storage_supported
 
 
 AREA_BY_ROLE = {

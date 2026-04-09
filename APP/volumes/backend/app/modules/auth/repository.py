@@ -1,8 +1,8 @@
 from datetime import datetime
 from typing import Any
 
-from auth_schema import build_auth_select_fragment, build_touch_query, ensure_token_storage_supported
-from db import get_db_connection
+from infrastructure.db import get_db_connection
+from modules.auth.schema import build_auth_select_fragment, build_touch_query, ensure_token_storage_supported
 
 
 def fetch_user_by_identity(identity: str) -> dict[str, Any] | None:

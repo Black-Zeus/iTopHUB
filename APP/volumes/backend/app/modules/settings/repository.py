@@ -1,7 +1,7 @@
 import json
 from typing import Any
 
-from db import get_db_connection
+from infrastructure.db import get_db_connection
 
 
 def fetch_settings_panels() -> dict[str, dict[str, Any]]:

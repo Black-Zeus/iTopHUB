@@ -3,7 +3,7 @@ from datetime import date, datetime
 from typing import Any
 
 import pymysql
-from auth_service import AuthenticationError
+from modules.auth.service import AuthenticationError
 from integrations.itop_cmdb_connector import iTopCMDBConnector
 from pymysql.cursors import DictCursor
 
@@ -414,7 +414,7 @@ def search_itop_people(query: str, runtime_token: str, status: str = "", limit: 
 
 
 def get_itop_person_detail(person_id: int, runtime_token: str) -> dict[str, object]:
-    from settings_service import get_settings_panel
+    from modules.settings.service import get_settings_panel
 
     connector = iTopCMDBConnector(
         base_url=os.getenv("ITOP_URL", ""),

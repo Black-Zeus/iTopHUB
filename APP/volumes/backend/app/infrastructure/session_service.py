@@ -3,11 +3,8 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from auth_repository import touch_last_used
-from crypto_service import decode_runtime_token, encode_runtime_token
-from settings_repository import fetch_settings_panels
-from settings_service import normalize_panel_config
-from redis_cache import (
+from infrastructure.crypto_service import decode_runtime_token, encode_runtime_token
+from infrastructure.redis_cache import (
     delete_runtime_token,
     get_runtime_token,
     get_session_meta,
@@ -15,6 +12,9 @@ from redis_cache import (
     load_session_to_redis,
     logout_session,
 )
+from modules.auth.repository import touch_last_used
+from modules.settings.repository import fetch_settings_panels
+from modules.settings.service import normalize_panel_config
 
 
 def _read_int(name: str, default: int) -> int:
