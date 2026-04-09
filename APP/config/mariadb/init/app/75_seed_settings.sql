@@ -5,7 +5,7 @@ VALUES
     ('sync', '{"manualExecutionLabel":"Disponible bajo demanda","automationMode":"Copia externa de SQLite a carpeta compartida","queryMode":"Busqueda por nombre de maquina o MAC","notes":"Preparado para tareas programadas administradas desde la interfaz."}'),
     ('mail', '{"senderName":"Mesa de Ayuda TI","senderEmail":"soporte@empresa.local","smtpHost":"mailpit","smtpPort":"1025","smtpSecurity":"none","mailFormat":"html","footerNote":"Documento generado automaticamente por iTop Hub."}'),
     ('docs', '{"handoverPrefix":"ENT","receptionPrefix":"REC","laboratoryPrefix":"LAB","numberingFormat":"AAAA-NNNN","defaultObservation":"El documento se emite como respaldo formal del movimiento registrado en CMDB."}'),
-    ('cmdb', '{"enabledAssetTypes":["Desktop (PC)","Laptop (Laptop)"],"supportNote":"PDQ actua como fuente lateral de visibilidad para inventario tecnico, sin reemplazar la CMDB principal."}')
+    ('cmdb', '{"enabledAssetTypes":["Desktop (PC)","Laptop (Laptop)"],"warrantyAlertDays":30,"supportNote":"PDQ actua como fuente lateral de visibilidad para inventario tecnico, sin reemplazar la CMDB principal."}')
 ON DUPLICATE KEY UPDATE
     config_json = VALUES(config_json);
 

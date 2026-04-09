@@ -116,6 +116,10 @@ export const MODAL_SIZES = {
     width: '!w-[50vw] !max-w-[50vw]',
     padding: 'p-6'
   },
+  personDetail: {
+    width: '!w-[960px] !max-w-[960px]',
+    padding: 'p-0'
+  },
   minuteWide: {
     width: '!w-[50vw] !max-w-[50vw]',
     padding: 'p-6'

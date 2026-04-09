@@ -821,6 +821,12 @@ export function SettingsPage() {
               </div>
             </div>
             <div className="grid gap-4 md:grid-cols-2">
+              <Field
+                label="Alerta de vencimiento (dias)"
+                type="number"
+                value={String(drafts.cmdb?.warrantyAlertDays || 30)}
+                onChange={(e) => updateField("cmdb", "warrantyAlertDays", e.target.value)}
+              />
               <Field label="Nota operacional" rows={4} value={drafts.cmdb?.supportNote || ""} onChange={(e) => updateField("cmdb", "supportNote", e.target.value)} />
             </div>
             <Actions dirty={dirtyMap.cmdb} saving={savingPanel === "cmdb"} onReset={() => resetPanel("cmdb")} onSave={() => savePanel("cmdb", "CMDB")} />

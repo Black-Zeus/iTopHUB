@@ -92,6 +92,7 @@ PANEL_DEFAULTS: dict[str, dict[str, Any]] = {
     },
     "cmdb": {
         "enabledAssetTypes": ["Desktop (PC)", "Laptop (Laptop)"],
+        "warrantyAlertDays": 30,
         "supportNote": (
             "PDQ actua como fuente lateral de visibilidad para inventario tecnico, "
             "sin reemplazar la CMDB principal."
@@ -198,6 +199,7 @@ def normalize_panel_config(panel_code: str, config: dict[str, Any]) -> dict[str,
 
     return {
         "enabledAssetTypes": _coerce_list(merged.get("enabledAssetTypes"), PANEL_DEFAULTS["cmdb"]["enabledAssetTypes"]),
+        "warrantyAlertDays": max(1, _coerce_int(merged.get("warrantyAlertDays"), 30)),
         "supportNote": _coerce_str(merged.get("supportNote")),
     }
 

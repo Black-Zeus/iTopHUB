@@ -10,6 +10,8 @@ const STATUS_MAP = {
   stock: { label: "Stock", cls: "bg-[var(--accent-soft)] text-[var(--accent-strong)]" },
   laboratorio: { label: "Laboratorio", cls: "bg-[rgba(224,181,107,0.14)] text-[var(--warning)]" },
   pendiente: { label: "Pendiente", cls: "bg-[rgba(224,181,107,0.14)] text-[var(--warning)]" },
+  active: { label: "Activo", cls: "bg-[rgba(127,191,156,0.14)] text-[var(--success)]" },
+  inactive: { label: "Inactivo", cls: "bg-[rgba(210,138,138,0.14)] text-[var(--danger)]" },
   baja: { label: "Baja", cls: "bg-[rgba(210,138,138,0.14)] text-[var(--danger)]" },
   "no-operativo": { label: "No operativo", cls: "bg-[rgba(210,138,138,0.14)] text-[var(--danger)]" },
 };

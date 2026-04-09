@@ -3,12 +3,13 @@ import { useState } from "react";
 function PasswordPrompt({ title, message, busy, error, onSubmit, onCancel }) {
   const [password, setPassword] = useState("");
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (event) => {
+    event.preventDefault();
     await onSubmit(password);
   };
 
   return (
-    <div className="space-y-5">
+    <form className="space-y-5" onSubmit={handleSubmit}>
       <div className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3 text-sm text-[var(--text-secondary)]">
         <p className="font-semibold text-[var(--text-primary)]">{title}</p>
         <p className="mt-2">{message}</p>
@@ -41,15 +42,14 @@ function PasswordPrompt({ title, message, busy, error, onSubmit, onCancel }) {
           Cancelar
         </button>
         <button
-          type="button"
-          onClick={handleSubmit}
+          type="submit"
           disabled={busy || !password}
           className="rounded-full bg-[var(--accent-strong)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
         >
           {busy ? "Validando..." : "Confirmar"}
         </button>
       </div>
-    </div>
+    </form>
   );
 }
 

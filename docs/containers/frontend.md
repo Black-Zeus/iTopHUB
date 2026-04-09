@@ -41,6 +41,8 @@ Runs the custom React/Vite interface for the Hub layer on top of iTop.
   - modal warning before session expiry
   - password revalidation modal when runtime token must be reloaded
 - User management UI must use `Vincular usuario` semantics, meaning link existing iTop accounts instead of creating identities in iTop.
+- The `Personas` module is read-only in the Hub: it starts empty and only loads rows after an explicit search against iTop using the active session token.
+- The person detail modal shows CMDB objects associated in iTop and applies the warranty alert threshold configured in `Settings -> CMDB`.
 - The PDQ module exposes a MAC search workflow and device detail modal backed by the backend SQLite integration.
 - `Settings` now shows whether the PDQ SQLite file was detected in the configured shared folder.
 - `Settings` persists panel values from MariaDB through the backend API; panel saves are independent and confirmed from the UI.
@@ -48,4 +50,4 @@ Runs the custom React/Vite interface for the Hub layer on top of iTop.
 - `Settings` exposes explicit validation actions for external services from the panel itself, such as SMTP test, iTop connectivity test, and PDQ database validation, so operators can confirm the current draft values before saving or applying them elsewhere.
 - In panels that expose a `Test` action, the save action should remain blocked until the current draft passes a successful validation; any subsequent edit invalidates that test requirement again.
 - In `Integracion iTop`, the derived REST route should mirror the backend connector and display `URL base + /webservices/rest.php`, not the Hub backend route `/api`.
-- Collapsible sections inside `Settings` should reuse the same expand/collapse interaction pattern already used in `Informes`, instead of introducing a new visual style.
+- Collapsible sections should reuse the same expand/collapse interaction pattern defined from `Informes`, including the same button structure, icon direction, and rotation transition, instead of introducing alternate variants per module.

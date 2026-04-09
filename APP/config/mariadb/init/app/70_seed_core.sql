@@ -70,11 +70,11 @@ INSERT INTO hub_users (role_id, username, email, full_name, password_hash, statu
 SELECT r.id, seed.username, seed.email, seed.full_name, seed.password_hash, seed.status, seed.itop_person_key
 FROM hub_roles r
 JOIN (
-    SELECT 'administrator' AS role_code, 'victor.soto' AS username, 'victor.soto@itophub.local' AS email, 'Victor Soto' AS full_name, REPEAT('0', 64) AS password_hash, 'active' AS status, 'person-victor-soto' AS itop_person_key
-    UNION ALL SELECT 'support_general', 'marina.sosa', 'marina.sosa@itophub.local', 'Marina Sosa', REPEAT('0', 64), 'active', 'person-marina-sosa'
-    UNION ALL SELECT 'support_lab', 'natalia.quiroga', 'natalia.quiroga@itophub.local', 'Natalia Quiroga', REPEAT('0', 64), 'active', 'person-natalia-quiroga'
-    UNION ALL SELECT 'support_field', 'lucia.vera', 'lucia.vera@itophub.local', 'Lucia Vera', REPEAT('0', 64), 'active', 'person-lucia-vera'
-    UNION ALL SELECT 'viewer', 'damian.ochoa', 'damian.ochoa@itophub.local', 'Damian Ochoa', REPEAT('0', 64), 'active', 'person-damian-ochoa'
+    SELECT 'administrator' AS role_code, 'victor.soto' AS username, 'victor.soto@itophub.local' AS email, 'Victor Soto' AS full_name, REPEAT('0', 64) AS password_hash, 'active' AS status, NULL AS itop_person_key
+    UNION ALL SELECT 'support_general', 'marina.sosa', 'marina.sosa@itophub.local', 'Marina Sosa', REPEAT('0', 64), 'active', NULL
+    UNION ALL SELECT 'support_lab', 'natalia.quiroga', 'natalia.quiroga@itophub.local', 'Natalia Quiroga', REPEAT('0', 64), 'active', NULL
+    UNION ALL SELECT 'support_field', 'lucia.vera', 'lucia.vera@itophub.local', 'Lucia Vera', REPEAT('0', 64), 'active', NULL
+    UNION ALL SELECT 'viewer', 'damian.ochoa', 'damian.ochoa@itophub.local', 'Damian Ochoa', REPEAT('0', 64), 'active', NULL
 ) seed ON seed.role_code = r.code
 ON DUPLICATE KEY UPDATE
     role_id = VALUES(role_id),
