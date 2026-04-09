@@ -43,3 +43,9 @@ Runs the custom React/Vite interface for the Hub layer on top of iTop.
 - User management UI must use `Vincular usuario` semantics, meaning link existing iTop accounts instead of creating identities in iTop.
 - The PDQ module exposes a MAC search workflow and device detail modal backed by the backend SQLite integration.
 - `Settings` now shows whether the PDQ SQLite file was detected in the configured shared folder.
+- `Settings` persists panel values from MariaDB through the backend API; panel saves are independent and confirmed from the UI.
+- The PDQ menu visibility is no longer a browser-only preference; it is loaded from backend configuration.
+- `Settings` exposes explicit validation actions for external services from the panel itself, such as SMTP test, iTop connectivity test, and PDQ database validation, so operators can confirm the current draft values before saving or applying them elsewhere.
+- In panels that expose a `Test` action, the save action should remain blocked until the current draft passes a successful validation; any subsequent edit invalidates that test requirement again.
+- In `Integracion iTop`, the derived REST route should mirror the backend connector and display `URL base + /webservices/rest.php`, not the Hub backend route `/api`.
+- Collapsible sections inside `Settings` should reuse the same expand/collapse interaction pattern already used in `Informes`, instead of introducing a new visual style.

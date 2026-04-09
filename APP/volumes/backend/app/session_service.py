@@ -5,7 +5,10 @@ from typing import Any
 
 from auth_repository import touch_last_used
 from crypto_service import decode_runtime_token, encode_runtime_token
+from settings_repository import fetch_settings_panels
+from settings_service import normalize_panel_config
 from redis_cache import (
+    delete_runtime_token,
     get_runtime_token,
     get_session_meta,
     load_runtime_token,
@@ -28,16 +31,34 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _get_itop_settings() -> dict[str, Any]:
+    try:
+        panels = fetch_settings_panels()
+        return normalize_panel_config("itop", panels.get("itop", {}))
+    except Exception:
+        return {
+            "sessionTtlMinutes": 240,
+            "runtimeTokenTtlMinutes": 60,
+            "sessionWarningMinutes": 1,
+        }
+
+
 def get_session_ttl_seconds() -> int:
-    return _read_int("HUB_SESSION_TTL_SECONDS", 14400)
+    itop_settings = _get_itop_settings()
+    minutes = int(itop_settings.get("sessionTtlMinutes") or 0)
+    return minutes * 60 if minutes > 0 else _read_int("HUB_SESSION_TTL_SECONDS", 14400)
 
 
 def get_runtime_token_ttl_seconds() -> int:
-    return _read_int("HUB_RUNTIME_TOKEN_TTL_SECONDS", 3600)
+    itop_settings = _get_itop_settings()
+    minutes = int(itop_settings.get("runtimeTokenTtlMinutes") or 0)
+    return minutes * 60 if minutes > 0 else _read_int("HUB_RUNTIME_TOKEN_TTL_SECONDS", 3600)
 
 
 def get_session_warning_seconds() -> int:
-    return _read_int("HUB_SESSION_WARNING_SECONDS", 30)
+    itop_settings = _get_itop_settings()
+    minutes = int(itop_settings.get("sessionWarningMinutes") or 0)
+    return minutes * 60 if minutes > 0 else _read_int("HUB_SESSION_WARNING_SECONDS", 30)
 
 
 def new_session_id() -> str:
@@ -126,23 +147,24 @@ def get_runtime_token_for_session(
 ) -> tuple[str | None, bool, dict[str, Any] | None]:
     encoded = get_runtime_token(session_id)
     if encoded:
-        token = decode_runtime_token(encoded)
-        touch_last_used(user_id)
-        updated = refresh_runtime_token(session_id, token, meta)
-        return token, False, updated
+        try:
+            token = decode_runtime_token(encoded)
+        except Exception:
+            delete_runtime_token(session_id)
+        else:
+            touch_last_used(user_id)
+            updated = refresh_runtime_token(session_id, token, meta)
+            return token, False, updated
 
-    valid_until_raw = meta.get("tokenValidUntil")
-    if valid_until_raw:
-        valid_until = datetime.fromisoformat(valid_until_raw)
-        if _now() >= valid_until:
-            updated = dict(meta)
-            user = dict(updated["user"])
-            user["hasRuntimeToken"] = False
-            updated["user"] = user
-            updated["tokenValidUntil"] = None
-            updated = _with_session_expiration(updated)
-            _persist_session_meta(session_id, updated)
-            return None, True, updated
+    if meta.get("user", {}).get("hasRuntimeToken") or meta.get("tokenValidUntil"):
+        updated = dict(meta)
+        user = dict(updated["user"])
+        user["hasRuntimeToken"] = False
+        updated["user"] = user
+        updated["tokenValidUntil"] = None
+        updated = _with_session_expiration(updated)
+        _persist_session_meta(session_id, updated)
+        return None, True, updated
 
     return None, True, None
 

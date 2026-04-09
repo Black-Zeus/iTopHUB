@@ -33,7 +33,7 @@ Covers Hub login, authorization, user linking, personal iTop token handling, and
 
 ## Roles And Permissions
 
-- Roles are fixed in the Hub database for now.
+- Roles/profiles are managed by the Hub database.
 - Module access is driven by Hub role configuration, not by iTop profiles.
 - The session payload returned to the frontend must contain the effective module permissions for the current user.
 

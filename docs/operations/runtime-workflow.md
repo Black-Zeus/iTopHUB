@@ -3,7 +3,7 @@
 ## Execution Boundary
 
 This project is operated through Docker.
-The user controls runtime operations with `docker_tools_v3.sh`.
+The user controls runtime operations with `docker_tools_v3.sh` on Unix-like shells and with `docker_tools_v3_win.ps1` / `docker_tools_v3_win.cmd` on Windows.
 
 The AI agent should prepare files, configuration, and documentation, but should not assume host runtimes such as `node`, `python`, `npm`, or `pip` are available for direct execution.
 
@@ -21,20 +21,28 @@ The AI agent should prepare files, configuration, and documentation, but should 
 
 ## Terminal Access In Containers
 
-- `docker_tools_v3.sh` is the supported interactive entry point for container shells.
+- `docker_tools_v3.sh` is the supported interactive entry point for container shells on Unix-like environments.
+- `docker_tools_v3_win.ps1` is the supported interactive entry point on Windows.
 - When the user chooses `Abrir terminal en contenedor`, the script now asks whether the shell should open as the container's normal user or as `root`.
 - The default path should be the container's normal user.
 - `root` access should be used only for package installation, bootstrap, permissions repair, or exceptional maintenance.
 
 ## Stack Shutdown Behavior
 
-- `docker_tools_v3.sh` should stop the full compose stack by default when running shutdown or cleanup flows.
+- `docker_tools_v3.sh` and `docker_tools_v3_win.ps1` should stop the full compose stack by default when running shutdown or cleanup flows.
 - Optional profile services such as `redisinsight` must be included automatically in stack teardown so shared networks can be removed cleanly.
 
 ## Interactive Log Streams
 
-- When `docker_tools_v3.sh` opens a foreground log stream, `Ctrl+C` should stop only that stream and return to the menu.
+- When `docker_tools_v3.sh` or `docker_tools_v3_win.ps1` opens a foreground log stream, `Ctrl+C` should stop only that stream and return to the menu.
 - This behavior is especially important in Windows shells, where unhandled interrupts can otherwise terminate the whole script session.
+
+## Windows Native Runtime Tooling
+
+- The Windows variant must be implemented with native PowerShell and Windows commands.
+- Do not depend on `winpty`, `grep`, `sed`, `awk`, `find`, `mktemp`, MSYS path conversion, or other Git Bash compatibility layers.
+- Keep the same menu structure and operational intent as the Unix script, but express the implementation with PowerShell-native process handling, file edits, IP lookup, and cleanup flows.
+- `docker_tools_v3_win.sh` should only remain as a thin compatibility launcher toward the PowerShell entry point when needed.
 
 ## Environment Layering
 

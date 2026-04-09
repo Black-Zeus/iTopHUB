@@ -1,6 +1,8 @@
 import os
 from typing import Any
 
+from auth_repository import upsert_user_token
+from auth_schema import build_auth_select_fragment, ensure_token_storage_supported
 from crypto_service import decrypt_token, encrypt_token, mask_token_from_fingerprint
 from db import get_db_connection
 from integrations.itop_cmdb_connector import iTopCMDBConnector
@@ -65,7 +67,8 @@ def _build_user_row(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def list_users() -> list[dict[str, Any]]:
-    query = """
+    auth_columns = build_auth_select_fragment("a")
+    query = f"""
         SELECT
             u.id,
             u.username,
@@ -76,9 +79,7 @@ def list_users() -> list[dict[str, Any]]:
             r.code AS role_code,
             r.name AS role_name,
             r.is_admin,
-            a.auth_status,
-            a.cipher_token,
-            a.token_nonce
+{auth_columns}
         FROM hub_users u
         INNER JOIN hub_roles r ON r.id = u.role_id
         LEFT JOIN hub_user_auth a ON a.user_id = u.id
@@ -120,16 +121,8 @@ def update_user(user_id: int, payload: dict[str, Any]) -> dict[str, Any] | None:
             status = %s
         WHERE id = %s
     """
-    token_query = """
-        UPDATE hub_user_auth
-        SET auth_status = %s,
-            cipher_token = %s,
-            token_nonce = %s,
-            token_kek_version = %s,
-            token_fingerprint = %s
-        WHERE user_id = %s
-    """
-    fetch_query = """
+    auth_columns = build_auth_select_fragment("a")
+    fetch_query = f"""
         SELECT
             u.id,
             u.username,
@@ -140,9 +133,7 @@ def update_user(user_id: int, payload: dict[str, Any]) -> dict[str, Any] | None:
             r.code AS role_code,
             r.name AS role_name,
             r.is_admin,
-            a.auth_status,
-            a.cipher_token,
-            a.token_nonce
+{auth_columns}
         FROM hub_users u
         INNER JOIN hub_roles r ON r.id = u.role_id
         LEFT JOIN hub_user_auth a ON a.user_id = u.id
@@ -162,24 +153,6 @@ def update_user(user_id: int, payload: dict[str, Any]) -> dict[str, Any] | None:
                 (payload["fullName"].strip(), role_row["id"], payload["statusCode"], user_id),
             )
 
-            if payload.get("tokenChanged"):
-                token_value = payload.get("tokenValue", "").strip()
-                if token_value:
-                    encrypted = encrypt_token(token_value)
-                    cursor.execute(
-                        token_query,
-                        (
-                            "active",
-                            encrypted.cipher_token,
-                            encrypted.token_nonce,
-                            encrypted.token_kek_version,
-                            encrypted.token_fingerprint,
-                            user_id,
-                        ),
-                    )
-                else:
-                    cursor.execute(token_query, ("inactive", None, None, None, None, user_id))
-
             cursor.execute(fetch_query, (user_id,))
             row = cursor.fetchone()
 
@@ -194,17 +167,11 @@ def create_user(payload: dict[str, Any]) -> dict[str, Any] | None:
         VALUES (%s, %s, %s, %s, %s, %s, %s)
     """
     insert_auth_query = """
-        INSERT INTO hub_user_auth (
-            user_id,
-            auth_status,
-            cipher_token,
-            token_nonce,
-            token_kek_version,
-            token_fingerprint
-        )
-        VALUES (%s, %s, %s, %s, %s, %s)
+        INSERT INTO hub_user_auth (user_id, auth_status)
+        VALUES (%s, %s)
     """
-    fetch_query = """
+    auth_columns = build_auth_select_fragment("a")
+    fetch_query = f"""
         SELECT
             u.id,
             u.username,
@@ -215,9 +182,7 @@ def create_user(payload: dict[str, Any]) -> dict[str, Any] | None:
             r.code AS role_code,
             r.name AS role_name,
             r.is_admin,
-            a.auth_status,
-            a.cipher_token,
-            a.token_nonce
+{auth_columns}
         FROM hub_users u
         INNER JOIN hub_roles r ON r.id = u.role_id
         LEFT JOIN hub_user_auth a ON a.user_id = u.id
@@ -252,23 +217,49 @@ def create_user(payload: dict[str, Any]) -> dict[str, Any] | None:
             user_id = cursor.lastrowid
 
             token_value = payload.get("tokenValue", "").strip()
+            cursor.execute(insert_auth_query, (user_id, "inactive"))
+
             if token_value:
+                ensure_token_storage_supported()
                 encrypted = encrypt_token(token_value)
-                cursor.execute(
-                    insert_auth_query,
-                    (
-                        user_id,
-                        "active",
-                        encrypted.cipher_token,
-                        encrypted.token_nonce,
-                        encrypted.token_kek_version,
-                        encrypted.token_fingerprint,
-                    ),
+                upsert_user_token(
+                    user_id=user_id,
+                    auth_status="active",
+                    cipher_token=encrypted.cipher_token,
+                    token_nonce=encrypted.token_nonce,
+                    token_kek_version=encrypted.token_kek_version,
+                    token_fingerprint=encrypted.token_fingerprint,
                 )
-            else:
-                cursor.execute(insert_auth_query, (user_id, "inactive", None, None, None, None))
 
             cursor.execute(fetch_query, (user_id,))
+            row = cursor.fetchone()
+
+    return _build_user_row(row) if row else None
+
+
+def get_user(user_id: int) -> dict[str, Any] | None:
+    auth_columns = build_auth_select_fragment("a")
+    query = f"""
+        SELECT
+            u.id,
+            u.username,
+            u.email,
+            u.full_name,
+            u.status AS user_status,
+            u.updated_at,
+            r.code AS role_code,
+            r.name AS role_name,
+            r.is_admin,
+{auth_columns}
+        FROM hub_users u
+        INNER JOIN hub_roles r ON r.id = u.role_id
+        LEFT JOIN hub_user_auth a ON a.user_id = u.id
+        WHERE u.id = %s
+        LIMIT 1
+    """
+    with get_db_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(query, (user_id,))
             row = cursor.fetchone()
 
     return _build_user_row(row) if row else None

@@ -42,6 +42,7 @@ services:
     volumes:
       - mariadb_data:/var/lib/mysql
       - ${SETTINGS_ROOT}/mariadb/init:/docker-entrypoint-initdb.d:ro
+      - ${SETTINGS_ROOT}/mariadb:/opt/mariadb-tools:ro
       - ${LOGS_ROOT}/mariadb:/var/log/mysql
     healthcheck:
       test: ["CMD", "mariadb-admin", "ping", "-h", "127.0.0.1", "-u${MARIADB_USER}", "-p${MARIADB_PASSWORD}"]

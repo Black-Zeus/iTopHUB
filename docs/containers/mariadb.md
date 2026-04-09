@@ -28,3 +28,6 @@ Provides the relational database server shared by the custom backend and iTop, u
 - If a task touches schemas, grants, seeds, or indexes, start here.
 - `APP_DB_NAME` stores Hub auth metadata separately from `ITOP_DB_NAME`.
 - Personal iTop tokens for Hub users are persisted encrypted in `hub_user_auth`; Redis only keeps short-lived runtime cache.
+- Functional settings panels are persisted in `hub_settings_panels`.
+- Synchronization task definitions for the settings module are persisted in `hub_sync_tasks`.
+- The helper script `APP/config/mariadb/reset_hub_db.sh` is mounted in the container at `/opt/mariadb-tools/reset_hub_db.sh` for manual Hub DB recreation without deleting the MariaDB volume.

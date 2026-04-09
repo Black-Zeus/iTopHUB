@@ -150,12 +150,6 @@ def _build_user_payload(user_row: dict[str, Any], token_state: str) -> dict[str,
                 "posee acceso REST. Debes actualizar tu propio token desde el menu Usuarios. Mientras tanto, solo "
                 "tendras acceso a Configuracion y Usuarios."
             )
-    elif token_state == "stored":
-        notice = (
-            "Tu token personal esta registrado en el Hub. Cuando una accion requiera usar iTop, se te pedira "
-            "confirmar tu contrasena para reactivar el token en esta sesion."
-        )
-
     return {
         "id": user_row["id"],
         "username": user_row["username"],
@@ -204,7 +198,19 @@ def login_user(username: str, password: str) -> AuthenticatedSession:
 
     runtime_token = None
     token_state = "missing"
-    decrypted_token = _decrypt_user_token(user_row)
+    try:
+        decrypted_token = _decrypt_user_token(user_row)
+    except Exception as exc:
+        if user_row["is_admin"]:
+            decrypted_token = None
+            token_state = "invalid"
+        else:
+            raise AuthenticationError(
+                "Usuario autenticado en iTop, pero no autorizado para ingresar a iTop-Hub porque su token "
+                "personal registrado no pudo ser descifrado. Contacte a su administrador.",
+                status_code=403,
+                code="ITOP_TOKEN_INVALID",
+            ) from exc
 
     if decrypted_token:
         try:
@@ -276,7 +282,15 @@ def revalidate_user(session_id: str, password: str) -> dict[str, Any]:
         invalidate_session(session_id)
         raise AuthenticationError("Usuario sin acceso al Hub.", status_code=403, code="HUB_USER_INACTIVE")
 
-    decrypted_token = _decrypt_user_token(user_row)
+    try:
+        decrypted_token = _decrypt_user_token(user_row)
+    except Exception as exc:
+        raise AuthenticationError(
+            "El token personal registrado no pudo ser descifrado. Debe volver a registrarse.",
+            status_code=403,
+            code="ITOP_TOKEN_INVALID",
+        ) from exc
+
     if not decrypted_token:
         raise AuthenticationError(
             "No existe token personal registrado para este usuario.",

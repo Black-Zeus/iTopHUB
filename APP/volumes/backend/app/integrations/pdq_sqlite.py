@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from settings_service import get_settings_panel
+
 
 class PDQError(Exception):
     """Base exception for PDQ integration errors."""
@@ -163,16 +165,41 @@ class PDQConfig:
     sqlite_file_name: str
     sqlite_file_glob: str
     search_min_chars: int
+    configured_file_path: str
+
+
+def _read_panel_settings() -> dict[str, Any]:
+    try:
+        return get_settings_panel("pdq")
+    except Exception:
+        return {
+            "databaseFilePath": "/app/data/pdq",
+        }
+
+
+def _build_pdq_config(panel_settings: dict[str, Any] | None = None) -> PDQConfig:
+    panel_settings = panel_settings or _read_panel_settings()
+    configured_file_path = str(panel_settings.get("databaseFilePath") or "").strip()
+    configured_path = Path(configured_file_path) if configured_file_path else None
+    sqlite_dir = str(configured_path.parent) if configured_path and configured_path.suffix else configured_file_path or os.getenv("PDQ_SQLITE_DIR", "/app/data/pdq")
+    sqlite_file_name = configured_path.name if configured_path and configured_path.suffix else os.getenv("PDQ_SQLITE_FILE_NAME", "").strip()
+
+    return PDQConfig(
+        enabled=_read_bool("PDQ_ENABLED", default=True),
+        sqlite_dir=sqlite_dir,
+        sqlite_file_name=sqlite_file_name,
+        sqlite_file_glob=os.getenv("PDQ_SQLITE_FILE_GLOB", "*.db;*.sqlite;*.sqlite3").strip(),
+        search_min_chars=_read_int("PDQ_SEARCH_MIN_CHARS", default=2),
+        configured_file_path=configured_file_path,
+    )
 
 
 def read_pdq_config() -> PDQConfig:
-    return PDQConfig(
-        enabled=_read_bool("PDQ_ENABLED", default=True),
-        sqlite_dir=os.getenv("PDQ_SQLITE_DIR", "/app/data/pdq"),
-        sqlite_file_name=os.getenv("PDQ_SQLITE_FILE_NAME", "").strip(),
-        sqlite_file_glob=os.getenv("PDQ_SQLITE_FILE_GLOB", "*.db;*.sqlite;*.sqlite3").strip(),
-        search_min_chars=_read_int("PDQ_SEARCH_MIN_CHARS", default=2),
-    )
+    return _build_pdq_config()
+
+
+def build_pdq_test_config(panel_settings: dict[str, Any]) -> PDQConfig:
+    return _build_pdq_config(panel_settings)
 
 
 def get_pdq_status(config: PDQConfig | None = None) -> dict[str, Any]:
@@ -187,6 +214,7 @@ def get_pdq_status(config: PDQConfig | None = None) -> dict[str, Any]:
         "sqlite_dir": str(sqlite_dir),
         "sqlite_file_name": config.sqlite_file_name,
         "sqlite_file_glob": config.sqlite_file_glob,
+        "configured_file_path": config.configured_file_path,
         "search_min_chars": config.search_min_chars,
         "search_modes": ["hostname", "mac", "user"],
         "directory_exists": directory_exists,
@@ -312,6 +340,12 @@ def _read_int(name: str, default: int) -> int:
 
 
 def _find_candidate_files(sqlite_dir: Path, config: PDQConfig) -> list[Path]:
+    if config.configured_file_path:
+        configured_path = Path(config.configured_file_path)
+        if configured_path.exists() and configured_path.is_file():
+            return [configured_path]
+        return []
+
     if not sqlite_dir.exists() or not sqlite_dir.is_dir():
         return []
 

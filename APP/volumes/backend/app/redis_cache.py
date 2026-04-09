@@ -32,6 +32,10 @@ def session_token_key(session_id: str) -> str:
     return f"hub:session:{session_id}:token"
 
 
+def settings_panel_key(panel_code: str) -> str:
+    return f"hub:settings:{panel_code}"
+
+
 def load_session_to_redis(session_id: str, meta: dict[str, Any], ttl_seconds: int) -> None:
     client = get_redis_client()
     client.setex(session_meta_key(session_id), ttl_seconds, json.dumps(meta))
@@ -63,6 +67,22 @@ def expire_runtime_token(session_id: str, ttl_seconds: int) -> None:
     client.expire(session_token_key(session_id), ttl_seconds)
 
 
+def delete_runtime_token(session_id: str) -> None:
+    client = get_redis_client()
+    client.delete(session_token_key(session_id))
+
+
 def logout_session(session_id: str) -> None:
     client = get_redis_client()
     client.delete(session_meta_key(session_id), session_token_key(session_id))
+
+
+def cache_settings_panel(panel_code: str, config: dict[str, Any]) -> None:
+    client = get_redis_client()
+    client.set(settings_panel_key(panel_code), json.dumps(config))
+
+
+def get_cached_settings_panel(panel_code: str) -> dict[str, Any] | None:
+    client = get_redis_client()
+    raw = client.get(settings_panel_key(panel_code))
+    return json.loads(raw) if raw else None
