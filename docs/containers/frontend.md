@@ -51,3 +51,5 @@ Runs the custom React/Vite interface for the Hub layer on top of iTop.
 - In panels that expose a `Test` action, the save action should remain blocked until the current draft passes a successful validation; any subsequent edit invalidates that test requirement again.
 - In `Integracion iTop`, the derived REST route should mirror the backend connector and display `URL base + /webservices/rest.php`, not the Hub backend route `/api`.
 - Collapsible sections should reuse the same expand/collapse interaction pattern defined from `Informes`, including the same button structure, icon direction, and rotation transition, instead of introducing alternate variants per module.
+- Export actions for table results should reuse the same header-button pattern used in `PDQ`: `PanelHeader.actions`, `Button variant="secondary"`, `Icon name="download"`, and the label `Descargar Excel`, even when the generated file is CSV for compatibility reasons.
+- Every filtering form must expose an explicit `Buscar` button visible in the UI; pressing Enter may also submit the search, but the button is mandatory and should remain visually aligned with the filter controls.

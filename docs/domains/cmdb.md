@@ -14,3 +14,5 @@ Covers assets, inventory records, operational status, lifecycle state, ownership
 
 - Prefer one source of truth for asset identity.
 - Avoid duplicating CMDB concepts with slightly different names across modules.
+- The `Activos` view in the Hub should list only the CMDB object types enabled in `Configuracion > CMDB`.
+- Asset detail should be read from iTop at query time instead of relying on local placeholder inventories.
