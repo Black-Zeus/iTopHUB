@@ -7,7 +7,7 @@ from typing import Any
 import requests
 from fastapi import Cookie, FastAPI, HTTPException, Response
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from auth_service import (
     AuthenticationError,
@@ -32,6 +32,7 @@ from settings_service import (
     update_settings_panel,
     update_settings_sync_task,
 )
+from checklists_service import create_checklist, list_checklists_payload, update_checklist
 from assets_service import get_itop_asset_detail, list_itop_asset_catalog, search_itop_assets
 from people_service import get_itop_person_detail, search_itop_people
 from users_service import create_user, get_user, list_roles, list_users, search_itop_users, update_user
@@ -146,6 +147,15 @@ class ProfileRequest(BaseModel):
     isAdmin: bool = False
     status: str = "active"
     modules: list[dict[str, Any]] = []
+
+
+class ChecklistSaveRequest(BaseModel):
+    moduleCode: str
+    name: str
+    description: str = ""
+    status: str = "Activo"
+    cmdbClass: str = ""
+    checks: list[dict[str, Any]] = Field(default_factory=list)
 
 
 @asynccontextmanager
@@ -595,6 +605,55 @@ def settings_list(hub_session_id: str | None = Cookie(default=None)) -> dict[str
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Unable to load settings: {exc}") from exc
+
+
+@app.get("/v1/checklists")
+def checklists_list(hub_session_id: str | None = Cookie(default=None)) -> dict[str, Any]:
+    session_id = _ensure_session(hub_session_id)
+    try:
+        _ensure_module_access(session_id, "checklists")
+        return list_checklists_payload()
+    except AuthenticationError as exc:
+        _raise_auth_error(exc)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"No fue posible cargar los checklists: {exc}") from exc
+
+
+@app.post("/v1/checklists")
+def checklists_create(
+    payload: ChecklistSaveRequest,
+    hub_session_id: str | None = Cookie(default=None),
+) -> dict[str, Any]:
+    session_id = _ensure_session(hub_session_id)
+    try:
+        _ensure_module_access(session_id, "checklists", write=True)
+        return {"item": create_checklist(_model_to_dict(payload))}
+    except AuthenticationError as exc:
+        _raise_auth_error(exc)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"No fue posible crear el checklist: {exc}") from exc
+
+
+@app.put("/v1/checklists/{template_id}")
+def checklists_update(
+    template_id: int,
+    payload: ChecklistSaveRequest,
+    hub_session_id: str | None = Cookie(default=None),
+) -> dict[str, Any]:
+    session_id = _ensure_session(hub_session_id)
+    try:
+        _ensure_module_access(session_id, "checklists", write=True)
+        return {"item": update_checklist(template_id, _model_to_dict(payload))}
+    except AuthenticationError as exc:
+        _raise_auth_error(exc)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"No fue posible actualizar el checklist: {exc}") from exc
 
 
 @app.put("/v1/settings/{panel_code}")

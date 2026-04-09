@@ -8,10 +8,12 @@ for sql_file in \
   "${APP_INIT_DIR}/10_schema_core.sql" \
   "${APP_INIT_DIR}/20_schema_alter.sql" \
   "${APP_INIT_DIR}/25_schema_settings.sql" \
+  "${APP_INIT_DIR}/26_schema_checklists.sql" \
   "${APP_INIT_DIR}/30_schema_indexes.sql" \
   "${APP_INIT_DIR}/40_triggers.sql" \
   "${APP_INIT_DIR}/70_seed_core.sql" \
   "${APP_INIT_DIR}/75_seed_settings.sql" \
+  "${APP_INIT_DIR}/76_seed_checklists.sql" \
   "${APP_INIT_DIR}/80_seed_catalog.sql" \
   "${APP_INIT_DIR}/90_postamble.sql"
 do

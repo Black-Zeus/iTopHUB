@@ -30,4 +30,6 @@ Provides the relational database server shared by the custom backend and iTop, u
 - Personal iTop tokens for Hub users are persisted encrypted in `hub_user_auth`; Redis only keeps short-lived runtime cache.
 - Functional settings panels are persisted in `hub_settings_panels`.
 - Synchronization task definitions for the settings module are persisted in `hub_sync_tasks`.
+- Administration checklist templates are persisted in `hub_checklist_templates`.
+- Checklist item definitions are persisted in `hub_checklist_items`.
 - The helper script `APP/config/mariadb/reset_hub_db.sh` is mounted in the container at `/opt/mariadb-tools/reset_hub_db.sh` for manual Hub DB recreation without deleting the MariaDB volume.

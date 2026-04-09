@@ -40,6 +40,7 @@ Hosts the custom application API and integration layer between the frontend, iTo
 - Person detail responses enrich associated CIs from iTop and evaluate warranty alerts using the `cmdb.warrantyAlertDays` setting stored in MariaDB.
 - The settings module exposes backend endpoints for panel configuration and synchronization task definitions stored in MariaDB.
 - The settings module also exposes service validation endpoints used directly from the UI, including SMTP test, draft iTop connectivity validation with configurable SSL behavior, and PDQ database path validation against the current panel draft.
+- The administration checklist module now reads and writes checklist templates plus item definitions from MariaDB instead of frontend-only mock data.
 - Expected runtime env vars for connector bootstrap:
   - `ITOP_URL`
   - `ITOP_REST_USER`
