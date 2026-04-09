@@ -2,8 +2,10 @@ import os
 from datetime import date, datetime
 from typing import Any
 
+import pymysql
 from auth_service import AuthenticationError
 from integrations.itop_cmdb_connector import iTopCMDBConnector
+from pymysql.cursors import DictCursor
 
 
 def _read_bool(name: str, default: bool = True) -> bool:
@@ -21,6 +23,19 @@ def _read_int(name: str, default: int) -> int:
         return int(value)
     except ValueError:
         return default
+
+
+def _get_itop_db_connection():
+    return pymysql.connect(
+        host=os.getenv("ITOP_DB_HOST", "mariadb"),
+        port=_read_int("ITOP_DB_PORT", 3306),
+        user=os.getenv("ITOP_DB_USER", ""),
+        password=os.getenv("ITOP_DB_PASSWORD", ""),
+        database=os.getenv("ITOP_DB_NAME", ""),
+        charset="utf8mb4",
+        cursorclass=DictCursor,
+        autocommit=True,
+    )
 
 
 def _escape_oql(value: str) -> str:
@@ -66,11 +81,31 @@ def _build_person_row(item) -> dict[str, str | int]:
     }
 
 
-def _build_person_detail(item, related_cis) -> dict[str, object]:
+def _build_person_detail(item, related_cis, history_items) -> dict[str, object]:
     base_row = _build_person_row(item)
     organization = str(item.get("org_id_friendlyname") or item.get("org_name") or "").strip()
     location = str(item.get("location_id_friendlyname") or "").strip()
     manager = str(item.get("manager_id_friendlyname") or "").strip()
+    assignment_by_ci: dict[int, dict[str, str]] = {}
+
+    for history_item in history_items:
+        if str(history_item.get("action") or "").strip() != "Agregado":
+            continue
+        ci_id = int(history_item.get("ciId") or 0)
+        if ci_id <= 0 or ci_id in assignment_by_ci:
+            continue
+        assignment_by_ci[ci_id] = {
+            "assignedAt": str(history_item.get("changedAt") or "").strip(),
+            "assignedBy": str(history_item.get("changedBy") or "").strip(),
+        }
+
+    enriched_related_cis = [
+        {
+            **ci_item,
+            **assignment_by_ci.get(int(ci_item.get("id") or 0), {}),
+        }
+        for ci_item in related_cis
+    ]
 
     return {
         **base_row,
@@ -79,7 +114,8 @@ def _build_person_detail(item, related_cis) -> dict[str, object]:
         "organization": organization,
         "location": location,
         "manager": manager,
-        "cmdbItems": related_cis,
+        "cmdbItems": enriched_related_cis,
+        "cmdbHistory": history_items,
     }
 
 
@@ -88,7 +124,7 @@ def _build_ci_summary(ci) -> dict[str, object]:
         "id": ci.id,
         "code": f"CI-{int(ci.id):05d}",
         "name": str(ci.get("friendlyname") or ci.get("name") or f"Objeto {ci.id}").strip(),
-        "className": str(ci.get("finalclass") or ci.itop_class or "").strip(),
+        "className": _format_ci_class(ci.get("finalclass") or ci.itop_class),
         "status": str(ci.get("status") or "").strip(),
     }
 
@@ -135,6 +171,24 @@ def _format_ci_type(value: Any) -> str:
         "printer": "Impresora",
         "monitor": "Monitor",
         "peripheral": "Periferico",
+    }
+    return mapping.get(raw, _to_sentence_case(value))
+
+
+def _format_ci_class(value: Any) -> str:
+    raw = str(value or "").strip().lower()
+    mapping = {
+        "pc": "Equipo",
+        "server": "Servidor",
+        "virtualmachine": "Maquina virtual",
+        "virtual machine": "Maquina virtual",
+        "mobilephone": "Celular",
+        "mobile phone": "Celular",
+        "tablet": "Tableta",
+        "printer": "Impresora",
+        "peripheral": "Periferico",
+        "phone": "Telefono",
+        "functionalci": "Objeto CMDB",
     }
     return mapping.get(raw, _to_sentence_case(value))
 
@@ -219,6 +273,60 @@ def _build_ci_detail(ci, warranty_alert_days: int) -> dict[str, object]:
         **summary,
         "fields": detail_fields,
     }
+
+
+def _load_person_ci_history(person_id: int) -> list[dict[str, str | int]]:
+    sql = """
+        SELECT
+            change_log.id AS change_id,
+            change_log.date AS changed_at,
+            change_log.userinfo AS changed_by,
+            change_log.origin AS origin,
+            links.item_id AS ci_id,
+            links_op.type AS action_type,
+            functionalci.name AS ci_name,
+            functionalci.finalclass AS ci_class
+        FROM priv_change AS change_log
+        INNER JOIN priv_changeop AS op
+            ON op.changeid = change_log.id
+        INNER JOIN priv_changeop_links AS links
+            ON links.id = op.id
+        INNER JOIN priv_changeop_links_addremove AS links_op
+            ON links_op.id = op.id
+        LEFT JOIN functionalci
+            ON functionalci.id = links.item_id
+        WHERE op.objclass = 'Person'
+          AND op.objkey = %s
+          AND op.optype = 'CMDBChangeOpSetAttributeLinksAddRemove'
+          AND links.item_class = 'FunctionalCI'
+          AND links_op.type IN ('added', 'removed')
+        ORDER BY change_log.date DESC, change_log.id DESC
+    """
+
+    connection = _get_itop_db_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(sql, (person_id,))
+            rows = cursor.fetchall() or []
+    finally:
+        connection.close()
+
+    history: list[dict[str, str | int]] = []
+    for row in rows:
+        history.append(
+            {
+                "id": int(row.get("change_id") or 0),
+                "ciId": int(row.get("ci_id") or 0),
+                "ciName": str(row.get("ci_name") or f"Objeto {int(row.get('ci_id') or 0)}").strip(),
+                "ciClass": _format_ci_class(row.get("ci_class")),
+                "action": "Agregado" if str(row.get("action_type") or "").strip().lower() == "added" else "Removido",
+                "changedAt": str(row.get("changed_at") or "").strip(),
+                "changedBy": str(row.get("changed_by") or "").strip(),
+                "origin": str(row.get("origin") or "").strip(),
+            }
+        )
+
+    return history
 
 
 def _matches_person_query(item, query: str) -> bool:
@@ -336,6 +444,7 @@ def get_itop_person_detail(person_id: int, runtime_token: str) -> dict[str, obje
             ci_class = str(ci.get("finalclass") or ci.itop_class or "FunctionalCI").strip() or "FunctionalCI"
             detailed_item = connector.get_ci(ci_class, ci.id, output_fields="*")
             detailed_cis.append(_build_ci_detail(detailed_item or ci, warranty_alert_days))
+        history_items = _load_person_ci_history(person_id)
     except ConnectionError as exc:
         raise AuthenticationError(
             f"No fue posible consultar el detalle de la persona en iTop: {exc}",
@@ -345,4 +454,4 @@ def get_itop_person_detail(person_id: int, runtime_token: str) -> dict[str, obje
     finally:
         connector.close()
 
-    return _build_person_detail(person, detailed_cis)
+    return _build_person_detail(person, detailed_cis, history_items)

@@ -32,6 +32,7 @@ from settings_service import (
     update_settings_panel,
     update_settings_sync_task,
 )
+from assets_service import get_itop_asset_detail, list_itop_asset_catalog, search_itop_assets
 from people_service import get_itop_person_detail, search_itop_people
 from users_service import create_user, get_user, list_roles, list_users, search_itop_users, update_user
 
@@ -374,6 +375,63 @@ def people_detail(person_id: int, hub_session_id: str | None = Cookie(default=No
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Unable to load iTop person detail: {exc}") from exc
+
+
+@app.get("/v1/assets/itop/search")
+def assets_itop_search(
+    q: str = "",
+    hub_session_id: str | None = Cookie(default=None),
+) -> dict[str, Any]:
+    session_id = _ensure_session(hub_session_id)
+    try:
+        session_user = _ensure_module_access(session_id, "assets")
+        runtime_token = get_runtime_token(session_id)
+        return {
+            "items": search_itop_assets(q, runtime_token),
+            "sessionUser": session_user["username"],
+        }
+    except AuthenticationError as exc:
+        _raise_auth_error(exc)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Unable to search iTop assets: {exc}") from exc
+
+
+@app.get("/v1/assets/itop/catalog")
+def assets_itop_catalog(
+    hub_session_id: str | None = Cookie(default=None),
+) -> dict[str, Any]:
+    session_id = _ensure_session(hub_session_id)
+    try:
+        _ensure_module_access(session_id, "assets")
+        runtime_token = get_runtime_token(session_id)
+        return list_itop_asset_catalog(runtime_token)
+    except AuthenticationError as exc:
+        _raise_auth_error(exc)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Unable to load iTop asset catalog: {exc}") from exc
+
+
+@app.get("/v1/assets/{asset_id}")
+def asset_detail(asset_id: int, hub_session_id: str | None = Cookie(default=None)) -> dict[str, Any]:
+    session_id = _ensure_session(hub_session_id)
+    try:
+        _ensure_module_access(session_id, "assets")
+        runtime_token = get_runtime_token(session_id)
+        return {"item": get_itop_asset_detail(asset_id, runtime_token)}
+    except AuthenticationError as exc:
+        _raise_auth_error(exc)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Unable to load iTop asset detail: {exc}") from exc
 
 
 @app.get("/v1/users/roles")
