@@ -18,6 +18,7 @@ coverage/
 # IDE
 .vscode/
 .idea/
+.codex
 
 # Env
 .env

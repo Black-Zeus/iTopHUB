@@ -91,8 +91,8 @@ For documentation regeneration, normalization, or governance updates, read `REGE
   - `git switch`
   - `git checkout`
   - `git remote`
-  - `git push`
 - These operations are acceptable when they support the requested task and do not introduce destructive behavior.
+- `git push` is the user's responsibility and must not be executed by the AI agent.
 - Do not use destructive Git commands such as `reset --hard`, forced history rewrites, or cleanup commands unless the user explicitly requests them.
 - This policy expresses the intended working model for the project, but actual sandbox execution permissions still depend on the environment approval system.
 
