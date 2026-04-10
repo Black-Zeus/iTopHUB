@@ -1,9 +1,9 @@
-import os
 from typing import Any
 
 from infrastructure.crypto_service import decrypt_token, encrypt_token, mask_token_from_fingerprint
 from infrastructure.db import get_db_connection
 from integrations.itop_cmdb_connector import iTopCMDBConnector
+from integrations.itop_runtime import get_itop_runtime_config
 from modules.auth.repository import upsert_user_token
 from modules.auth.schema import build_auth_select_fragment, ensure_token_storage_supported
 
@@ -21,24 +21,6 @@ STATUS_LABELS = {
     "inactive": "Inactivo",
     "blocked": "Bloqueado",
 }
-
-
-def _read_bool(name: str, default: bool = True) -> bool:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    return value.strip().lower() not in {"0", "false", "no", "off"}
-
-
-def _read_int(name: str, default: int) -> int:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    try:
-        return int(value)
-    except ValueError:
-        return default
-
 
 def _build_user_row(row: dict[str, Any]) -> dict[str, Any]:
     masked = ""
@@ -270,12 +252,13 @@ def search_itop_users(query: str, runtime_token: str) -> list[dict[str, Any]]:
     if len(normalized) < 2:
         return []
 
+    itop_config = get_itop_runtime_config()
     connector = iTopCMDBConnector(
-        base_url=os.getenv("ITOP_URL", ""),
+        base_url=itop_config["integrationUrl"],
         token=runtime_token,
         username="hub-session-user",
-        verify_ssl=_read_bool("ITOP_VERIFY_SSL", True),
-        timeout=_read_int("ITOP_TIMEOUT_SECONDS", 30),
+        verify_ssl=itop_config["verifySsl"],
+        timeout=itop_config["timeoutSeconds"],
     )
 
     items_by_username: dict[str, dict[str, Any]] = {}

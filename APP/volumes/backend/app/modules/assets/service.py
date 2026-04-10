@@ -4,6 +4,7 @@ from typing import Any
 import pymysql
 from modules.auth.service import AuthenticationError
 from integrations.itop_cmdb_connector import iTopCMDBConnector
+from integrations.itop_runtime import get_itop_runtime_config
 from modules.people.service import _build_ci_detail, _format_ci_status
 from pymysql.cursors import DictCursor
 
@@ -383,13 +384,14 @@ def list_itop_asset_catalog(runtime_token: str) -> dict[str, list[dict[str, obje
 
     cmdb_settings = get_settings_panel("cmdb")
     enabled_labels = [str(item).strip() for item in cmdb_settings.get("enabledAssetTypes") or [] if str(item).strip()]
+    itop_config = get_itop_runtime_config()
 
     connector = iTopCMDBConnector(
-        base_url=os.getenv("ITOP_URL", ""),
+        base_url=itop_config["integrationUrl"],
         token=runtime_token,
         username="hub-session-user",
-        verify_ssl=_read_bool("ITOP_VERIFY_SSL", True),
-        timeout=_read_int("ITOP_TIMEOUT_SECONDS", 30),
+        verify_ssl=itop_config["verifySsl"],
+        timeout=itop_config["timeoutSeconds"],
     )
 
     try:
@@ -527,13 +529,14 @@ def search_itop_assets(query: str, runtime_token: str, limit: int = 200) -> list
 
     cmdb_settings = get_settings_panel("cmdb")
     enabled_labels = [str(item).strip() for item in cmdb_settings.get("enabledAssetTypes") or [] if str(item).strip()]
+    itop_config = get_itop_runtime_config()
 
     connector = iTopCMDBConnector(
-        base_url=os.getenv("ITOP_URL", ""),
+        base_url=itop_config["integrationUrl"],
         token=runtime_token,
         username="hub-session-user",
-        verify_ssl=_read_bool("ITOP_VERIFY_SSL", True),
-        timeout=_read_int("ITOP_TIMEOUT_SECONDS", 30),
+        verify_ssl=itop_config["verifySsl"],
+        timeout=itop_config["timeoutSeconds"],
     )
 
     try:
@@ -568,12 +571,13 @@ def search_itop_assets(query: str, runtime_token: str, limit: int = 200) -> list
 def get_itop_asset_detail(asset_id: int, runtime_token: str) -> dict[str, object]:
     from modules.settings.service import get_settings_panel
 
+    itop_config = get_itop_runtime_config()
     connector = iTopCMDBConnector(
-        base_url=os.getenv("ITOP_URL", ""),
+        base_url=itop_config["integrationUrl"],
         token=runtime_token,
         username="hub-session-user",
-        verify_ssl=_read_bool("ITOP_VERIFY_SSL", True),
-        timeout=_read_int("ITOP_TIMEOUT_SECONDS", 30),
+        verify_ssl=itop_config["verifySsl"],
+        timeout=itop_config["timeoutSeconds"],
     )
 
     try:

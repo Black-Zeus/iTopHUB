@@ -8,3 +8,12 @@ class LoginRequest(BaseModel):
 
 class RevalidateRequest(BaseModel):
     password: str
+
+
+class BootstrapFirstAdminRequest(BaseModel):
+    integrationUrl: str
+    username: str
+    password: str
+    tokenValue: str
+    verifySsl: bool = True
+    timeoutSeconds: int = 30

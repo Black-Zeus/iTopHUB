@@ -1,8 +1,8 @@
-import os
 from dataclasses import dataclass
 from typing import Any
 
 from infrastructure.crypto_service import decrypt_token, encrypt_token
+from integrations.itop_runtime import get_itop_runtime_config
 from infrastructure.session_service import (
     get_active_session,
     get_runtime_token_for_session,
@@ -13,6 +13,7 @@ from infrastructure.session_service import (
     update_session_user,
 )
 from modules.auth.repository import (
+    count_hub_users,
     fetch_role_modules,
     fetch_user_by_id,
     fetch_user_by_identity,
@@ -21,6 +22,7 @@ from modules.auth.repository import (
     upsert_user_token,
 )
 from integrations.itop_cmdb_connector import iTopCMDBConnector
+from modules.settings.service import update_settings_panel
 
 
 ADMIN_MODULES_WITHOUT_TOKEN = ["settings", "users"]
@@ -41,38 +43,26 @@ class AuthenticatedSession:
     session_meta: dict[str, Any]
 
 
-def _read_bool(name: str, default: bool = True) -> bool:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    return value.strip().lower() not in {"0", "false", "no", "off"}
-
-
-def _read_int(name: str, default: int) -> int:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    try:
-        return int(value)
-    except ValueError:
-        return default
-
-
 def _decrypt_user_token(user_row: dict[str, Any]) -> str | None:
     if not user_row.get("cipher_token") or not user_row.get("token_nonce"):
         return None
     return decrypt_token(user_row["cipher_token"], user_row["token_nonce"])
 
 
-def _validate_itop_credentials(username: str, password: str) -> bool:
+def _get_itop_auth_config(overrides: dict[str, Any] | None = None) -> dict[str, Any]:
+    return get_itop_runtime_config(overrides)
+
+
+def _validate_itop_credentials(username: str, password: str, overrides: dict[str, Any] | None = None) -> bool:
+    itop_config = _get_itop_auth_config(overrides)
     try:
         result = iTopCMDBConnector.authenticate(
-            base_url=os.getenv("ITOP_URL", ""),
+            base_url=itop_config["integrationUrl"],
             username=username,
             password=password,
             token_store=lambda _username: None,
-            verify_ssl=_read_bool("ITOP_VERIFY_SSL", True),
-            timeout=_read_int("ITOP_TIMEOUT_SECONDS", 30),
+            verify_ssl=itop_config["verifySsl"],
+            timeout=itop_config["timeoutSeconds"],
         )
     except ConnectionError as exc:
         raise AuthenticationError(
@@ -84,15 +74,21 @@ def _validate_itop_credentials(username: str, password: str) -> bool:
     return result.authorized
 
 
-def _validate_personal_token(username: str, password: str, token: str) -> None:
+def _validate_personal_token(
+    username: str,
+    password: str,
+    token: str,
+    overrides: dict[str, Any] | None = None,
+) -> None:
+    itop_config = _get_itop_auth_config(overrides)
     try:
         result = iTopCMDBConnector.authenticate(
-            base_url=os.getenv("ITOP_URL", ""),
+            base_url=itop_config["integrationUrl"],
             username=username,
             password=password,
             token_store=lambda _username: token,
-            verify_ssl=_read_bool("ITOP_VERIFY_SSL", True),
-            timeout=_read_int("ITOP_TIMEOUT_SECONDS", 30),
+            verify_ssl=itop_config["verifySsl"],
+            timeout=itop_config["timeoutSeconds"],
         )
     except ConnectionError as exc:
         raise AuthenticationError(
@@ -115,6 +111,40 @@ def _validate_personal_token(username: str, password: str, token: str) -> None:
         )
     if result.connector is not None:
         result.connector.close()
+
+
+def _escape_oql(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("'", "\\'")
+
+
+def _resolve_itop_user_full_name(connector: iTopCMDBConnector | None, username: str) -> str:
+    if connector is None:
+        return username
+
+    safe_username = _escape_oql(username)
+    for class_name in ["UserLocal", "UserLDAP", "UserExternal"]:
+        try:
+            items = connector.oql(
+                f"SELECT {class_name} WHERE login = '{safe_username}'",
+                output_fields="friendlyname,contactid_friendlyname,login",
+            )
+        except Exception:
+            continue
+
+        if not items:
+            continue
+
+        item = items[0]
+        full_name = str(
+            item.get("contactid_friendlyname")
+            or item.get("friendlyname")
+            or item.get("login")
+            or username
+        ).strip()
+        if full_name:
+            return full_name
+
+    return username
 
 
 def _get_token_state(user_row: dict[str, Any], has_runtime_token: bool) -> str:
@@ -241,6 +271,141 @@ def login_user(username: str, password: str) -> AuthenticatedSession:
     session_id, session_meta = start_session(user, runtime_token)
     touch_login(user_row["id"])
     return AuthenticatedSession(user=user, session_id=session_id, session_meta=session_meta)
+
+
+def get_bootstrap_status() -> dict[str, Any]:
+    setup_required = count_hub_users() == 0
+    itop_config = _get_itop_auth_config() if setup_required else _get_itop_auth_config({})
+    return {
+        "setupRequired": setup_required,
+        "config": {
+            "integrationUrl": itop_config["integrationUrl"] if setup_required else "",
+            "verifySsl": itop_config["verifySsl"],
+            "timeoutSeconds": itop_config["timeoutSeconds"],
+        },
+    }
+
+
+def bootstrap_first_admin(
+    integration_url: str,
+    username: str,
+    password: str,
+    token: str,
+    verify_ssl: bool = True,
+    timeout_seconds: int = 30,
+) -> AuthenticatedSession:
+    if count_hub_users() > 0:
+        raise AuthenticationError(
+            "El bootstrap inicial ya no esta disponible porque el Hub ya posee usuarios.",
+            status_code=409,
+            code="BOOTSTRAP_NOT_AVAILABLE",
+        )
+
+    normalized_username = username.strip()
+    normalized_password = password or ""
+    normalized_token = token.strip()
+    bootstrap_config = _get_itop_auth_config(
+        {
+            "integrationUrl": integration_url,
+            "verifySsl": verify_ssl,
+            "timeoutSeconds": timeout_seconds,
+        }
+    )
+
+    if not bootstrap_config["integrationUrl"]:
+        raise AuthenticationError(
+            "La URL base de iTop es obligatoria para el bootstrap inicial.",
+            status_code=422,
+            code="BOOTSTRAP_INVALID_CONFIG",
+        )
+    if not normalized_username:
+        raise AuthenticationError(
+            "El usuario administrador de iTop es obligatorio.",
+            status_code=422,
+            code="BOOTSTRAP_INVALID_CONFIG",
+        )
+    if not normalized_password:
+        raise AuthenticationError(
+            "La contrasena del usuario administrador de iTop es obligatoria.",
+            status_code=422,
+            code="BOOTSTRAP_INVALID_CONFIG",
+        )
+    if not normalized_token:
+        raise AuthenticationError(
+            "El token personal del administrador es obligatorio.",
+            status_code=422,
+            code="BOOTSTRAP_INVALID_CONFIG",
+        )
+
+    try:
+        result = iTopCMDBConnector.authenticate(
+            base_url=bootstrap_config["integrationUrl"],
+            username=normalized_username,
+            password=normalized_password,
+            token_store=lambda _username: normalized_token,
+            verify_ssl=bootstrap_config["verifySsl"],
+            timeout=bootstrap_config["timeoutSeconds"],
+        )
+    except ConnectionError as exc:
+        raise AuthenticationError(
+            f"No fue posible completar el bootstrap inicial contra iTop: {exc}",
+            status_code=503,
+            code="ITOP_UNAVAILABLE",
+        ) from exc
+
+    if not result.authorized:
+        raise AuthenticationError(
+            "Usuario o contrasena incorrectos en iTop.",
+            status_code=401,
+            code="ITOP_LOGIN_FAILED",
+        )
+    if not result.has_token or not result.token_valid:
+        raise AuthenticationError(
+            "El token personal de iTop es invalido o no tiene acceso REST.",
+            status_code=403,
+            code="ITOP_TOKEN_INVALID",
+        )
+
+    try:
+        if count_hub_users() > 0:
+            raise AuthenticationError(
+                "El bootstrap inicial ya no esta disponible porque otro usuario ya fue creado.",
+                status_code=409,
+                code="BOOTSTRAP_NOT_AVAILABLE",
+            )
+
+        if fetch_user_by_identity(normalized_username):
+            raise AuthenticationError(
+                "El usuario administrador ya existe en el Hub.",
+                status_code=409,
+                code="HUB_USER_ALREADY_EXISTS",
+            )
+
+        full_name = _resolve_itop_user_full_name(result.connector, normalized_username)
+        update_settings_panel("itop", bootstrap_config)
+
+        from modules.users.service import create_user
+
+        created_user = create_user(
+            {
+                "username": normalized_username,
+                "fullName": full_name or normalized_username,
+                "roleCode": "administrator",
+                "statusCode": "active",
+                "tokenValue": normalized_token,
+            }
+        )
+        if not created_user:
+            raise AuthenticationError(
+                "No fue posible crear el primer administrador porque el rol base del Hub no esta disponible.",
+                status_code=500,
+                code="BOOTSTRAP_ROLE_MISSING",
+            )
+    finally:
+        if result.connector is not None:
+            result.connector.close()
+
+    return login_user(normalized_username, normalized_password)
 
 
 def get_session_user(session_id: str) -> dict[str, Any]:

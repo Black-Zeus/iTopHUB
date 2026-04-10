@@ -5,6 +5,7 @@ from typing import Any
 import pymysql
 from modules.auth.service import AuthenticationError
 from integrations.itop_cmdb_connector import iTopCMDBConnector
+from integrations.itop_runtime import get_itop_runtime_config
 from pymysql.cursors import DictCursor
 
 
@@ -365,12 +366,13 @@ def search_itop_people(query: str, runtime_token: str, status: str = "", limit: 
     if normalized_status and normalized_status not in {"active", "inactive"}:
         raise ValueError("El estado de persona no es valido.")
 
+    itop_config = get_itop_runtime_config()
     connector = iTopCMDBConnector(
-        base_url=os.getenv("ITOP_URL", ""),
+        base_url=itop_config["integrationUrl"],
         token=runtime_token,
         username="hub-session-user",
-        verify_ssl=_read_bool("ITOP_VERIFY_SSL", True),
-        timeout=_read_int("ITOP_TIMEOUT_SECONDS", 30),
+        verify_ssl=itop_config["verifySsl"],
+        timeout=itop_config["timeoutSeconds"],
     )
 
     conditions: list[str] = []
@@ -416,12 +418,13 @@ def search_itop_people(query: str, runtime_token: str, status: str = "", limit: 
 def get_itop_person_detail(person_id: int, runtime_token: str) -> dict[str, object]:
     from modules.settings.service import get_settings_panel
 
+    itop_config = get_itop_runtime_config()
     connector = iTopCMDBConnector(
-        base_url=os.getenv("ITOP_URL", ""),
+        base_url=itop_config["integrationUrl"],
         token=runtime_token,
         username="hub-session-user",
-        verify_ssl=_read_bool("ITOP_VERIFY_SSL", True),
-        timeout=_read_int("ITOP_TIMEOUT_SECONDS", 30),
+        verify_ssl=itop_config["verifySsl"],
+        timeout=itop_config["timeoutSeconds"],
     )
 
     try:

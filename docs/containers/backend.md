@@ -30,8 +30,10 @@ Hosts the custom application API and integration layer between the frontend, iTo
 - PDQ SQLite integration lives in `APP/volumes/backend/app/integrations/pdq_sqlite.py`.
 - The connector uses a 3-phase auth flow: `core/check_credentials` -> local token resolution -> token validation (`list_operations`).
 - The active Hub login flow now uses the authenticated user's own iTop token, never an application token for runtime operations.
+- If the Hub has no local users, the auth module exposes an initial bootstrap flow that validates an iTop administrator, stores the iTop panel configuration, creates the first local admin user, and starts the session without manual SQL inserts.
 - In `dev`, the backend should reach iTop through the Docker service URL `http://itop`, and the REST endpoint used by the connector is `/webservices/rest.php`.
 - Business rules for login, limited admin access, token registration, and user linking are documented in `docs/domains/access-control.md`.
+- Runtime iTop requests should prefer the persisted `Settings -> Integracion iTop` panel values and fall back to environment variables only when no panel config exists yet.
 - Hub sessions are server-side:
   - `hub_session_id` cookie in the browser
   - session metadata in Redis under `hub:session:{session_id}:meta`

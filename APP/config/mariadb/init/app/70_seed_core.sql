@@ -66,33 +66,4 @@ ON DUPLICATE KEY UPDATE
     can_view = VALUES(can_view),
     can_write = VALUES(can_write);
 
-INSERT INTO hub_users (role_id, username, email, full_name, password_hash, status, itop_person_key)
-SELECT r.id, seed.username, seed.email, seed.full_name, seed.password_hash, seed.status, seed.itop_person_key
-FROM hub_roles r
-JOIN (
-    SELECT 'administrator' AS role_code, 'victor.soto' AS username, 'victor.soto@itophub.local' AS email, 'Victor Soto' AS full_name, REPEAT('0', 64) AS password_hash, 'active' AS status, NULL AS itop_person_key
-    UNION ALL SELECT 'support_general', 'marina.sosa', 'marina.sosa@itophub.local', 'Marina Sosa', REPEAT('0', 64), 'active', NULL
-    UNION ALL SELECT 'support_lab', 'natalia.quiroga', 'natalia.quiroga@itophub.local', 'Natalia Quiroga', REPEAT('0', 64), 'active', NULL
-    UNION ALL SELECT 'support_field', 'lucia.vera', 'lucia.vera@itophub.local', 'Lucia Vera', REPEAT('0', 64), 'active', NULL
-    UNION ALL SELECT 'viewer', 'damian.ochoa', 'damian.ochoa@itophub.local', 'Damian Ochoa', REPEAT('0', 64), 'active', NULL
-) seed ON seed.role_code = r.code
-ON DUPLICATE KEY UPDATE
-    role_id = VALUES(role_id),
-    email = VALUES(email),
-    full_name = VALUES(full_name),
-    password_hash = VALUES(password_hash),
-    status = VALUES(status),
-    itop_person_key = VALUES(itop_person_key);
-
-INSERT INTO hub_user_auth (user_id, auth_status, cipher_token, token_nonce, token_kek_version, token_fingerprint)
-SELECT u.id, seed.auth_status, NULL, NULL, NULL, NULL
-FROM hub_users u
-JOIN (
-    SELECT 'victor.soto' AS username, 'inactive' AS auth_status
-    UNION ALL SELECT 'marina.sosa', 'inactive'
-    UNION ALL SELECT 'natalia.quiroga', 'inactive'
-    UNION ALL SELECT 'lucia.vera', 'inactive'
-    UNION ALL SELECT 'damian.ochoa', 'inactive'
-) seed ON seed.username = u.username
-ON DUPLICATE KEY UPDATE
-    auth_status = VALUES(auth_status);
+-- El primer usuario del Hub se crea desde el wizard inicial de bootstrap.

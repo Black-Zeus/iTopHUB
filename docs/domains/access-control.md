@@ -16,6 +16,19 @@ Covers Hub login, authorization, user linking, personal iTop token handling, and
   - first validate username and password against iTop
   - if iTop login fails, deny access
   - if iTop login succeeds, evaluate the Hub user record, role, and personal token state
+- Initial bootstrap flow:
+  - if the Hub has no local users yet, the login page must switch to an initial setup wizard
+  - the wizard must request:
+    - iTop base URL
+    - iTop administrator username/password
+    - personal iTop token for that administrator
+  - the backend must validate those values against iTop before creating any Hub user
+  - if validation succeeds, the backend must:
+    - persist the iTop integration settings
+    - create the first Hub user with role `administrator`
+    - persist the personal token encrypted
+    - start the session immediately
+  - once at least one Hub user exists, the bootstrap wizard must no longer be available
 - Non-admin user without personal token:
   - cannot log in to iTop-Hub
   - must see a message instructing them to contact their administrator

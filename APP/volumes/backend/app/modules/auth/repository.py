@@ -5,6 +5,15 @@ from infrastructure.db import get_db_connection
 from modules.auth.schema import build_auth_select_fragment, build_touch_query, ensure_token_storage_supported
 
 
+def count_hub_users() -> int:
+    query = "SELECT COUNT(*) AS total FROM hub_users"
+    with get_db_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(query)
+            row = cursor.fetchone() or {}
+    return int(row.get("total") or 0)
+
+
 def fetch_user_by_identity(identity: str) -> dict[str, Any] | None:
     auth_columns = build_auth_select_fragment("a")
     query = f"""
