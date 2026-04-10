@@ -1,6 +1,6 @@
 import { createElement, useEffect, useMemo, useRef, useState } from "react";
 import ModalManager from "@/components/ui/modal";
-import { AuthRevalidationModal } from "@hooks/useAuthRevalidationModal";
+import { AuthRevalidationModal, SessionExpiryWarningModal } from "@hooks/useAuthRevalidationModal";
 import {
   authenticateUser,
   bootstrapFirstAdminUser,
@@ -13,6 +13,8 @@ import {
 } from "@services/auth-session-service";
 import { ApiError } from "@services/api-client";
 
+const SESSION_WARNING_OPEN_OFFSET_SECONDS = 40;
+const SESSION_WARNING_AUTO_CLOSE_SECONDS = 30;
 
 export function useAuth() {
   const [loading, setLoading] = useState(true);
@@ -143,8 +145,14 @@ export function useAuth() {
     }
 
     const expireAtMs = new Date(expiresAt).getTime();
-    const warningAtMs = expireAtMs - (warningSeconds * 1000);
+    if (Number.isNaN(expireAtMs)) {
+      warningModalOpenRef.current = false;
+      return undefined;
+    }
+
+    const warningAtMs = expireAtMs - (SESSION_WARNING_OPEN_OFFSET_SECONDS * 1000);
     const delay = Math.max(warningAtMs - Date.now(), 0);
+    let modalId = null;
 
     const timerId = window.setTimeout(async () => {
       if (warningModalOpenRef.current) {
@@ -152,30 +160,53 @@ export function useAuth() {
       }
 
       warningModalOpenRef.current = true;
-      try {
-        const keepAlive = await ModalManager.confirm({
+      modalId = ModalManager.custom({
+        title: "La sesion esta por vencer",
+        size: "medium",
+        showFooter: false,
+        showCloseButton: false,
+        closeOnOverlayClick: false,
+        closeOnEscape: false,
+        content: createElement(SessionExpiryWarningModal, {
           title: "La sesion esta por vencer",
-          message: "Tu sesion expirara en menos de 30 segundos. Confirma si sigues activo para extenderla por otras 4 horas.",
-          confirmText: "Seguir activo",
-          cancelText: "Cerrar sesion",
-          closeOnOverlayClick: false,
-          closeOnEscape: false,
-        });
-
-        if (keepAlive) {
-          await keepSessionAlive();
-        } else {
-          await logout();
-        }
-      } catch {
-        await logout();
-      } finally {
-        warningModalOpenRef.current = false;
-      }
+          message:
+            "Tu sesion esta por terminar. Si sigues activo, extiendela ahora para evitar interrupciones o errores de reingreso al limite del vencimiento.",
+          autoCloseSeconds: SESSION_WARNING_AUTO_CLOSE_SECONDS,
+          sessionExpiresAtMs: expireAtMs,
+          onExtend: async () => {
+            await keepSessionAlive();
+            if (modalId) {
+              ModalManager.close(modalId);
+            }
+          },
+          onLogoutNow: async () => {
+            await logout();
+            if (modalId) {
+              ModalManager.close(modalId);
+            }
+          },
+          onExpire: async () => {
+            await logout();
+            if (modalId) {
+              ModalManager.close(modalId);
+            }
+          },
+        }),
+        onClose: () => {
+          warningModalOpenRef.current = false;
+          modalId = null;
+        },
+      });
     }, delay);
 
-    return () => window.clearTimeout(timerId);
-  }, [user, expiresAt, warningSeconds]);
+    return () => {
+      window.clearTimeout(timerId);
+      if (modalId) {
+        ModalManager.close(modalId);
+      }
+      warningModalOpenRef.current = false;
+    };
+  }, [user, expiresAt]);
 
   const login = async (credentials) => {
     const session = await authenticateUser(credentials);
