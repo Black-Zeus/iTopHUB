@@ -40,6 +40,7 @@ Runs the custom React/Vite interface for the Hub layer on top of iTop.
   - no personal token returned to client code
   - modal warning before session expiry
   - password revalidation modal when runtime token must be reloaded
+- If the backend reports that no Hub users exist yet, the login screen must switch to an initial setup wizard that collects the iTop URL, iTop administrator credentials, and that administrator's personal token.
 - User management UI must use `Vincular usuario` semantics, meaning link existing iTop accounts instead of creating identities in iTop.
 - The `Personas` module is read-only in the Hub: it starts empty and only loads rows after an explicit search against iTop using the active session token.
 - The person detail modal shows CMDB objects associated in iTop and applies the warranty alert threshold configured in `Settings -> CMDB`.

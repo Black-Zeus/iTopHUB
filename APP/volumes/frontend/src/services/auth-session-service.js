@@ -22,6 +22,12 @@ export function configureAuthSessionHandlers({ onRuntimeTokenPrompt, onSessionEx
   });
 }
 
+export async function fetchBootstrapStatus() {
+  return apiRequest("/v1/auth/bootstrap", {
+    fallbackMessage: "No fue posible consultar el estado inicial del Hub.",
+  });
+}
+
 export async function authenticateUser(credentials) {
   return apiRequest("/v1/auth/login", {
     method: "POST",
@@ -30,6 +36,21 @@ export async function authenticateUser(credentials) {
       password: credentials.password,
     }),
     fallbackMessage: "No fue posible iniciar sesion.",
+  });
+}
+
+export async function bootstrapFirstAdminUser(payload) {
+  return apiRequest("/v1/auth/bootstrap", {
+    method: "POST",
+    body: JSON.stringify({
+      integrationUrl: payload.integrationUrl.trim(),
+      username: payload.username.trim(),
+      password: payload.password,
+      tokenValue: payload.tokenValue.trim(),
+      verifySsl: payload.verifySsl ?? true,
+      timeoutSeconds: payload.timeoutSeconds ?? 30,
+    }),
+    fallbackMessage: "No fue posible crear el primer administrador.",
   });
 }
 

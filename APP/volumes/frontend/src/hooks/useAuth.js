@@ -3,6 +3,7 @@ import ModalManager from "@/components/ui/modal";
 import { AuthRevalidationModal } from "@hooks/useAuthRevalidationModal";
 import {
   authenticateUser,
+  bootstrapFirstAdminUser,
   configureAuthSessionHandlers,
   keepAliveCurrentSession,
   logoutCurrentSession,
@@ -181,6 +182,11 @@ export function useAuth() {
     return applySession(session);
   };
 
+  const bootstrapFirstAdmin = async (payload) => {
+    const session = await bootstrapFirstAdminUser(payload);
+    return applySession(session);
+  };
+
   const authState = useMemo(
     () => ({
       user,
@@ -189,6 +195,7 @@ export function useAuth() {
       isAuthenticated: !!user,
       loading,
       login,
+      bootstrapFirstAdmin,
       logout,
       refreshSession,
       keepSessionAlive,
@@ -200,6 +207,7 @@ export function useAuth() {
       warningSeconds,
       loading,
       login,
+      bootstrapFirstAdmin,
       logout,
       refreshSession,
       keepSessionAlive,
