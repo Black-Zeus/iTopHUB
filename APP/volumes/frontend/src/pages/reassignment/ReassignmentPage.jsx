@@ -1,4 +1,4 @@
-import { ActaModulePage } from "../../components/ui/general/ActaModulePage";
+import { MockActaModulePage } from "../../components/ui/general";
 
 const REASSIGNMENT_ROWS = [
   { id: 1, code: "REA-0007", person: "Claudia Neira", asset: "Dell 5420", area: "RRHH", date: "2026-03-24", status: "asignado" },
@@ -9,7 +9,7 @@ const REASSIGNMENT_ROWS = [
 
 export function ReassignmentPage() {
   return (
-    <ActaModulePage
+    <MockActaModulePage
       eyebrow="Operacion"
       title="Acta de Reasignacion"
       searchPlaceholder="Buscar por acta, nuevo responsable o activo"

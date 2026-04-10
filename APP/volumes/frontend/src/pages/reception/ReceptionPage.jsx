@@ -1,4 +1,4 @@
-import { ActaModulePage } from "../../components/ui/general/ActaModulePage";
+import { MockActaModulePage } from "../../components/ui/general";
 
 const RECEPTION_ROWS = [
   { id: 1, code: "REC-0041", person: "Mario Salgado", asset: "HP ProBook 440", area: "Comercial", date: "2026-03-24", status: "pendiente" },
@@ -9,7 +9,7 @@ const RECEPTION_ROWS = [
 
 export function ReceptionPage() {
   return (
-    <ActaModulePage
+    <MockActaModulePage
       eyebrow="Operacion"
       title="Actas de Recepcion"
       searchPlaceholder="Buscar por acta, origen o activo recibido"
