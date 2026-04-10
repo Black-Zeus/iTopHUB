@@ -42,6 +42,7 @@ services:
     volumes:
       - mariadb_data:/var/lib/mysql
       - ${SETTINGS_ROOT}/mariadb/init:/docker-entrypoint-initdb.d:ro
+      # Incluye reset_hub_db.sh y su ruta relativa init/app para reconstruccion manual del Hub DB.
       - ${SETTINGS_ROOT}/mariadb:/opt/mariadb-tools:ro
       - ${LOGS_ROOT}/mariadb:/var/log/mysql
     healthcheck:
@@ -120,15 +121,15 @@ services:
       PDF_WORKER_QUEUE: ${PDF_WORKER_QUEUE}
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
       JWT_SECRET: ${JWT_SECRET}
-      PDQ_ENABLED: ${PDQ_ENABLED:-1}
-      PDQ_SQLITE_DIR: ${PDQ_SQLITE_DIR:-/app/data/pdq}
-      PDQ_SQLITE_FILE_NAME: ${PDQ_SQLITE_FILE_NAME:-}
-      PDQ_SQLITE_FILE_GLOB: ${PDQ_SQLITE_FILE_GLOB:-*.db;*.sqlite;*.sqlite3}
-      PDQ_SEARCH_MIN_CHARS: ${PDQ_SEARCH_MIN_CHARS:-2}
+      PDQ_ENABLED: ${PDQ_ENABLED}
+      PDQ_SQLITE_DIR: ${PDQ_SQLITE_DIR}
+      PDQ_SQLITE_FILE_NAME: ${PDQ_SQLITE_FILE_NAME}
+      PDQ_SQLITE_FILE_GLOB: ${PDQ_SQLITE_FILE_GLOB}
+      PDQ_SEARCH_MIN_CHARS: ${PDQ_SEARCH_MIN_CHARS}
     volumes:
       - ${VOLUMES_ROOT}/backend/app:/app
       - ${DATA_ROOT}/backend_data:/app/data
-      - ${PDQ_SHARED_ROOT:-./APP/data/dev/pdq}:${PDQ_SQLITE_DIR:-/app/data/pdq}:ro
+      - ${PDQ_SHARED_ROOT}:${PDQ_SQLITE_DIR}:ro
       - ${LOGS_ROOT}/backend:/var/log/app
     command: >
       sh -c "if [ -f requirements.txt ]; then pip install --user --no-cache-dir -r requirements.txt; fi &&
