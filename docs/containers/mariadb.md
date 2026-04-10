@@ -32,4 +32,5 @@ Provides the relational database server shared by the custom backend and iTop, u
 - Synchronization task definitions for the settings module are persisted in `hub_sync_tasks`.
 - Administration checklist templates are persisted in `hub_checklist_templates`.
 - Checklist item definitions are persisted in `hub_checklist_items`.
+- Handover records are persisted in `hub_handover_documents`, with item snapshots in `hub_handover_document_items` and applied checklist answers in `hub_handover_checklist_answers`.
 - The helper script `APP/config/mariadb/reset_hub_db.sh` is mounted in the container at `/opt/mariadb-tools/reset_hub_db.sh` for manual Hub DB recreation without deleting the MariaDB volume.

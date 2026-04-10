@@ -16,6 +16,7 @@ The SQL source files for the Hub now live under `APP/config/mariadb/init/app/`.
 - `10-19`: base schema.
 - `20-29`: schema alters.
 - `26_schema_checklists.sql`: schema for checklist templates and their configurable items.
+- `27_schema_handover.sql`: schema for handover documents, item snapshots, and checklist answers.
 - `30-39`: indexes and performance.
 - `40-49`: triggers, procedures, events.
 - `50-69`: reserved for views, functions, or project-specific migrations.

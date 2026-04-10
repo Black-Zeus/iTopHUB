@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from api.routes.assets import router as assets_router
 from api.routes.auth import router as auth_router
 from api.routes.checklists import router as checklists_router
+from api.routes.handover import router as handover_router
 from api.routes.integrations import router as integrations_router
 from api.routes.people import router as people_router
 from api.routes.settings import router as settings_router
@@ -19,3 +20,4 @@ api_router.include_router(assets_router)
 api_router.include_router(integrations_router)
 api_router.include_router(settings_router)
 api_router.include_router(checklists_router)
+api_router.include_router(handover_router)

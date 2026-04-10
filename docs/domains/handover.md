@@ -13,3 +13,4 @@ Covers delivery certificates, assignment events, user acceptance, and outbound a
 
 - Keep the workflow aligned with CMDB state updates.
 - PDF generation belongs to the document pipeline, not to the UI itself.
+- The Hub should persist a snapshot of the receiver, each delivered asset, and the checklist answers captured at emission time.

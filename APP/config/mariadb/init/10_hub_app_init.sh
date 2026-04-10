@@ -9,6 +9,7 @@ for sql_file in \
   "${APP_INIT_DIR}/20_schema_alter.sql" \
   "${APP_INIT_DIR}/25_schema_settings.sql" \
   "${APP_INIT_DIR}/26_schema_checklists.sql" \
+  "${APP_INIT_DIR}/27_schema_handover.sql" \
   "${APP_INIT_DIR}/30_schema_indexes.sql" \
   "${APP_INIT_DIR}/40_triggers.sql" \
   "${APP_INIT_DIR}/70_seed_core.sql" \
