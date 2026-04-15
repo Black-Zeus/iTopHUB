@@ -10,6 +10,12 @@ This folder is executed in lexicographic order by the MariaDB entrypoint.
 
 The SQL source files for the Hub now live under `APP/config/mariadb/init/app/`.
 
+Important:
+
+- These init scripts provision the Hub database structure in `APP_DB_NAME`.
+- They do not create or normalize the internal iTop application schema inside `ITOP_DB_NAME`.
+- If a backend query fails against an iTop table, the fix usually belongs to the iTop installation/version or to the backend integration query, not to the Hub init SQL block set.
+
 ## Suggested grouping
 
 - `00-09`: bootstrap and preamble.

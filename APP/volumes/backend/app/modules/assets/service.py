@@ -1,3 +1,4 @@
+import logging
 import os
 from typing import Any
 
@@ -7,6 +8,9 @@ from integrations.itop_cmdb_connector import iTopCMDBConnector
 from integrations.itop_runtime import get_itop_runtime_config
 from modules.people.service import _build_ci_detail, _format_ci_status
 from pymysql.cursors import DictCursor
+
+
+logger = logging.getLogger(__name__)
 
 
 CMDB_TYPE_RULES: dict[str, dict[str, set[str]]] = {
@@ -82,6 +86,33 @@ def _normalize_text(value: Any) -> str:
 
 def _normalize_space(value: Any) -> str:
     return " ".join(str(value or "").strip().split())
+
+
+def _escape_oql(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("'", "\\'")
+
+
+def _build_asset_query_conditions(query: str) -> list[str]:
+    tokens = [token for token in query.split() if token]
+    if not tokens:
+        return []
+
+    conditions: list[str] = []
+    for token in tokens:
+        safe = _escape_oql(token)
+        conditions.append(
+            "("
+            f"friendlyname = '{safe}' OR "
+            f"name = '{safe}' OR "
+            f"asset_number = '{safe}' OR "
+            f"serialnumber = '{safe}' OR "
+            f"friendlyname LIKE '{safe}%' OR "
+            f"name LIKE '{safe}%' OR "
+            f"asset_number LIKE '{safe}%' OR "
+            f"serialnumber LIKE '{safe}%'"
+            ")"
+        )
+    return conditions
 
 
 def _resolve_asset_type_label(item, enabled_labels: list[str]) -> str:
@@ -313,7 +344,7 @@ def _load_asset_assigned_users(asset_ids: list[int]) -> dict[int, list[dict[str,
             person.id AS person_id,
             person.first_name AS person_first_name,
             contact.name AS contact_last_name
-        FROM lnkcontacttofunctionalci AS lnk
+        FROM `lnkContactToFunctionalCI` AS lnk
         INNER JOIN contact
             ON contact.id = lnk.contact_id
         LEFT JOIN person
@@ -327,6 +358,12 @@ def _load_asset_assigned_users(asset_ids: list[int]) -> dict[int, list[dict[str,
         with connection.cursor() as cursor:
             cursor.execute(sql, normalized_ids)
             rows = cursor.fetchall() or []
+    except pymysql.MySQLError:
+        logger.exception(
+            "Asset assigned-user lookup failed for ids=%s. Returning empty assignments.",
+            normalized_ids,
+        )
+        return {}
     finally:
         connection.close()
 
@@ -502,6 +539,14 @@ def _load_asset_summary(connector: iTopCMDBConnector, item):
     return detailed_item or item
 
 
+ASSET_SEARCH_OUTPUT_FIELDS = (
+    "id,name,friendlyname,finalclass,status,type,asset_number,serialnumber,"
+    "brand_id_friendlyname,brand_name,model_id_friendlyname,model_name,"
+    "org_id_friendlyname,organization_name,location_id_friendlyname,location_name,"
+    "end_of_warranty"
+)
+
+
 def _iter_query_classes(enabled_labels: list[str]) -> list[str]:
     labels = enabled_labels or list(CMDB_QUERY_MAP.keys())
     classes: list[str] = []
@@ -542,8 +587,20 @@ def search_itop_assets(query: str, runtime_token: str, limit: int = 200) -> list
     try:
         enriched_items = []
         for query_class in _iter_query_classes(enabled_labels):
-            query_items = connector.oql(f"SELECT {query_class}", output_fields="*")
-            enriched_items.extend([_load_asset_summary(connector, item) for item in query_items])
+            oql = f"SELECT {query_class}"
+            if normalized_query:
+                conditions = _build_asset_query_conditions(normalized_query)
+                if conditions:
+                    oql = f"{oql} WHERE {' AND '.join(conditions)}"
+            query_items = connector.oql(oql, output_fields=ASSET_SEARCH_OUTPUT_FIELDS)
+            enriched_items.extend(query_items)
+
+        if normalized_query and not enriched_items:
+            # Fallback for iTop instances where per-class OQL filtering can behave more strictly
+            # than expected for some fields. We retry with a broad class fetch and backend filtering.
+            for query_class in _iter_query_classes(enabled_labels):
+                query_items = connector.oql(f"SELECT {query_class}", output_fields=ASSET_SEARCH_OUTPUT_FIELDS)
+                enriched_items.extend(query_items)
     except ConnectionError as exc:
         raise AuthenticationError(
             f"No fue posible consultar activos en iTop: {exc}",
