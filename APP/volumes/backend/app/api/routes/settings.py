@@ -237,8 +237,10 @@ def settings_test_itop(
         return {
             "ok": True,
             "message": (
-                f"Conexion valida con iTop en {api_url}. "
-                f"HTTP {response.status_code} con SSL {'habilitado' if verify_ssl else 'deshabilitado'}."
+                f"Conexion validada correctamente con iTop. "
+                f"URL base detectada: {integration_url}. "
+                f"Respuesta HTTP {response.status_code} con verificacion SSL "
+                f"{'habilitada' if verify_ssl else 'deshabilitada'}."
             ),
             "apiUrl": api_url,
             "statusCode": response.status_code,

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link as LinkIcon } from "lucide-react";
 import ModalManager from "../../components/ui/modal";
 import { Button } from "../../ui/Button";
 import { setPdqModuleEnabled } from "../../services/module-visibility-service";
@@ -57,6 +58,14 @@ const EMPTY_PROFILE = {
 function buildItopApiPath(integrationUrl) {
   const base = String(integrationUrl || "").trim().replace(/\/+$/, "");
   return base ? `${base}/webservices/rest.php` : "";
+}
+
+function buildItopServerLabel(integrationUrl) {
+  const base = String(integrationUrl || "").trim().replace(/\/+$/, "");
+  if (!base) return "";
+
+  const match = base.match(/^(https?:\/\/[^/]+)/i);
+  return match ? match[1] : base;
 }
 
 function resolvePdqDatabasePath(configuredPath, pdqStatus) {
@@ -512,9 +521,10 @@ export function SettingsPage() {
   const itopKpis = useMemo(() => {
     const itop = drafts.itop || {};
     const apiPath = buildItopApiPath(itop.integrationUrl);
+    const serverLabel = buildItopServerLabel(itop.integrationUrl);
     return [
       { eyebrow: "iTop", value: itop.integrationUrl ? "Configurado" : "Pendiente", status: itop.integrationUrl ? "URL registrada" : "Sin URL", tone: itop.integrationUrl ? "success" : "warning" },
-      { eyebrow: "API iTop", value: apiPath ? "Derivada" : "Pendiente", status: apiPath || "Sin URL base", tone: apiPath ? "success" : "warning" },
+      { eyebrow: "API iTop", value: apiPath ? "Derivada" : "Pendiente", status: serverLabel || "Sin URL base", tone: apiPath ? "success" : "warning" },
       { eyebrow: "Autenticacion", value: "Credenciales iTop", status: "Login validado contra iTop", tone: "success" },
       { eyebrow: "TLS", value: itop.verifySsl ? "Activo" : "Flexible", status: itop.verifySsl ? "Verificacion habilitada" : "Sin validacion SSL", tone: itop.verifySsl ? "success" : "warning" },
     ];
@@ -591,7 +601,19 @@ export function SettingsPage() {
                       }));
                       ModalManager.success({
                         title: "Conexion iTop correcta",
-                        message: response.message || "La validacion de conectividad con iTop fue correcta.",
+                        message: (
+                          <div className="space-y-3">
+                            <p>Conexion validada correctamente con iTop.</p>
+                            <div className="flex items-start gap-2">
+                              <LinkIcon className="mt-0.5 h-4 w-4 shrink-0" />
+                              <span className="break-all">{drafts.itop?.integrationUrl || response.apiUrl || "Sin URL"}</span>
+                            </div>
+                            <p>
+                              Respuesta HTTP {response.statusCode ?? "N/D"} con verificacion SSL{" "}
+                              {response.verifySsl ? "habilitada" : "deshabilitada"}.
+                            </p>
+                          </div>
+                        ),
                       });
                     } catch (testError) {
                       ModalManager.error({
