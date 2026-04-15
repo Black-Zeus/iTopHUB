@@ -50,6 +50,9 @@ def fetch_handover_document_rows(
             d.id,
             d.document_number,
             d.generated_at,
+            d.creation_date,
+            d.assignment_date,
+            d.evidence_date,
             d.owner_user_id,
             d.owner_name,
             d.status,
@@ -63,6 +66,8 @@ def fetch_handover_document_rows(
             d.receiver_phone,
             d.receiver_role,
             d.receiver_status,
+            d.additional_receivers,
+            d.evidence_attachments,
             COUNT(i.id) AS asset_count,
             SUBSTRING_INDEX(
                 GROUP_CONCAT(i.asset_name ORDER BY i.sort_order ASC SEPARATOR '||'),
@@ -77,6 +82,9 @@ def fetch_handover_document_rows(
             d.id,
             d.document_number,
             d.generated_at,
+            d.creation_date,
+            d.assignment_date,
+            d.evidence_date,
             d.owner_user_id,
             d.owner_name,
             d.status,
@@ -89,7 +97,9 @@ def fetch_handover_document_rows(
             d.receiver_email,
             d.receiver_phone,
             d.receiver_role,
-            d.receiver_status
+            d.receiver_status,
+            d.additional_receivers,
+            d.evidence_attachments
         ORDER BY d.generated_at DESC, d.id DESC
     """
     with get_db_connection() as connection:
@@ -104,6 +114,9 @@ def fetch_handover_document_row(document_id: int) -> dict[str, Any] | None:
             id,
             document_number,
             generated_at,
+            creation_date,
+            assignment_date,
+            evidence_date,
             owner_user_id,
             owner_name,
             status,
@@ -117,6 +130,8 @@ def fetch_handover_document_row(document_id: int) -> dict[str, Any] | None:
             receiver_phone,
             receiver_role,
             receiver_status,
+            additional_receivers,
+            evidence_attachments,
             created_at,
             updated_at
         FROM hub_handover_documents
@@ -284,6 +299,9 @@ def save_handover_document(
         INSERT INTO hub_handover_documents (
             document_number,
             generated_at,
+            creation_date,
+            assignment_date,
+            evidence_date,
             owner_user_id,
             owner_name,
             status,
@@ -296,14 +314,19 @@ def save_handover_document(
             receiver_email,
             receiver_phone,
             receiver_role,
-            receiver_status
+            receiver_status,
+            additional_receivers,
+            evidence_attachments
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """
     update_document_query = """
         UPDATE hub_handover_documents
         SET
             generated_at = %s,
+            creation_date = %s,
+            assignment_date = %s,
+            evidence_date = %s,
             status = %s,
             handover_type = %s,
             reason = %s,
@@ -314,7 +337,9 @@ def save_handover_document(
             receiver_email = %s,
             receiver_phone = %s,
             receiver_role = %s,
-            receiver_status = %s
+            receiver_status = %s,
+            additional_receivers = %s,
+            evidence_attachments = %s
         WHERE id = %s
     """
     delete_items_query = "DELETE FROM hub_handover_document_items WHERE document_id = %s"
@@ -370,6 +395,9 @@ def save_handover_document(
                         (
                             document["document_number"],
                             document["generated_at"],
+                            document["creation_date"],
+                            document["assignment_date"],
+                            document["evidence_date"],
                             document["owner_user_id"],
                             document["owner_name"],
                             document["status"],
@@ -383,6 +411,8 @@ def save_handover_document(
                             document["receiver_phone"],
                             document["receiver_role"],
                             document["receiver_status"],
+                            document["additional_receivers"],
+                            document["evidence_attachments"],
                         ),
                     )
                     saved_document_id = int(cursor.lastrowid)
@@ -391,6 +421,9 @@ def save_handover_document(
                         update_document_query,
                         (
                             document["generated_at"],
+                            document["creation_date"],
+                            document["assignment_date"],
+                            document["evidence_date"],
                             document["status"],
                             document["handover_type"],
                             document["reason"],
@@ -402,6 +435,8 @@ def save_handover_document(
                             document["receiver_phone"],
                             document["receiver_role"],
                             document["receiver_status"],
+                            document["additional_receivers"],
+                            document["evidence_attachments"],
                             document_id,
                         ),
                     )

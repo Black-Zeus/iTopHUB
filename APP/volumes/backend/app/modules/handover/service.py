@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Any
 
 from fastapi import HTTPException
 
-from modules.assets.service import search_itop_assets
 from modules.handover.repository import (
     fetch_handover_checklist_answer_rows,
     fetch_handover_document_row,
@@ -17,12 +17,11 @@ from modules.handover.repository import (
     get_next_handover_sequence,
     save_handover_document,
 )
-from modules.people.service import search_itop_people
 from modules.settings.service import get_settings_panel
 
 
 STATUS_DB_TO_UI = {
-    "draft": "Borrador",
+    "draft": "En creacion",
     "issued": "Emitida",
     "confirmed": "Confirmada",
 }
@@ -30,12 +29,23 @@ STATUS_DB_TO_UI = {
 STATUS_UI_TO_DB = {value: key for key, value in STATUS_DB_TO_UI.items()}
 
 TYPE_DB_TO_UI = {
-    "initial_assignment": "Asignacion inicial",
+    "initial_assignment": "Entrega inicial",
     "reassignment": "Reasignacion",
     "replacement": "Reposicion",
 }
 
 TYPE_UI_TO_DB = {value: key for key, value in TYPE_DB_TO_UI.items()}
+
+SECONDARY_RECEIVER_ROLE_ALIASES = {
+    "Apoyo": "Respaldo operativo",
+}
+
+SECONDARY_RECEIVER_ROLE_OPTIONS = {
+    "Contraturno",
+    "Referente de area",
+    "Respaldo operativo",
+    "Testigo",
+}
 
 INPUT_TYPE_DB_TO_UI = {
     "input_text": "Input text",
@@ -127,7 +137,12 @@ def get_handover_bootstrap(session_user: dict[str, Any], runtime_token: str) -> 
         },
         "defaults": {
             "generatedAt": datetime.now().strftime("%Y-%m-%dT%H:%M"),
-            "notes": docs_settings.get("defaultObservation") or "",
+            "creationDate": datetime.now().strftime("%Y-%m-%dT%H:%M"),
+            "assignmentDate": "",
+            "evidenceDate": "",
+            "evidenceAttachments": [],
+            "notes": "",
+            "notesPlaceholder": docs_settings.get("defaultObservation") or "",
             "prefix": docs_settings.get("handoverPrefix") or "ENT",
         },
         "statusOptions": [
@@ -137,6 +152,7 @@ def get_handover_bootstrap(session_user: dict[str, Any], runtime_token: str) -> 
         "typeOptions": [
             {"value": value, "label": label}
             for value, label in TYPE_DB_TO_UI.items()
+            if value != "reassignment"
         ],
         "checklistTemplates": _serialize_template_catalog(include_inactive=False),
         "searchHints": {
@@ -145,38 +161,6 @@ def get_handover_bootstrap(session_user: dict[str, Any], runtime_token: str) -> 
         },
         "runtimeReady": bool(runtime_token),
     }
-
-
-def search_handover_people(query: str, runtime_token: str) -> list[dict[str, Any]]:
-    return [
-        {
-            "id": int(item["id"]),
-            "code": item["code"],
-            "name": item["person"],
-            "email": item["asset"],
-            "phone": item["phone"],
-            "role": item["role"],
-            "status": item["status"],
-        }
-        for item in search_itop_people(query, runtime_token)
-    ]
-
-
-def search_handover_assets(query: str, runtime_token: str) -> list[dict[str, Any]]:
-    return [
-        {
-            "id": int(item["id"]),
-            "code": item["code"],
-            "name": item["name"],
-            "className": item["className"],
-            "brand": item["brand"],
-            "model": item["model"],
-            "serial": item["serial"],
-            "status": item["status"],
-            "assignedUser": item.get("assignedUser") or "",
-        }
-        for item in search_itop_assets(query, runtime_token)
-    ]
 
 
 def list_handover_documents(
@@ -293,6 +277,10 @@ def get_handover_document_detail(document_id: int) -> dict[str, Any]:
         "id": int(document_row["id"]),
         "documentNumber": document_row["document_number"],
         "generatedAt": _serialize_datetime(document_row.get("generated_at")),
+        "creationDate": _serialize_datetime(document_row.get("creation_date") or document_row.get("generated_at")),
+        "assignmentDate": _serialize_datetime(document_row.get("assignment_date")),
+        "evidenceDate": _serialize_datetime(document_row.get("evidence_date")),
+        "evidenceAttachments": _deserialize_evidence_attachments(document_row.get("evidence_attachments")),
         "status": STATUS_DB_TO_UI.get(document_row["status"], document_row["status"]),
         "handoverType": TYPE_DB_TO_UI.get(document_row["handover_type"], document_row["handover_type"]),
         "reason": document_row["reason"],
@@ -310,6 +298,7 @@ def get_handover_document_detail(document_id: int) -> dict[str, Any]:
             "role": document_row.get("receiver_role") or "",
             "status": document_row.get("receiver_status") or "",
         },
+        "additionalReceivers": _deserialize_additional_receivers(document_row.get("additional_receivers")),
         "items": list(items_by_id.values()),
     }
 
@@ -325,6 +314,19 @@ def _normalize_generated_at(value: Any) -> datetime:
         except ValueError:
             continue
     raise HTTPException(status_code=422, detail="La fecha de emision no es valida.")
+
+
+def _normalize_optional_datetime(value: Any) -> datetime | None:
+    text = _coerce_str(value)
+    if not text:
+        return None
+
+    for fmt in ("%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+    raise HTTPException(status_code=422, detail="Una de las fechas del acta no es valida.")
 
 
 def _normalize_response_value(answer: dict[str, Any], template_item: dict[str, Any]) -> str | None:
@@ -371,6 +373,140 @@ def _normalize_receiver(payload: dict[str, Any]) -> dict[str, Any]:
         "receiver_role": _coerce_str(payload.get("role")),
         "receiver_status": _coerce_str(payload.get("status")),
     }
+
+
+def _deserialize_additional_receivers(raw_value: Any) -> list[dict[str, Any]]:
+    text = _coerce_str(raw_value)
+    if not text:
+        return []
+
+    try:
+        payload = json.loads(text)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return []
+
+    if not isinstance(payload, list):
+        return []
+
+    normalized: list[dict[str, Any]] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        normalized.append(
+            {
+                "id": item.get("id"),
+                "code": _coerce_str(item.get("code")),
+                "name": _coerce_str(item.get("name")),
+                "email": _coerce_str(item.get("email")),
+                "phone": _coerce_str(item.get("phone")),
+                "role": _coerce_str(item.get("role")),
+                "status": _coerce_str(item.get("status")),
+                "assignmentRole": SECONDARY_RECEIVER_ROLE_ALIASES.get(
+                    _coerce_str(item.get("assignmentRole")),
+                    _coerce_str(item.get("assignmentRole")),
+                ),
+            }
+        )
+    return normalized
+
+
+def _deserialize_evidence_attachments(raw_value: Any) -> list[dict[str, Any]]:
+    text = _coerce_str(raw_value)
+    if not text:
+        return []
+
+    try:
+        payload = json.loads(text)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return []
+
+    if not isinstance(payload, list):
+        return []
+
+    normalized: list[dict[str, Any]] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        normalized.append(
+            {
+                "name": _coerce_str(item.get("name")),
+                "size": _coerce_str(item.get("size")),
+                "mimeType": _coerce_str(item.get("mimeType")),
+                "source": _coerce_str(item.get("source")),
+            }
+        )
+    return normalized
+
+
+def _normalize_evidence_attachments(payload: Any) -> str:
+    if not payload:
+        return ""
+    if not isinstance(payload, list):
+        raise HTTPException(status_code=422, detail="La evidencia adjunta no tiene un formato valido.")
+
+    normalized: list[dict[str, Any]] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            raise HTTPException(status_code=422, detail="La evidencia adjunta no tiene un formato valido.")
+        normalized.append(
+            {
+                "name": _coerce_str(item.get("name")),
+                "size": _coerce_str(item.get("size")),
+                "mimeType": _coerce_str(item.get("mimeType")),
+                "source": _coerce_str(item.get("source")),
+            }
+        )
+    return json.dumps(normalized, ensure_ascii=True)
+
+
+def _normalize_additional_receivers(payload: Any, primary_receiver_id: int) -> str:
+    if not payload:
+        return ""
+    if not isinstance(payload, list):
+        raise HTTPException(status_code=422, detail="Los contactos adicionales no tienen un formato valido.")
+
+    normalized: list[dict[str, Any]] = []
+    seen_ids: set[int] = set()
+    for item in payload:
+        if not isinstance(item, dict):
+            raise HTTPException(status_code=422, detail="Los contactos adicionales no tienen un formato valido.")
+
+        try:
+            parsed_id = int(item.get("id"))
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail="Uno de los contactos adicionales no es valido.") from exc
+
+        if parsed_id == primary_receiver_id:
+            raise HTTPException(status_code=422, detail="La persona principal no puede repetirse como contacto adicional.")
+        if parsed_id in seen_ids:
+            raise HTTPException(status_code=422, detail="No se puede repetir un mismo contacto adicional.")
+
+        name = _coerce_str(item.get("name"))
+        if not name:
+            raise HTTPException(status_code=422, detail="Uno de los contactos adicionales no es valido.")
+
+        assignment_role = SECONDARY_RECEIVER_ROLE_ALIASES.get(
+            _coerce_str(item.get("assignmentRole"), "Contraturno"),
+            _coerce_str(item.get("assignmentRole"), "Contraturno"),
+        )
+        if assignment_role not in SECONDARY_RECEIVER_ROLE_OPTIONS:
+            raise HTTPException(status_code=422, detail="El rol de un contacto adicional no es valido.")
+
+        seen_ids.add(parsed_id)
+        normalized.append(
+            {
+                "id": parsed_id,
+                "code": _coerce_str(item.get("code")),
+                "name": name,
+                "email": _coerce_str(item.get("email")),
+                "phone": _coerce_str(item.get("phone")),
+                "role": _coerce_str(item.get("role")),
+                "status": _coerce_str(item.get("status")),
+                "assignmentRole": assignment_role,
+            }
+        )
+
+    return json.dumps(normalized, ensure_ascii=True)
 
 
 def _normalize_items(payload_items: list[dict[str, Any]], template_catalog: dict[int, dict[str, Any]]) -> list[dict[str, Any]]:
@@ -483,9 +619,11 @@ def _normalize_handover_payload(
     document_number: str,
     existing_document: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    generated_at = _normalize_generated_at(payload.get("generatedAt"))
-    status_ui = _coerce_str(payload.get("status"), "Borrador")
-    handover_type_ui = _coerce_str(payload.get("handoverType"), "Asignacion inicial")
+    creation_at = _normalize_generated_at(payload.get("creationDate") or payload.get("generatedAt"))
+    assignment_at = _normalize_optional_datetime(payload.get("assignmentDate"))
+    evidence_at = _normalize_optional_datetime(payload.get("evidenceDate"))
+    status_ui = _coerce_str(payload.get("status"), "En creacion")
+    handover_type_ui = _coerce_str(payload.get("handoverType"), "Entrega inicial")
     reason = _coerce_str(payload.get("reason"))
     notes = _coerce_str(payload.get("notes"))
 
@@ -494,24 +632,32 @@ def _normalize_handover_payload(
     if handover_type_ui not in TYPE_UI_TO_DB:
         raise HTTPException(status_code=422, detail="El tipo de entrega no es valido.")
 
-    docs_settings = get_settings_panel("docs")
-    default_notes = _coerce_str(docs_settings.get("defaultObservation"))
     template_catalog = _build_template_catalog_by_id()
     receiver = _normalize_receiver(payload.get("receiver") or {})
+    additional_receivers = _normalize_additional_receivers(payload.get("additionalReceivers") or [], receiver["receiver_person_id"])
+    evidence_attachments = _normalize_evidence_attachments(payload.get("evidenceAttachments") or [])
     items = _normalize_items(payload.get("items") or [], template_catalog)
+
+    if not reason:
+        raise HTTPException(status_code=422, detail="Debes indicar el motivo de entrega.")
 
     owner_user_id = int(existing_document["owner_user_id"]) if existing_document else int(session_user["id"])
     owner_name = existing_document["owner_name"] if existing_document else session_user["name"]
 
     document_payload = {
         "document_number": document_number,
-        "generated_at": generated_at.strftime("%Y-%m-%d %H:%M:%S"),
+        "generated_at": creation_at.strftime("%Y-%m-%d %H:%M:%S"),
+        "creation_date": creation_at.strftime("%Y-%m-%d %H:%M:%S"),
+        "assignment_date": assignment_at.strftime("%Y-%m-%d %H:%M:%S") if assignment_at else None,
+        "evidence_date": evidence_at.strftime("%Y-%m-%d %H:%M:%S") if evidence_at else None,
         "owner_user_id": owner_user_id,
         "owner_name": owner_name,
         "status": STATUS_UI_TO_DB[status_ui],
         "handover_type": TYPE_UI_TO_DB[handover_type_ui],
         "reason": reason,
-        "notes": notes or default_notes,
+        "notes": notes or None,
+        "additional_receivers": additional_receivers or None,
+        "evidence_attachments": evidence_attachments or None,
         **receiver,
     }
     return document_payload, items
@@ -526,10 +672,10 @@ def _generate_document_number(generated_at: datetime) -> str:
 
 
 def create_handover_document(payload: dict[str, Any], session_user: dict[str, Any]) -> dict[str, Any]:
-    generated_at = _normalize_generated_at(payload.get("generatedAt"))
-    document_number = _generate_document_number(generated_at)
+    creation_at = _normalize_generated_at(payload.get("creationDate") or payload.get("generatedAt"))
+    document_number = _generate_document_number(creation_at)
     document_payload, item_payloads = _normalize_handover_payload(
-        {**payload, "generatedAt": generated_at.strftime("%Y-%m-%dT%H:%M")},
+        {**payload, "creationDate": creation_at.strftime("%Y-%m-%dT%H:%M"), "generatedAt": creation_at.strftime("%Y-%m-%dT%H:%M")},
         session_user,
         document_number=document_number,
         existing_document=None,

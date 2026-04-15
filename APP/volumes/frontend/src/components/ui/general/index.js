@@ -8,3 +8,4 @@ export { EmptyState }           from "./EmptyState";
 export { SoftActionButton }     from "./SoftActionButton";
 export { FilterDropdown }       from "./FilterDropdown";
 export { FilterDateField }      from "./FilterDateField";
+export { CollapseToggleButton } from "./CollapseToggleButton";

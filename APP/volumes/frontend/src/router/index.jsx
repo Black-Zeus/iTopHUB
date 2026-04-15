@@ -7,6 +7,7 @@ import { Layout } from "@layout/Layout";
 import { LoginPage } from "@pages/login/LoginPage";
 import { DashboardPage } from "@pages/dashboard/DashboardPage";
 import { HandoverPage } from "@pages/handover/HandoverPage";
+import { HandoverDocumentPage } from "@pages/handover/HandoverDocumentPage";
 import { ReceptionPage } from "@pages/reception/ReceptionPage";
 import { ReassignmentPage } from "@pages/reassignment/ReassignmentPage";
 import { LabPage } from "@pages/lab/LabPage";
@@ -86,6 +87,7 @@ export const router = createBrowserRouter(
         { index: true,        element: <DefaultHomeRedirect /> },
         { path: "dashboard",  element: <RequireModuleAccess moduleCode="dashboard"><DashboardPage /></RequireModuleAccess> },
         { path: "handover",   element: <RequireModuleAccess moduleCode="handover"><HandoverPage /></RequireModuleAccess> },
+        { path: "handover/:slug", element: <RequireModuleAccess moduleCode="handover"><HandoverDocumentPage /></RequireModuleAccess> },
         { path: "reception",  element: <RequireModuleAccess moduleCode="reception"><ReceptionPage /></RequireModuleAccess> },
         { path: "reassignment", element: <RequireModuleAccess moduleCode="reassignment"><ReassignmentPage /></RequireModuleAccess> },
         { path: "lab",        element: <RequireModuleAccess moduleCode="lab"><LabPage /></RequireModuleAccess> },
