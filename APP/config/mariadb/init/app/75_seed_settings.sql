@@ -4,8 +4,8 @@ VALUES
     ('pdq', '{"moduleEnabled":true,"databaseFilePath":"/app/data/pdq","inventoryNote":"PDQ se consume desde una copia local disponible para el backend. El Hub no consulta el servidor PDQ en linea."}'),
     ('sync', '{"manualExecutionLabel":"Disponible bajo demanda","automationMode":"Copia externa de SQLite a carpeta compartida","queryMode":"Busqueda por nombre de maquina o MAC","notes":"Preparado para tareas programadas administradas desde la interfaz."}'),
     ('mail', '{"senderName":"Mesa de Ayuda TI","senderEmail":"soporte@empresa.local","smtpHost":"mailpit","smtpPort":"1025","smtpSecurity":"none","mailFormat":"html","footerNote":"Documento generado automaticamente por iTop Hub."}'),
-    ('docs', '{"handoverPrefix":"ENT","receptionPrefix":"REC","laboratoryPrefix":"LAB","numberingFormat":"AAAA-NNNN","defaultObservation":"El documento se emite como respaldo formal del movimiento registrado en CMDB."}'),
-    ('cmdb', '{"enabledAssetTypes":["Desktop (PC)","Laptop (Laptop)"],"warrantyAlertDays":30,"supportNote":"PDQ actua como fuente lateral de visibilidad para inventario tecnico, sin reemplazar la CMDB principal."}')
+    ('docs', '{"handoverPrefix":"ENT","receptionPrefix":"REC","laboratoryPrefix":"LAB","numberingFormat":"AAAA-NNNN","defaultObservation":"El documento se emite como respaldo formal del movimiento registrado en CMDB.","allowEvidenceUpload":true}'),
+    ('cmdb', '{"enabledAssetTypes":["Desktop (PC)","Laptop (Laptop)"],"showObsoleteAssets":false,"showImplementationAssets":false,"warrantyAlertDays":30,"supportNote":"PDQ actua como fuente lateral de visibilidad para inventario tecnico, sin reemplazar la CMDB principal."}')
 ON DUPLICATE KEY UPDATE
     config_json = VALUES(config_json);
 

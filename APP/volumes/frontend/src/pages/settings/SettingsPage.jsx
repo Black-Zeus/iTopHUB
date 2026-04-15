@@ -816,6 +816,14 @@ export function SettingsPage() {
             <div className="mt-4 grid gap-4 md:grid-cols-2">
               <Field label="Observacion por defecto" rows={4} value={drafts.docs?.defaultObservation || ""} onChange={(e) => updateField("docs", "defaultObservation", e.target.value)} />
             </div>
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <Toggle
+                label="Cargar evidencias"
+                description="Permite mostrar en el listado de actas la accion para cargar manualmente el PDF firmado o documento de respaldo final."
+                checked={Boolean(drafts.docs?.allowEvidenceUpload)}
+                onChange={(e) => updateField("docs", "allowEvidenceUpload", e.target.checked)}
+              />
+            </div>
             <Actions dirty={dirtyMap.docs} saving={savingPanel === "docs"} onReset={() => resetPanel("docs")} onSave={() => savePanel("docs", "Documentos")} />
           </div>
         ) : null}
@@ -841,6 +849,20 @@ export function SettingsPage() {
                   </label>
                 ))}
               </div>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <Toggle
+                label="Mostrar equipos obsoletos"
+                description="Permite incluir activos con estado Obsoleto en Assets y en los objetos CMDB visibles dentro de Personas."
+                checked={Boolean(drafts.cmdb?.showObsoleteAssets)}
+                onChange={(e) => updateField("cmdb", "showObsoleteAssets", e.target.checked)}
+              />
+              <Toggle
+                label="Mostrar equipos en implementacion"
+                description="Permite incluir activos con estado interno iTop Implementation, tratados como no productivos, en Assets y en los objetos CMDB visibles dentro de Personas."
+                checked={Boolean(drafts.cmdb?.showImplementationAssets)}
+                onChange={(e) => updateField("cmdb", "showImplementationAssets", e.target.checked)}
+              />
             </div>
             <div className="grid gap-4 md:grid-cols-2">
               <Field

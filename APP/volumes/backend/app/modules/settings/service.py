@@ -89,9 +89,12 @@ PANEL_DEFAULTS: dict[str, dict[str, Any]] = {
         "laboratoryPrefix": "LAB",
         "numberingFormat": "AAAA-NNNN",
         "defaultObservation": "El documento se emite como respaldo formal del movimiento registrado en CMDB.",
+        "allowEvidenceUpload": True,
     },
     "cmdb": {
         "enabledAssetTypes": ["Desktop (PC)", "Laptop (Laptop)"],
+        "showObsoleteAssets": False,
+        "showImplementationAssets": False,
         "warrantyAlertDays": 30,
         "supportNote": (
             "PDQ actua como fuente lateral de visibilidad para inventario tecnico, "
@@ -195,10 +198,13 @@ def normalize_panel_config(panel_code: str, config: dict[str, Any]) -> dict[str,
             "laboratoryPrefix": _coerce_str(merged.get("laboratoryPrefix")),
             "numberingFormat": _coerce_str(merged.get("numberingFormat")),
             "defaultObservation": _coerce_str(merged.get("defaultObservation")),
+            "allowEvidenceUpload": _coerce_bool(merged.get("allowEvidenceUpload"), True),
         }
 
     return {
         "enabledAssetTypes": _coerce_list(merged.get("enabledAssetTypes"), PANEL_DEFAULTS["cmdb"]["enabledAssetTypes"]),
+        "showObsoleteAssets": _coerce_bool(merged.get("showObsoleteAssets"), False),
+        "showImplementationAssets": _coerce_bool(merged.get("showImplementationAssets"), False),
         "warrantyAlertDays": max(1, _coerce_int(merged.get("warrantyAlertDays"), 30)),
         "supportNote": _coerce_str(merged.get("supportNote")),
     }

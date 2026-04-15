@@ -4,6 +4,11 @@ from datetime import date, datetime
 from typing import Any
 
 import pymysql
+from modules.cmdb_visibility import (
+    is_visible_ci_status,
+    should_show_implementation_assets,
+    should_show_obsolete_assets,
+)
 from modules.auth.service import AuthenticationError
 from integrations.itop_cmdb_connector import iTopCMDBConnector
 from integrations.itop_runtime import get_itop_runtime_config
@@ -572,6 +577,8 @@ def get_itop_person_detail(person_id: int, runtime_token: str) -> dict[str, obje
     try:
         cmdb_settings = get_settings_panel("cmdb")
         warranty_alert_days = int(cmdb_settings.get("warrantyAlertDays") or 30)
+        show_obsolete_assets = should_show_obsolete_assets(cmdb_settings)
+        show_implementation_assets = should_show_implementation_assets(cmdb_settings)
 
         person = connector.get_person(
             person_id,
@@ -588,7 +595,10 @@ def get_itop_person_detail(person_id: int, runtime_token: str) -> dict[str, obje
         for ci in related_cis:
             ci_class = str(ci.get("finalclass") or ci.itop_class or "FunctionalCI").strip() or "FunctionalCI"
             detailed_item = connector.get_ci(ci_class, ci.id, output_fields="*")
-            detailed_cis.append(_build_ci_detail(detailed_item or ci, warranty_alert_days))
+            visible_ci = detailed_item or ci
+            if not is_visible_ci_status(visible_ci.get("status"), show_obsolete_assets, show_implementation_assets):
+                continue
+            detailed_cis.append(_build_ci_detail(visible_ci, warranty_alert_days))
         history_items = _load_person_ci_history(person_id)
     except ConnectionError as exc:
         raise AuthenticationError(

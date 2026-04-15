@@ -3,6 +3,11 @@ import os
 from typing import Any
 
 import pymysql
+from modules.cmdb_visibility import (
+    is_visible_ci_status,
+    should_show_implementation_assets,
+    should_show_obsolete_assets,
+)
 from modules.auth.service import AuthenticationError
 from integrations.itop_cmdb_connector import iTopCMDBConnector
 from integrations.itop_runtime import get_itop_runtime_config
@@ -421,6 +426,8 @@ def list_itop_asset_catalog(runtime_token: str) -> dict[str, list[dict[str, obje
 
     cmdb_settings = get_settings_panel("cmdb")
     enabled_labels = [str(item).strip() for item in cmdb_settings.get("enabledAssetTypes") or [] if str(item).strip()]
+    show_obsolete_assets = should_show_obsolete_assets(cmdb_settings)
+    show_implementation_assets = should_show_implementation_assets(cmdb_settings)
     itop_config = get_itop_runtime_config()
 
     connector = iTopCMDBConnector(
@@ -475,7 +482,13 @@ def list_itop_asset_catalog(runtime_token: str) -> dict[str, list[dict[str, obje
         if _normalize_space(item.get("friendlyname") or item.get("name"))
     }
 
-    for item in asset_items:
+    visible_asset_items = [
+        item
+        for item in asset_items
+        if is_visible_ci_status(item.get("status"), show_obsolete_assets, show_implementation_assets)
+    ]
+
+    for item in visible_asset_items:
         class_name = _resolve_asset_type_label(item, enabled_labels)
         if enabled_labels and class_name not in enabled_labels:
             continue
@@ -516,7 +529,7 @@ def list_itop_asset_catalog(runtime_token: str) -> dict[str, list[dict[str, obje
         if item["name"]
     ]
     model_items.sort(key=lambda item: (str(item["brandName"]).lower(), str(item["name"]).lower()))
-    assigned_user_items = _list_assigned_user_catalog([int(item.id) for item in asset_items])
+    assigned_user_items = _list_assigned_user_catalog([int(item.id) for item in visible_asset_items])
 
     return {
         "brands": brand_items,
@@ -574,6 +587,8 @@ def search_itop_assets(query: str, runtime_token: str, limit: int = 200) -> list
 
     cmdb_settings = get_settings_panel("cmdb")
     enabled_labels = [str(item).strip() for item in cmdb_settings.get("enabledAssetTypes") or [] if str(item).strip()]
+    show_obsolete_assets = should_show_obsolete_assets(cmdb_settings)
+    show_implementation_assets = should_show_implementation_assets(cmdb_settings)
     itop_config = get_itop_runtime_config()
 
     connector = iTopCMDBConnector(
@@ -613,7 +628,11 @@ def search_itop_assets(query: str, runtime_token: str, limit: int = 200) -> list
     filtered_items = [
         item
         for item in enriched_items
-        if _matches_enabled_asset_types(item, enabled_labels) and _matches_asset_query(item, normalized_query)
+        if (
+            _matches_enabled_asset_types(item, enabled_labels)
+            and _matches_asset_query(item, normalized_query)
+            and is_visible_ci_status(item.get("status"), show_obsolete_assets, show_implementation_assets)
+        )
     ]
 
     assigned_users_by_asset = _load_asset_assigned_users([int(item.id) for item in filtered_items])
