@@ -53,6 +53,8 @@ Covers Hub login, authorization, user linking, personal iTop token handling, and
 ## Token Rules
 
 - The personal iTop token must be persisted encrypted in MariaDB.
+- The personal iTop token used by Hub must be created in iTop with scope `REST/JSON`.
+- The source iTop instance must have REST token authentication enabled in its configuration. If `allowed_login_types` is configured, it must include `rest-token`.
 - The token must never be returned to the browser.
 - The token must only be decrypted in backend memory immediately before an iTop call.
 - The token shown in `Usuarios` must be masked:
