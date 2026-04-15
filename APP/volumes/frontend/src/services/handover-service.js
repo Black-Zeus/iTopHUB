@@ -1,4 +1,5 @@
 import { apiRequest } from "@services/api-client";
+import { searchItopAssets, searchItopPeople } from "./itop-service";
 
 
 export async function getHandoverBootstrap() {
@@ -62,32 +63,19 @@ export async function updateHandoverDocument(documentId, payload) {
 
 
 export async function searchHandoverPeople({ query = "" } = {}) {
-  const normalizedQuery = query.trim().replace(/\s+/g, " ");
-  const params = new URLSearchParams();
-  if (normalizedQuery) {
-    params.set("q", normalizedQuery);
-  }
-
-  const suffix = params.toString() ? `?${params.toString()}` : "";
-  const payload = await apiRequest(`/v1/handover/people/search${suffix}`, {
-    fallbackMessage: "No fue posible buscar personas para el acta.",
-    retryOnRevalidate: true,
-  });
-  return payload.items ?? [];
+  const items = await searchItopPeople({ query });
+  return items.map((item) => ({
+    id: Number(item.id),
+    code: item.code,
+    name: item.person,
+    email: item.asset,
+    phone: item.phone,
+    role: item.role,
+    status: item.status,
+  }));
 }
 
 
 export async function searchHandoverAssets({ query = "" } = {}) {
-  const normalizedQuery = query.trim().replace(/\s+/g, " ");
-  const params = new URLSearchParams();
-  if (normalizedQuery) {
-    params.set("q", normalizedQuery);
-  }
-
-  const suffix = params.toString() ? `?${params.toString()}` : "";
-  const payload = await apiRequest(`/v1/handover/assets/search${suffix}`, {
-    fallbackMessage: "No fue posible buscar activos para el acta.",
-    retryOnRevalidate: true,
-  });
-  return payload.items ?? [];
+  return searchItopAssets({ query });
 }

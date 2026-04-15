@@ -9,8 +9,6 @@ from modules.handover.service import (
     get_handover_bootstrap,
     get_handover_document_detail,
     list_handover_documents,
-    search_handover_assets,
-    search_handover_people,
     update_handover_document,
 )
 from schemas.handover import HandoverSaveRequest
@@ -32,42 +30,6 @@ def handover_bootstrap(hub_session_id: str | None = Cookie(default=None)) -> dic
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"No fue posible cargar el modulo de entrega: {exc}") from exc
-
-
-@router.get("/people/search")
-def handover_people_search(
-    q: str = "",
-    hub_session_id: str | None = Cookie(default=None),
-) -> dict[str, Any]:
-    session_id = ensure_session(hub_session_id)
-    try:
-        ensure_module_access(session_id, "handover")
-        runtime_token = get_runtime_token(session_id)
-        return {"items": search_handover_people(q, runtime_token)}
-    except AuthenticationError as exc:
-        raise_auth_error(exc)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"No fue posible buscar personas para el acta: {exc}") from exc
-
-
-@router.get("/assets/search")
-def handover_assets_search(
-    q: str = "",
-    hub_session_id: str | None = Cookie(default=None),
-) -> dict[str, Any]:
-    session_id = ensure_session(hub_session_id)
-    try:
-        ensure_module_access(session_id, "handover")
-        runtime_token = get_runtime_token(session_id)
-        return {"items": search_handover_assets(q, runtime_token)}
-    except AuthenticationError as exc:
-        raise_auth_error(exc)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"No fue posible buscar activos para el acta: {exc}") from exc
 
 
 @router.get("/documents")

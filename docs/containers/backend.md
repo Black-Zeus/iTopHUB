@@ -39,6 +39,7 @@ Hosts the custom application API and integration layer between the frontend, iTo
   - session metadata in Redis under `hub:session:{session_id}:meta`
   - runtime token cache in Redis under `hub:session:{session_id}:token`
 - Personal iTop tokens are stored encrypted in MariaDB and only decrypted in backend memory right before calling iTop.
+- Shared runtime lookups against iTop should be exposed under `/v1/itop/*`; business routers such as `handover` should consume that integration surface instead of publishing module-specific iTop search endpoints.
 - The `Personas` module must query `Person` directly from iTop with the session runtime token; Hub does not create or seed local person records for that module.
 - Person detail responses enrich associated CIs from iTop and evaluate warranty alerts using the `cmdb.warrantyAlertDays` setting stored in MariaDB.
 - The settings module exposes backend endpoints for panel configuration and synchronization task definitions stored in MariaDB.

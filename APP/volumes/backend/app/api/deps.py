@@ -43,6 +43,17 @@ def ensure_module_access(session_id: str, module_code: str, write: bool = False)
     return session_user
 
 
+def ensure_any_module_access(session_id: str, module_codes: list[str] | tuple[str, ...], write: bool = False) -> dict[str, Any]:
+    session_user = get_session_user(session_id)
+    permission_key = "writeModules" if write else "viewModules"
+    allowed_modules = set(session_user.get("permissions", {}).get(permission_key, []))
+    required_modules = [code for code in module_codes if code]
+    if not any(code in allowed_modules for code in required_modules):
+        allowed_hint = ", ".join(required_modules)
+        raise HTTPException(status_code=403, detail=f"Sin permisos para los modulos requeridos: {allowed_hint}.")
+    return session_user
+
+
 def build_itop_api_url(integration_url: str) -> str:
     base = str(integration_url or "").strip().rstrip("/")
     return f"{base}/webservices/rest.php" if base else ""

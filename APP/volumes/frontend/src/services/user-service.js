@@ -1,4 +1,5 @@
 import { apiRequest } from "@services/api-client";
+import { searchItopUsers as searchSharedItopUsers } from "./itop-service";
 
 
 export async function getUsers() {
@@ -10,11 +11,7 @@ export async function getUsers() {
 
 
 export async function searchItopUsers(query) {
-  const payload = await apiRequest(`/v1/users/itop/search?q=${encodeURIComponent(query)}`, {
-    fallbackMessage: "No fue posible buscar usuarios en iTop.",
-    retryOnRevalidate: true,
-  });
-  return payload.items ?? [];
+  return searchSharedItopUsers(query);
 }
 
 

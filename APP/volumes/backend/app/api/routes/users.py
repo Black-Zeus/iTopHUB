@@ -4,9 +4,9 @@ from fastapi import APIRouter, Cookie, HTTPException
 
 from api.deps import ensure_session, model_to_dict, raise_auth_error
 from modules.auth.schema import ensure_token_storage_supported
-from modules.auth.service import AuthenticationError, get_runtime_token, get_session_user, refresh_session, register_user_token
+from modules.auth.service import AuthenticationError, get_session_user, refresh_session, register_user_token
 from schemas.users import UserCreateRequest, UserUpdateRequest
-from modules.users.service import create_user, get_user, list_roles, list_users, search_itop_users, update_user
+from modules.users.service import create_user, get_user, list_roles, list_users, update_user
 
 
 router = APIRouter(prefix="/v1/users", tags=["users"])
@@ -22,19 +22,6 @@ def users_list(hub_session_id: str | None = Cookie(default=None)) -> dict[str, A
         raise_auth_error(exc)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Unable to load users: {exc}") from exc
-
-
-@router.get("/itop/search")
-def users_itop_search(q: str, hub_session_id: str | None = Cookie(default=None)) -> dict[str, Any]:
-    session_id = ensure_session(hub_session_id)
-    try:
-        session_user = get_session_user(session_id)
-        runtime_token = get_runtime_token(session_id)
-        return {"items": search_itop_users(q, runtime_token), "sessionUser": session_user["username"]}
-    except AuthenticationError as exc:
-        raise_auth_error(exc)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Unable to search iTop users: {exc}") from exc
 
 
 @router.get("/roles")
