@@ -263,13 +263,23 @@ def search_itop_users(query: str, runtime_token: str) -> list[dict[str, Any]]:
 
     items_by_username: dict[str, dict[str, Any]] = {}
     safe = normalized.replace("\\", "\\\\").replace("'", "\\'")
+    search_terms = [term for term in normalized.split() if term]
 
     try:
         for class_name in ["UserLocal", "UserLDAP", "UserExternal"]:
             try:
+                where_clauses = [
+                    f"login LIKE '%{safe}%'",
+                    f"friendlyname LIKE '%{safe}%'",
+                    f"contactid_friendlyname LIKE '%{safe}%'",
+                ]
+                for term in search_terms:
+                    safe_term = term.replace("\\", "\\\\").replace("'", "\\'")
+                    where_clauses.append(f"friendlyname LIKE '%{safe_term}%'")
+                    where_clauses.append(f"contactid_friendlyname LIKE '%{safe_term}%'")
                 items = connector.oql(
-                    f"SELECT {class_name} WHERE login LIKE '%{safe}%'",
-                    output_fields="login,status,friendlyname",
+                    f"SELECT {class_name} WHERE {' OR '.join(where_clauses)}",
+                    output_fields="login,status,friendlyname,contactid_friendlyname",
                 )
             except Exception:
                 continue
@@ -278,9 +288,14 @@ def search_itop_users(query: str, runtime_token: str) -> list[dict[str, Any]]:
                 username = str(item.get("login") or item.get("friendlyname") or "").strip()
                 if not username:
                     continue
+                full_name = str(
+                    item.get("contactid_friendlyname")
+                    or item.get("friendlyname")
+                    or username
+                ).strip()
                 items_by_username[username.lower()] = {
                     "username": username,
-                    "fullName": str(item.get("friendlyname") or username).strip(),
+                    "fullName": full_name or username,
                     "status": str(item.get("status") or "").strip(),
                     "itopClass": item.itop_class,
                 }

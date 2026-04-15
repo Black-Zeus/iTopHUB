@@ -1,4 +1,4 @@
-import { useContext, useEffect, useMemo, useState } from "react";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { AuthContext } from "@/App";
 import { ActaModulePage } from "../../components/ui/general/ActaModulePage";
 import { StatusChip, normalizeStatus } from "../../components/ui/general/StatusChip";
@@ -61,30 +61,113 @@ function buildUserKpis(rows) {
 }
 
 
-function UserEditModalContent({ user, roles, onCancel, onSave }) {
+function UserFormModalContent({ mode = "create", user = null, roles, onCancel, onSave }) {
+  const isCreate = mode === "create";
   const [form, setForm] = useState({
-    fullName: user.person,
-    roleCode: user.roleCode,
-    statusCode: user.statusCode,
-    tokenValue: user.tokenMasked || "",
+    username: user?.username || "",
+    fullName: user?.person || "",
+    roleCode: user?.roleCode || roles[0]?.code || "support_general",
+    statusCode: user?.statusCode || "active",
+    tokenValue: user?.tokenMasked || "",
     tokenChanged: false,
   });
+  const [suggestions, setSuggestions] = useState([]);
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [fullNameTouched, setFullNameTouched] = useState(false);
+  const skipNextSuggestionSearchRef = useRef(false);
+
+  useEffect(() => {
+    if (!isCreate) {
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    const run = async () => {
+      if (skipNextSuggestionSearchRef.current) {
+        skipNextSuggestionSearchRef.current = false;
+        setLoadingSuggestions(false);
+        setSuggestions([]);
+        return;
+      }
+
+      if (form.username.trim().length < 2) {
+        setSuggestions([]);
+        setError("");
+        return;
+      }
+
+      setLoadingSuggestions(true);
+      try {
+        const result = await searchItopUsers(form.username.trim());
+        if (!cancelled) {
+          setSuggestions(result);
+          setError("");
+          if (!fullNameTouched) {
+            const normalizedUsername = form.username.trim().toLowerCase();
+            const exactMatch = result.find((item) => item.username.toLowerCase() === normalizedUsername);
+            if (exactMatch) {
+              setForm((current) => ({
+                ...current,
+                fullName: exactMatch.fullName || exactMatch.username,
+              }));
+            }
+          }
+        }
+      } catch (searchError) {
+        if (!cancelled) {
+          setSuggestions([]);
+          setError(searchError.message || "No fue posible buscar usuarios iTop.");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingSuggestions(false);
+        }
+      }
+    };
+
+    const timer = window.setTimeout(run, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [form.username, fullNameTouched, isCreate]);
+
+  const selectSuggestion = (item) => {
+    skipNextSuggestionSearchRef.current = true;
+    setForm((current) => ({
+      ...current,
+      username: item.username,
+      fullName: item.fullName || item.username,
+    }));
+    setFullNameTouched(false);
+    setSuggestions([]);
+    setError("");
+  };
 
   const handleSubmit = async () => {
     setSaving(true);
     setError("");
     try {
-      await onSave({
-        fullName: form.fullName.trim(),
+      const payload = {
+        username: form.username.trim(),
+        fullName: form.fullName.trim() || form.username.trim(),
         roleCode: form.roleCode,
         statusCode: form.statusCode,
-        tokenValue: form.tokenChanged ? form.tokenValue.trim() : "",
-        tokenChanged: form.tokenChanged,
-      });
+      };
+
+      if (isCreate) {
+        payload.tokenValue = form.tokenValue.trim();
+      } else {
+        payload.tokenValue = form.tokenChanged ? form.tokenValue.trim() : "";
+        payload.tokenChanged = form.tokenChanged;
+      }
+
+      await onSave(payload);
     } catch (saveError) {
-      setError(saveError.message || "No fue posible guardar el usuario.");
+      setError(saveError.message || `No fue posible ${isCreate ? "vincular" : "guardar"} el usuario.`);
     } finally {
       setSaving(false);
     }
@@ -93,22 +176,60 @@ function UserEditModalContent({ user, roles, onCancel, onSave }) {
   return (
     <div className="space-y-5">
       <div className="grid gap-4 md:grid-cols-2">
-        <label className="grid gap-2">
-          <span className="text-sm font-semibold text-[var(--text-primary)]">Usuario</span>
-          <input
-            type="text"
-            value={user.username}
-            readOnly
-            className="h-[50px] rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 text-sm text-[var(--text-secondary)] outline-none"
-          />
-        </label>
+        <div className="grid gap-2 md:col-span-2">
+          <span className="text-sm font-semibold text-[var(--text-primary)]">Usuario iTop</span>
+          <div className="relative">
+            <input
+              type="text"
+              value={form.username}
+              onChange={(event) => setForm((current) => ({ ...current, username: event.target.value }))}
+              placeholder="Escribe login de iTop"
+              spellCheck={false}
+              autoCorrect="off"
+              autoCapitalize="none"
+              readOnly={!isCreate}
+              className={`h-[50px] w-full rounded-[16px] border border-[var(--border-color)] px-4 text-sm outline-none ${
+                isCreate
+                  ? "bg-[var(--bg-app)] text-[var(--text-primary)]"
+                  : "bg-[var(--bg-panel)] text-[var(--text-secondary)]"
+              }`}
+            />
+            {isCreate && form.username.trim().length >= 2 && (loadingSuggestions || suggestions.length > 0) && (
+              <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-20 rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-2 shadow-[var(--shadow-soft)]">
+                {loadingSuggestions ? (
+                  <div className="px-3 py-2 text-sm text-[var(--text-secondary)]">Buscando usuarios iTop...</div>
+                ) : (
+                  suggestions.map((item) => (
+                    <button
+                      key={`${item.itopClass}-${item.username}`}
+                      type="button"
+                      onClick={() => selectSuggestion(item)}
+                      className="flex w-full items-start justify-between gap-3 rounded-[12px] px-3 py-3 text-left text-sm text-[var(--text-primary)] transition hover:bg-[var(--bg-app)]"
+                    >
+                      <span>
+                        <span className="block font-semibold">{item.username}</span>
+                        <span className="block text-xs text-[var(--text-secondary)]">{item.fullName}</span>
+                      </span>
+                      <span className="text-[11px] uppercase tracking-[0.08em] text-[var(--text-muted)]">{item.itopClass}</span>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+        </div>
 
         <label className="grid gap-2">
-          <span className="text-sm font-semibold text-[var(--text-primary)]">Nombre</span>
+          <span className="text-sm font-semibold text-[var(--text-primary)]">Nombre visible</span>
           <input
             type="text"
             value={form.fullName}
-            onChange={(event) => setForm((current) => ({ ...current, fullName: event.target.value }))}
+            onChange={(event) => {
+              setFullNameTouched(true);
+              setForm((current) => ({ ...current, fullName: event.target.value }));
+            }}
+            spellCheck={false}
+            autoCorrect="off"
             className="h-[50px] rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 text-sm text-[var(--text-primary)] outline-none"
           />
         </label>
@@ -148,199 +269,36 @@ function UserEditModalContent({ user, roles, onCancel, onSave }) {
           <input
             type="text"
             value={form.tokenValue}
-            onFocus={() =>
-              setForm((current) => (
-                current.tokenChanged
-                  ? current
-                  : { ...current, tokenValue: "", tokenChanged: true }
-              ))
+            onFocus={() => {
+              if (!isCreate && !form.tokenChanged) {
+                setForm((current) => ({ ...current, tokenValue: "", tokenChanged: true }));
+              }
+            }}
+            onChange={(event) =>
+              setForm((current) => ({
+                ...current,
+                tokenValue: event.target.value,
+                tokenChanged: true,
+              }))
             }
-            onChange={(event) => setForm((current) => ({ ...current, tokenValue: event.target.value, tokenChanged: true }))}
-            placeholder={user.hasToken ? "Ingresa un nuevo token para reemplazar el actual" : "usr_..."}
+            spellCheck={false}
+            autoCorrect="off"
+            placeholder={
+              isCreate
+                ? "Opcional. Puedes registrarlo ahora o despues desde Editar."
+                : user?.hasToken
+                  ? "Ingresa un nuevo token para reemplazar el actual"
+                  : "Opcional. Registra aqui el token personal."
+            }
             className="h-[50px] rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 text-sm text-[var(--text-primary)] outline-none"
           />
         </label>
       </div>
 
       <div className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3 text-sm text-[var(--text-secondary)]">
-        El token se muestra ofuscado con los primeros 3 y ultimos 3 caracteres visibles. Solo se reemplaza si editas ese campo. Si lo dejas vacio despues de modificarlo, el usuario quedara sin token Hub.
-      </div>
-
-      {error ? (
-        <div className="rounded-[18px] border border-[rgba(210,138,138,0.45)] bg-[rgba(210,138,138,0.12)] px-4 py-3 text-sm text-[var(--text-primary)]">
-          {error}
-        </div>
-      ) : null}
-
-      <div className="flex justify-between gap-3">
-        <Button variant="secondary" onClick={onCancel} disabled={saving}>
-          Cancelar
-        </Button>
-        <Button variant="primary" onClick={handleSubmit} disabled={saving}>
-          {saving ? "Guardando..." : "Guardar usuario"}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-
-function LinkUserModalContent({ roles, onCancel, onSave }) {
-  const [form, setForm] = useState({
-    username: "",
-    fullName: "",
-    roleCode: roles[0]?.code || "support_general",
-    statusCode: "active",
-  });
-  const [suggestions, setSuggestions] = useState([]);
-  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const run = async () => {
-      if (form.username.trim().length < 2) {
-        setSuggestions([]);
-        setError("");
-        return;
-      }
-
-      setLoadingSuggestions(true);
-      try {
-        const result = await searchItopUsers(form.username.trim());
-        if (!cancelled) {
-          setSuggestions(result);
-          setError("");
-        }
-      } catch (searchError) {
-        if (!cancelled) {
-          setSuggestions([]);
-          setError(searchError.message || "No fue posible buscar usuarios iTop.");
-        }
-      } finally {
-        if (!cancelled) {
-          setLoadingSuggestions(false);
-        }
-      }
-    };
-
-    const timer = window.setTimeout(run, 250);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [form.username]);
-
-  const selectSuggestion = (item) => {
-    setForm((current) => ({
-      ...current,
-      username: item.username,
-      fullName: item.fullName || item.username,
-    }));
-    setSuggestions([]);
-    setError("");
-  };
-
-  const handleSubmit = async () => {
-    setSaving(true);
-    setError("");
-    try {
-      await onSave({
-        username: form.username.trim(),
-        fullName: form.fullName.trim() || form.username.trim(),
-        roleCode: form.roleCode,
-        statusCode: form.statusCode,
-      });
-    } catch (saveError) {
-      setError(saveError.message || "No fue posible vincular el usuario.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="space-y-5">
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="grid gap-2 md:col-span-2">
-          <span className="text-sm font-semibold text-[var(--text-primary)]">Usuario iTop</span>
-          <div className="relative">
-            <input
-              type="text"
-              value={form.username}
-              onChange={(event) => setForm((current) => ({ ...current, username: event.target.value }))}
-              placeholder="Escribe login de iTop"
-              className="h-[50px] w-full rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 text-sm text-[var(--text-primary)] outline-none"
-            />
-            {(loadingSuggestions || suggestions.length > 0) && (
-              <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-20 rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-2 shadow-[var(--shadow-soft)]">
-                {loadingSuggestions ? (
-                  <div className="px-3 py-2 text-sm text-[var(--text-secondary)]">Buscando usuarios iTop...</div>
-                ) : (
-                  suggestions.map((item) => (
-                    <button
-                      key={`${item.itopClass}-${item.username}`}
-                      type="button"
-                      onClick={() => selectSuggestion(item)}
-                      className="flex w-full items-start justify-between gap-3 rounded-[12px] px-3 py-3 text-left text-sm text-[var(--text-primary)] transition hover:bg-[var(--bg-app)]"
-                    >
-                      <span>
-                        <span className="block font-semibold">{item.username}</span>
-                        <span className="block text-xs text-[var(--text-secondary)]">{item.fullName}</span>
-                      </span>
-                      <span className="text-[11px] uppercase tracking-[0.08em] text-[var(--text-muted)]">{item.itopClass}</span>
-                    </button>
-                  ))
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-
-        <label className="grid gap-2">
-          <span className="text-sm font-semibold text-[var(--text-primary)]">Nombre visible</span>
-          <input
-            type="text"
-            value={form.fullName}
-            onChange={(event) => setForm((current) => ({ ...current, fullName: event.target.value }))}
-            className="h-[50px] rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 text-sm text-[var(--text-primary)] outline-none"
-          />
-        </label>
-
-        <label className="grid gap-2">
-          <span className="text-sm font-semibold text-[var(--text-primary)]">Rol</span>
-          <select
-            value={form.roleCode}
-            onChange={(event) => setForm((current) => ({ ...current, roleCode: event.target.value }))}
-            className="h-[50px] rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 text-sm text-[var(--text-primary)] outline-none"
-          >
-            {roles.map((role) => (
-              <option key={role.code} value={role.code}>
-                {role.name}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label className="grid gap-2">
-          <span className="text-sm font-semibold text-[var(--text-primary)]">Estado</span>
-          <select
-            value={form.statusCode}
-            onChange={(event) => setForm((current) => ({ ...current, statusCode: event.target.value }))}
-            className="h-[50px] rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 text-sm text-[var(--text-primary)] outline-none"
-          >
-            {STATUS_CODE_OPTIONS.map((status) => (
-              <option key={status.value} value={status.value}>
-                {status.label}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-
-      <div className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3 text-sm text-[var(--text-secondary)]">
-        Aqui no creas cuentas nuevas en iTop. Solo vinculas al Hub usuarios que ya existen en iTop. El buscador consulta clases de usuarios de iTop, no Personas.
+        {isCreate
+          ? "Aqui no creas cuentas nuevas en iTop. Solo vinculas al Hub usuarios que ya existen en iTop. El buscador consulta clases de usuarios de iTop, no Personas. El token es opcional al vincular y puedes agregarlo despues al editar."
+          : "El token se muestra ofuscado con los primeros 3 y ultimos 3 caracteres visibles. Solo se reemplaza si editas ese campo. Si lo dejas vacio despues de modificarlo, el usuario quedara sin token Hub."}
       </div>
 
       {error ? (
@@ -354,7 +312,7 @@ function LinkUserModalContent({ roles, onCancel, onSave }) {
           Cancelar
         </Button>
         <Button variant="primary" onClick={handleSubmit} disabled={saving || !form.username.trim()}>
-          {saving ? "Vinculando..." : "Vincular usuario"}
+          {saving ? (isCreate ? "Vinculando..." : "Guardando...") : (isCreate ? "Vincular usuario" : "Guardar usuario")}
         </Button>
       </div>
     </div>
@@ -393,7 +351,8 @@ export function UsersPage() {
       size: "clientWide",
       showFooter: false,
       content: (
-        <UserEditModalContent
+        <UserFormModalContent
+          mode="edit"
           user={row}
           roles={roles}
           onCancel={() => ModalManager.close(modalId)}
@@ -427,15 +386,13 @@ export function UsersPage() {
       size: "clientWide",
       showFooter: false,
       content: (
-        <LinkUserModalContent
+        <UserFormModalContent
+          mode="create"
           roles={roles}
           onCancel={() => ModalManager.close(modalId)}
           onSave={async (payload) => {
             const created = await createUser(payload);
-            setRows((currentRows) => [
-              { ...created, status: mapUserStatusToTable(created.statusCode) },
-              ...currentRows,
-            ]);
+            await loadUsers();
             ModalManager.close(modalId);
             ModalManager.success({
               title: "Usuario vinculado",
