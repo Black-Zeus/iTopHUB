@@ -56,3 +56,4 @@ Runs the custom React/Vite interface for the Hub layer on top of iTop.
 - Collapsible sections should reuse the same expand/collapse interaction pattern defined from `Informes`, including the same button structure, icon direction, and rotation transition, instead of introducing alternate variants per module.
 - Export actions for table results should reuse the same header-button pattern used in `PDQ`: `PanelHeader.actions`, `Button variant="secondary"`, `Icon name="download"`, and the label `Descargar Excel`, even when the generated file is CSV for compatibility reasons.
 - Every filtering form must expose an explicit `Buscar` button visible in the UI; pressing Enter may also submit the search, but the button is mandatory and should remain visually aligned with the filter controls.
+- Any frontend action labeled `Quitar` must open a confirmation modal before removing data from the current view or form, including nested items such as assets, contacts, or checklists.
