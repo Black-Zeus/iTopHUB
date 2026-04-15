@@ -18,6 +18,8 @@ import {
   cloneTemplate,
   createEmptyForm,
   createFormFromDetail,
+  getAssetAssignmentRestriction,
+  matchesTemplateCmdbClass,
 } from "./handover-editor-shared";
 
 const SECONDARY_ROLE_OPTIONS = ["Contraturno", "Referente de area", "Respaldo operativo", "Testigo"];
@@ -134,6 +136,12 @@ export function HandoverDocumentPage() {
     setPersonSearchQuery("");
     setPeopleResults([]);
     setPeopleLoading(false);
+  };
+
+  const resetAssetSearch = () => {
+    setAssetSearchQuery("");
+    setAssetResults([]);
+    setAssetLoading(false);
   };
 
   const showItopUnavailableModal = (message) => {
@@ -305,8 +313,16 @@ export function HandoverDocumentPage() {
   }, [assetSearchQuery, minCharsAssets]);
 
   const addAssetToForm = (asset) => {
+    const restrictionMessage = getAssetAssignmentRestriction(asset);
+    if (restrictionMessage) {
+      setError(restrictionMessage);
+      resetAssetSearch();
+      return;
+    }
+
     if (form.items.some((item) => item.asset?.id === asset.id)) {
       setNotice("El activo seleccionado ya fue agregado al acta.");
+      resetAssetSearch();
       return;
     }
 
@@ -321,6 +337,9 @@ export function HandoverDocumentPage() {
         },
       ],
     }));
+    resetAssetSearch();
+    setNotice("");
+    setError("");
   };
 
   const addAdditionalReceiver = (person) => {
@@ -437,6 +456,23 @@ export function HandoverDocumentPage() {
     setForm((current) => ({ ...current, receiver: null }));
   };
 
+  const requestRemovePrimaryReceiver = async () => {
+    const confirmed = await ModalManager.confirm({
+      title: "Quitar persona principal",
+      message: `Se quitara ${form.receiver?.name || "la persona principal"} de esta acta.`,
+      content: "Confirma para eliminar la persona principal actualmente seleccionada.",
+      buttons: { cancel: "Cancelar", confirm: "Quitar" },
+    });
+
+    if (!confirmed) {
+      return;
+    }
+
+    removePrimaryReceiver();
+    setNotice("");
+    setError("");
+  };
+
   const selectPrimaryReceiver = (person) => {
     if (form.receiver?.id && form.receiver.id !== person.id) {
       openPrimaryReceiverConflictModal(person);
@@ -462,6 +498,24 @@ export function HandoverDocumentPage() {
     }));
   };
 
+  const requestRemoveAdditionalReceiver = async (personId) => {
+    const person = (form.additionalReceivers || []).find((item) => item.id === personId);
+    const confirmed = await ModalManager.confirm({
+      title: "Quitar participante secundario",
+      message: `Se quitara ${person?.name || "el participante"} de esta acta.`,
+      content: "Confirma para eliminar este participante secundario del formulario.",
+      buttons: { cancel: "Cancelar", confirm: "Quitar" },
+    });
+
+    if (!confirmed) {
+      return;
+    }
+
+    removeAdditionalReceiver(personId);
+    setNotice("");
+    setError("");
+  };
+
   const updateAdditionalReceiverRole = (personId, assignmentRole) => {
     setForm((current) => ({
       ...current,
@@ -474,6 +528,23 @@ export function HandoverDocumentPage() {
       ...current,
       items: current.items.filter((item) => item.asset?.id !== assetId),
     }));
+  };
+
+  const requestRemoveAssetFromForm = async (asset) => {
+    const confirmed = await ModalManager.confirm({
+      title: "Quitar activo",
+      message: `Se quitara ${asset?.code || "el activo"} del acta actual.`,
+      content: "Confirma para eliminar este activo y sus checklists asociados del formulario.",
+      buttons: { cancel: "Cancelar", confirm: "Quitar" },
+    });
+
+    if (!confirmed) {
+      return;
+    }
+
+    removeAssetFromForm(asset?.id);
+    setNotice("");
+    setError("");
   };
 
   const updateItemNotes = (assetId, value) => {
@@ -495,6 +566,15 @@ export function HandoverDocumentPage() {
     }
 
     const targetItem = form.items.find((item) => item.asset?.id === assetId);
+    if (!targetItem) {
+      return;
+    }
+
+    if (!matchesTemplateCmdbClass(targetItem.asset?.className, template.cmdbClassLabel)) {
+      setError(`El checklist '${template.name}' no aplica para el activo ${targetItem.asset?.code || targetItem.asset?.name || "seleccionado"}.`);
+      return;
+    }
+
     if (targetItem?.checklists.some((checklist) => checklist.templateId === templateId)) {
       setNotice("La plantilla seleccionada ya fue aplicada a este activo.");
       return;
@@ -519,6 +599,26 @@ export function HandoverDocumentPage() {
       ...current,
       items: current.items.map((item) => item.asset?.id === assetId ? { ...item, checklists: item.checklists.filter((checklist) => checklist.templateId !== templateId) } : item),
     }));
+  };
+
+  const requestRemoveChecklistFromAsset = async (assetId, templateId) => {
+    const assetItem = form.items.find((item) => item.asset?.id === assetId);
+    const checklist = assetItem?.checklists?.find((item) => item.templateId === templateId);
+
+    const confirmed = await ModalManager.confirm({
+      title: "Quitar checklist",
+      message: `Se quitara ${checklist?.templateName || "el checklist"} del activo ${assetItem?.asset?.code || ""}.`,
+      content: "Confirma para eliminar este checklist y todas sus respuestas cargadas del formulario.",
+      buttons: { cancel: "Cancelar", confirm: "Quitar" },
+    });
+
+    if (!confirmed) {
+      return;
+    }
+
+    removeChecklistFromAsset(assetId, templateId);
+    setNotice("");
+    setError("");
   };
 
   const updateChecklistAnswer = (assetId, templateId, checklistItemId, value) => {
@@ -571,6 +671,13 @@ export function HandoverDocumentPage() {
       additionalReceivers: form.additionalReceivers || [],
       items: form.items,
     };
+
+    const invalidAsset = form.items.find((item) => getAssetAssignmentRestriction(item.asset));
+    if (invalidAsset) {
+      setSaving(false);
+      setError(getAssetAssignmentRestriction(invalidAsset.asset));
+      return;
+    }
 
     try {
       const savedItem = isCreateMode
@@ -646,10 +753,10 @@ export function HandoverDocumentPage() {
           selectedTemplateByAsset={selectedTemplateByAsset}
           setSelectedTemplateByAsset={setSelectedTemplateByAsset}
           addAssetToForm={addAssetToForm}
-          removeAssetFromForm={removeAssetFromForm}
+          requestRemoveAssetFromForm={requestRemoveAssetFromForm}
           updateItemNotes={updateItemNotes}
           addChecklistToAsset={addChecklistToAsset}
-          removeChecklistFromAsset={removeChecklistFromAsset}
+          requestRemoveChecklistFromAsset={requestRemoveChecklistFromAsset}
           updateChecklistAnswer={updateChecklistAnswer}
           collapsedSections={collapsedSections}
           toggleSection={toggleSection}
@@ -659,9 +766,9 @@ export function HandoverDocumentPage() {
           minCharsAssets={minCharsAssets}
           selectPrimaryReceiver={selectPrimaryReceiver}
           promoteAdditionalReceiverToPrimary={promoteAdditionalReceiverToPrimary}
-          removePrimaryReceiver={removePrimaryReceiver}
+          requestRemovePrimaryReceiver={requestRemovePrimaryReceiver}
           addAdditionalReceiver={addAdditionalReceiver}
-          removeAdditionalReceiver={removeAdditionalReceiver}
+          requestRemoveAdditionalReceiver={requestRemoveAdditionalReceiver}
           updateAdditionalReceiverRole={updateAdditionalReceiverRole}
         />
       )}

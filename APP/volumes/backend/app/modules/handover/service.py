@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import unicodedata
 from datetime import datetime
 from typing import Any
 
@@ -24,6 +25,7 @@ STATUS_DB_TO_UI = {
     "draft": "En creacion",
     "issued": "Emitida",
     "confirmed": "Confirmada",
+    "cancelled": "Anulada",
 }
 
 STATUS_UI_TO_DB = {value: key for key, value in STATUS_DB_TO_UI.items()}
@@ -59,6 +61,34 @@ def _coerce_str(value: Any, default: str = "") -> str:
     if value is None:
         return default
     return str(value).strip()
+
+
+def _normalize_comparison_text(value: Any) -> str:
+    text = _coerce_str(value)
+    if not text:
+        return ""
+    return (
+        unicodedata.normalize("NFD", text)
+        .encode("ascii", "ignore")
+        .decode("ascii")
+        .strip()
+        .lower()
+    )
+
+
+def _get_asset_assignment_restriction(asset: dict[str, Any]) -> str:
+    status = _coerce_str(asset.get("status"))
+    assigned_user = _coerce_str(asset.get("assignedUser"))
+    normalized_status = _normalize_comparison_text(status)
+    normalized_assigned_user = _normalize_comparison_text(assigned_user)
+
+    if normalized_status != "stock":
+        return f"No se puede asignar el activo '{_coerce_str(asset.get('code')) or _coerce_str(asset.get('name')) or 'sin codigo'}' porque esta en estado {status or 'desconocido'}."
+
+    if normalized_assigned_user and normalized_assigned_user != "sin asignar":
+        return f"No se puede asignar el activo '{_coerce_str(asset.get('code')) or _coerce_str(asset.get('name')) or 'sin codigo'}' porque ya esta asociado a {assigned_user}."
+
+    return ""
 
 
 def _serialize_datetime(value: Any) -> str:
@@ -121,10 +151,21 @@ def _serialize_template_catalog(include_inactive: bool = False) -> list[dict[str
                 "name": row["name"],
                 "description": row["description"],
                 "status": row["status"],
+                "cmdbClassLabel": row.get("cmdb_class_label") or "",
                 "checks": items_by_template.get(template_id, []),
             }
         )
     return templates
+
+
+def _matches_template_cmdb_class(asset_class_name: Any, template_class_label: Any) -> bool:
+    normalized_asset_class = _normalize_comparison_text(asset_class_name)
+    normalized_template_class = _normalize_comparison_text(template_class_label)
+
+    if not normalized_template_class:
+        return True
+
+    return normalized_asset_class == normalized_template_class
 
 
 def get_handover_bootstrap(session_user: dict[str, Any], runtime_token: str) -> dict[str, Any]:
@@ -144,6 +185,9 @@ def get_handover_bootstrap(session_user: dict[str, Any], runtime_token: str) -> 
             "notes": "",
             "notesPlaceholder": docs_settings.get("defaultObservation") or "",
             "prefix": docs_settings.get("handoverPrefix") or "ENT",
+        },
+        "actions": {
+            "allowEvidenceUpload": bool(docs_settings.get("allowEvidenceUpload", True)),
         },
         "statusOptions": [
             {"value": value, "label": label}
@@ -531,6 +575,11 @@ def _normalize_items(payload_items: list[dict[str, Any]], template_catalog: dict
             raise HTTPException(status_code=422, detail="No se puede repetir el mismo activo dentro del acta.")
         if not asset_name or not asset_code:
             raise HTTPException(status_code=422, detail="Uno de los activos seleccionados no es valido.")
+
+        restriction_message = _get_asset_assignment_restriction(asset)
+        if restriction_message:
+            raise HTTPException(status_code=422, detail=restriction_message)
+
         seen_asset_ids.add(parsed_asset_id)
 
         checklist_payloads = item.get("checklists") or []
@@ -552,6 +601,11 @@ def _normalize_items(payload_items: list[dict[str, Any]], template_catalog: dict
                 raise HTTPException(status_code=422, detail="Uno de los checklists seleccionados ya no existe.")
             if parsed_template_id in seen_template_ids:
                 raise HTTPException(status_code=422, detail="No se puede repetir una misma plantilla en el mismo activo.")
+            if not _matches_template_cmdb_class(asset.get("className"), template.get("cmdbClassLabel")):
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"El checklist '{template['name']}' no aplica para el activo '{asset_code or asset_name}'.",
+                )
             seen_template_ids.add(parsed_template_id)
 
             answers_payload = checklist.get("answers") or []

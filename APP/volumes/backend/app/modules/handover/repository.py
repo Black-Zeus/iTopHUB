@@ -235,6 +235,7 @@ def fetch_handover_template_rows(include_inactive: bool = False) -> list[dict[st
             name,
             description,
             status,
+            cmdb_class_label,
             sort_order
         FROM hub_checklist_templates
         WHERE {' AND '.join(filters)}

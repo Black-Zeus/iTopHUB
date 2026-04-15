@@ -62,6 +62,15 @@ export async function updateHandoverDocument(documentId, payload) {
 }
 
 
+export async function updateHandoverDocumentStatus(documentId, status) {
+  const detail = await getHandoverDocument(documentId);
+  return updateHandoverDocument(documentId, {
+    ...detail,
+    status,
+  });
+}
+
+
 export async function searchHandoverPeople({ query = "" } = {}) {
   const items = await searchItopPeople({ query });
   return items.map((item) => ({

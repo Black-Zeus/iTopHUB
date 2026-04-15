@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import ModalManager from "../../components/ui/modal";
 import { DataTable, FilterDropdown, KpiCard, Panel, PanelHeader } from "../../components/ui/general";
 import { SearchFilterInput } from "../../components/ui/general/SearchFilterInput";
 import { StatusChip } from "../../components/ui/general/StatusChip";
@@ -7,8 +8,8 @@ import { Icon } from "../../components/ui/icon/Icon";
 import { Button } from "../../ui/Button";
 import {
   getHandoverBootstrap,
-  getHandoverDocument,
   listHandoverDocuments,
+  updateHandoverDocumentStatus,
 } from "../../services/handover-service";
 import { downloadRowsAsCsv } from "../../utils/export-csv";
 import { MessageBanner } from "./handover-editor-shared";
@@ -83,7 +84,7 @@ function getHandoverFilterOptionClassName(_, isActive) {
 function downloadListCsv(rows) {
   downloadRowsAsCsv({
     filename: "actas_entrega.csv",
-    header: ["Acta", "Destinatario", "Cargo", "Activos", "Fecha", "Estado", "Tipo", "Responsable"],
+    header: ["Acta", "Destinatario", "Cargo", "Activos", "Fecha", "Estado", "Responsable"],
     rows: rows.map((row) => [
       row.code || "",
       row.person || "",
@@ -91,76 +92,9 @@ function downloadListCsv(rows) {
       row.asset || "",
       row.date || "",
       row.status || "",
-      row.handoverType || "",
       row.ownerName || "",
     ]),
   });
-}
-
-function formatDocumentBackup(document) {
-  const lines = [
-    `Acta: ${document.documentNumber || ""}`,
-    `Fecha emision: ${document.generatedAt || ""}`,
-    `Estado: ${document.status || ""}`,
-    `Tipo entrega: ${document.handoverType || ""}`,
-    `Responsable: ${document.owner?.name || ""}`,
-    "",
-    "Destinatario",
-    `- Codigo: ${document.receiver?.code || ""}`,
-    `- Nombre: ${document.receiver?.name || ""}`,
-    `- Email: ${document.receiver?.email || ""}`,
-    `- Telefono: ${document.receiver?.phone || ""}`,
-    `- Cargo: ${document.receiver?.role || ""}`,
-    `- Estado: ${document.receiver?.status || ""}`,
-    "",
-    "Motivo",
-    document.reason || "",
-    "",
-    "Observacion",
-    document.notes || "",
-    "",
-    "Activos",
-  ];
-
-  document.items.forEach((item, itemIndex) => {
-    lines.push(`${itemIndex + 1}. ${item.asset?.code || ""} - ${item.asset?.name || ""}`);
-    lines.push(`   Clase: ${item.asset?.className || ""}`);
-    lines.push(`   Marca / Modelo: ${[item.asset?.brand, item.asset?.model].filter(Boolean).join(" / ")}`);
-    lines.push(`   Serie: ${item.asset?.serial || ""}`);
-    lines.push(`   Estado: ${item.asset?.status || ""}`);
-    lines.push(`   Asignado en CMDB: ${item.asset?.assignedUser || ""}`);
-    if (item.notes) {
-      lines.push(`   Nota item: ${item.notes}`);
-    }
-
-    if (!item.checklists?.length) {
-      lines.push("   Checklists: sin checklist aplicado");
-    } else {
-      lines.push("   Checklists:");
-      item.checklists.forEach((checklist) => {
-        lines.push(`   - ${checklist.templateName}`);
-        checklist.answers.forEach((answer) => {
-          const renderedValue = answer.type === "Check" ? (answer.value ? "Si" : "No") : (answer.value || "");
-          lines.push(`     * ${answer.name}: ${renderedValue}`);
-        });
-      });
-    }
-    lines.push("");
-  });
-
-  return lines.join("\n");
-}
-
-function downloadDocumentBackup(documentDetail) {
-  const blob = new Blob([formatDocumentBackup(documentDetail)], { type: "text/plain;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = window.document.createElement("a");
-  link.href = url;
-  link.download = `${documentDetail.documentNumber || "acta-entrega"}.txt`;
-  window.document.body.appendChild(link);
-  link.click();
-  window.document.body.removeChild(link);
-  URL.revokeObjectURL(url);
 }
 
 export function HandoverPage() {
@@ -169,8 +103,9 @@ export function HandoverPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [filters, setFilters] = useState({ query: "", status: "", handoverType: "" });
-  const [catalog, setCatalog] = useState({ statusOptions: [], typeOptions: [] });
+  const [filters, setFilters] = useState({ query: "", status: "" });
+  const [catalog, setCatalog] = useState({ statusOptions: [] });
+  const [actionConfig, setActionConfig] = useState({ allowEvidenceUpload: true });
 
   const kpis = useMemo(() => buildKpis(rows), [rows]);
 
@@ -192,7 +127,9 @@ export function HandoverPage() {
       const bootstrap = await getHandoverBootstrap();
       setCatalog({
         statusOptions: bootstrap?.statusOptions || [],
-        typeOptions: bootstrap?.typeOptions || [],
+      });
+      setActionConfig({
+        allowEvidenceUpload: Boolean(bootstrap?.actions?.allowEvidenceUpload ?? true),
       });
     } catch (loadError) {
       setError(loadError.message || "No fue posible preparar el modulo.");
@@ -201,7 +138,7 @@ export function HandoverPage() {
 
   useEffect(() => {
     loadCatalog();
-    loadDocuments({ query: "", status: "", handoverType: "" });
+    loadDocuments({ query: "", status: "" });
   }, []);
 
   const handleFilterSubmit = async (event) => {
@@ -210,14 +147,99 @@ export function HandoverPage() {
     await loadDocuments(filters);
   };
 
-  const handleDownload = async (documentId) => {
-    setError("");
-    try {
-      const detail = await getHandoverDocument(documentId);
-      downloadDocumentBackup(detail);
-    } catch (downloadError) {
-      setError(downloadError.message || "No fue posible descargar el respaldo del acta.");
+  const handleProcess = async (row) => {
+    const modalId = ModalManager.custom({
+      title: `Procesar ${row.code}`,
+      size: "medium",
+      showFooter: false,
+      content: (
+        <div className="grid gap-5">
+          <p className="text-sm text-[var(--text-secondary)]">
+            Este flujo quedara a cargo de la generacion PDF del documento. Por ahora se deja listo el modal y el cambio de estado operacional.
+          </p>
+          <div className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] p-4 text-sm text-[var(--text-secondary)]">
+            <p className="font-semibold text-[var(--text-primary)]">{row.code}</p>
+            <p className="mt-2">Al confirmar, el acta cambiara desde <strong>En creacion</strong> a <strong>Emitida</strong>.</p>
+            <p className="mt-2">La generacion y descarga real del PDF quedara conectada en una siguiente etapa.</p>
+          </div>
+          <div className="flex flex-wrap justify-between gap-3">
+            <Button variant="secondary" onClick={() => ModalManager.close(modalId)}>Cancelar</Button>
+            <Button
+              variant="primary"
+              onClick={async () => {
+                try {
+                  await updateHandoverDocumentStatus(row.id, "Emitida");
+                  ModalManager.close(modalId);
+                  setNotice(`El acta ${row.code} quedo en estado Emitida.`);
+                  setError("");
+                  await loadDocuments(filters);
+                } catch (processError) {
+                  ModalManager.error({
+                    title: "No fue posible procesar el acta",
+                    message: processError.message || "Ocurrio un error al cambiar el estado.",
+                  });
+                }
+              }}
+            >
+              Procesar
+            </Button>
+          </div>
+        </div>
+      ),
+    });
+  };
+
+  const handleCancel = async (row) => {
+    const confirmed = await ModalManager.confirm({
+      title: "Anular acta",
+      message: `Se anulara ${row.code}.`,
+      content: "Confirma para marcar esta acta como anulada. El cambio quedara persistido en el Hub.",
+      buttons: { cancel: "Cancelar", confirm: "Anular" },
+    });
+
+    if (!confirmed) {
+      return;
     }
+
+    try {
+      await updateHandoverDocumentStatus(row.id, "Anulada");
+      setNotice(`El acta ${row.code} fue anulada.`);
+      setError("");
+      await loadDocuments(filters);
+    } catch (cancelError) {
+      setError(cancelError.message || "No fue posible anular el acta.");
+    }
+  };
+
+  const openPdfModal = (row) => {
+    ModalManager.info({
+      title: `PDF ${row.code}`,
+      message: "La descarga PDF real aun no esta conectada.",
+      content: "Este boton queda reservado para descargar la version PDF generada del documento cuando se integre el pipeline documental.",
+    });
+  };
+
+  const openEvidenceModal = (row) => {
+    const modalId = ModalManager.custom({
+      title: `Cargar evidencia ${row.code}`,
+      size: "medium",
+      showFooter: false,
+      content: (
+        <div className="grid gap-5">
+          <p className="text-sm text-[var(--text-secondary)]">
+            Este flujo quedara reservado para cargar manualmente el PDF firmado o documento final de respaldo cuando el archivo aun no venga generado desde el Hub.
+          </p>
+          <div className="rounded-[18px] border border-dashed border-[var(--border-color)] bg-[var(--bg-app)] p-5 text-sm text-[var(--text-secondary)]">
+            Placeholder de carga manual de evidencia PDF.
+          </div>
+          <div className="flex justify-end">
+            <Button variant="secondary" onClick={() => ModalManager.close(modalId)}>
+              Cerrar
+            </Button>
+          </div>
+        </div>
+      ),
+    });
   };
 
   const tableColumns = [
@@ -227,20 +249,39 @@ export function HandoverPage() {
     { key: "asset", label: "Activos" },
     { key: "date", label: "Fecha", sortable: true },
     { key: "status", label: "Estado", render: (value) => <StatusChip status={value} /> },
-    { key: "handoverType", label: "Tipo", sortable: true },
     {
       key: "actions",
       label: "Acciones",
+      headerClassName: "w-[19rem] min-w-[19rem] text-right",
+      cellClassName: "w-[19rem] min-w-[19rem] text-right",
       render: (_, row) => (
-        <div className="flex items-center gap-2">
-          <Button size="sm" variant="secondary" onClick={() => navigate(`/handover/${row.id}`)}>
+        <div className="flex max-w-[19rem] flex-wrap items-center justify-end gap-1.5 ml-auto">
+          <Button size="sm" variant="secondary" className="px-3 py-1.5 text-xs" onClick={() => navigate(`/handover/${row.id}`)}>
             <Icon name="edit" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
             Editar
           </Button>
-          <Button size="sm" variant="secondary" onClick={() => handleDownload(row.id)}>
+          {row.status === "En creacion" ? (
+            <Button size="sm" variant="secondary" className="px-3 py-1.5 text-xs" onClick={() => handleProcess(row)}>
+              <Icon name="check" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              Procesar
+            </Button>
+          ) : null}
+          {row.status !== "Anulada" ? (
+            <Button size="sm" variant="secondary" className="px-3 py-1.5 text-xs" onClick={() => handleCancel(row)}>
+              <Icon name="xmark" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              Anular
+            </Button>
+          ) : null}
+          <Button size="sm" variant="secondary" className="px-3 py-1.5 text-xs" onClick={() => openPdfModal(row)}>
             <Icon name="download" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-            Respaldo
+            PDF
           </Button>
+          {actionConfig.allowEvidenceUpload ? (
+            <Button size="sm" variant="secondary" className="px-3 py-1.5 text-xs" onClick={() => openEvidenceModal(row)}>
+              <Icon name="paperclip" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              Cargar evidencia
+            </Button>
+          ) : null}
         </div>
       ),
     },
@@ -261,7 +302,7 @@ export function HandoverPage() {
           <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
             <div className="grid gap-3">
               <div className="grid gap-3 xl:grid-cols-4">
-                <div className="min-w-0 xl:col-span-2">
+                <div className="min-w-0 xl:col-span-3">
                   <SearchFilterInput
                     value={filters.query}
                     placeholder="Buscar por acta, colaborador o activo entregado"
@@ -290,32 +331,6 @@ export function HandoverPage() {
                     )}
                     renderOptionDescription={(option) =>
                       option.value === "all" ? "Sin restriccion aplicada" : "Selecciona un estado"
-                    }
-                    getOptionClassName={getHandoverFilterOptionClassName}
-                  />
-                </div>
-
-                <div className="min-w-0">
-                  <FilterDropdown
-                    label="Tipo de entrega"
-                    selectedValues={filters.handoverType ? [filters.handoverType] : []}
-                    options={[
-                      { value: "all", label: "Todos" },
-                      ...catalog.typeOptions,
-                    ]}
-                    selectionMode="single"
-                    onToggleOption={(value) => setFilters((current) => ({ ...current, handoverType: value === "all" ? "" : value }))}
-                    onClear={() => setFilters((current) => ({ ...current, handoverType: "" }))}
-                    triggerClassName="py-3"
-                    buttonHeightClassName={HANDOVER_FILTER_CONTROL_HEIGHT}
-                    menuOffsetClassName="top-[calc(100%+0.55rem)]"
-                    menuClassName="rounded-[18px]"
-                    renderSelection={renderHandoverFilterSelection}
-                    renderOptionLeading={() => (
-                      <span className="inline-flex h-2.5 w-2.5 rounded-full bg-current opacity-70" />
-                    )}
-                    renderOptionDescription={(option) =>
-                      option.value === "all" ? "Sin restriccion aplicada" : "Selecciona un tipo"
                     }
                     getOptionClassName={getHandoverFilterOptionClassName}
                   />

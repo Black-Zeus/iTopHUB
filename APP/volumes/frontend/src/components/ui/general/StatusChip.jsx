@@ -13,6 +13,7 @@ const STATUS_MAP = {
   "en-creacion": { label: "En creacion", cls: "bg-[rgba(224,181,107,0.14)] text-[var(--warning)]" },
   emitida: { label: "Emitida", cls: "bg-[var(--accent-soft)] text-[var(--accent-strong)]" },
   confirmada: { label: "Confirmada", cls: "bg-[rgba(127,191,156,0.14)] text-[var(--success)]" },
+  anulada: { label: "Anulada", cls: "bg-[rgba(210,138,138,0.14)] text-[var(--danger)]" },
   produccion: { label: "Produccion", cls: "bg-[rgba(127,191,156,0.14)] text-[var(--success)]" },
   production: { label: "Produccion", cls: "bg-[rgba(127,191,156,0.14)] text-[var(--success)]" },
   implementacion: { label: "Implementacion", cls: "bg-[var(--accent-soft)] text-[var(--accent-strong)]" },

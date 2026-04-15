@@ -7,6 +7,44 @@ export const INPUT_CLASS_NAME = "h-[50px] rounded-[16px] border border-[var(--bo
 export const TEXTAREA_CLASS_NAME = "w-full rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-3 text-sm text-[var(--text-primary)] outline-none";
 const SECONDARY_RECEIVER_ROLE_OPTIONS = ["Contraturno", "Referente de area", "Respaldo operativo", "Testigo"];
 
+function normalizeComparisonText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function matchesTemplateCmdbClass(assetClassName, templateClassLabel) {
+  const normalizedAssetClass = normalizeComparisonText(assetClassName);
+  const normalizedTemplateClass = normalizeComparisonText(templateClassLabel);
+
+  if (!normalizedTemplateClass) {
+    return true;
+  }
+
+  return normalizedAssetClass === normalizedTemplateClass;
+}
+
+export { matchesTemplateCmdbClass };
+
+export function getAssetAssignmentRestriction(asset) {
+  const status = String(asset?.status || "").trim();
+  const assignedUser = String(asset?.assignedUser || "").trim();
+  const normalizedStatus = normalizeComparisonText(status);
+  const normalizedAssignedUser = normalizeComparisonText(assignedUser);
+
+  if (normalizedStatus !== "stock") {
+    return `No se puede asignar porque esta en estado ${status || "desconocido"}.`;
+  }
+
+  if (normalizedAssignedUser && normalizedAssignedUser !== "sin asignar") {
+    return `No se puede asignar porque ya esta asociado a ${assignedUser}.`;
+  }
+
+  return "";
+}
+
 function normalizeSecondaryReceiverRole(value) {
   if (value === "Apoyo") {
     return "Respaldo operativo";
@@ -161,6 +199,79 @@ function SecondaryRoleMenu({ personId, currentRole, onChange }) {
   );
 }
 
+function ChecklistTemplatePicker({
+  assetId,
+  availableTemplates,
+  selectedTemplateId,
+  onChange,
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const selectedTemplate = availableTemplates.find((template) => String(template.id) === String(selectedTemplateId || ""));
+
+  if (!availableTemplates.length) {
+    return (
+      <div className="rounded-[16px] border border-dashed border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3 text-sm text-[var(--text-secondary)]">
+        No hay plantillas disponibles para este activo.
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setIsOpen((current) => !current)}
+        className="flex min-h-[72px] w-full items-center justify-between gap-3 rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3 text-left transition hover:border-[var(--border-strong)]"
+      >
+        <div className="min-w-0">
+          <p className="text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+            Seleccionar plantilla
+          </p>
+          <p className="mt-1 truncate text-sm font-semibold text-[var(--text-primary)]">
+            {selectedTemplate?.name || "Selecciona una plantilla"}
+          </p>
+          <p className="mt-1 line-clamp-2 text-sm text-[var(--text-secondary)]">
+            {selectedTemplate?.description || "Elige un checklist disponible para este activo."}
+          </p>
+        </div>
+        <Icon name={isOpen ? "chevronUp" : "chevronDown"} size={14} className="h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]" aria-hidden="true" />
+      </button>
+
+      {isOpen ? (
+        <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-20 max-h-[320px] overflow-y-auto rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-2 shadow-[var(--shadow-soft)]">
+          <div className="grid gap-2">
+            {availableTemplates.map((template) => {
+              const isSelected = String(template.id) === String(selectedTemplateId || "");
+
+              return (
+                <button
+                  key={`${assetId}-${template.id}`}
+                  type="button"
+                  onClick={() => {
+                    onChange(String(template.id));
+                    setIsOpen(false);
+                  }}
+                  className={`rounded-[14px] border px-4 py-3 text-left transition ${
+                    isSelected
+                      ? "border-[rgba(81,152,194,0.26)] bg-[var(--accent-soft)] shadow-[0_10px_22px_rgba(81,152,194,0.14)]"
+                      : "border-transparent bg-[var(--bg-app)] hover:border-[var(--border-color)]"
+                  }`}
+                >
+                  <p className="text-sm font-semibold text-[var(--text-primary)]">{template.name}</p>
+                  <p className="mt-1 text-sm text-[var(--text-secondary)]">{template.description || "Sin descripcion adicional."}</p>
+                  <p className="mt-2 text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+                    {template.checks?.length || 0} checks
+                  </p>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function CornerIconButton({ iconName, label, onClick }) {
   return (
     <button
@@ -274,10 +385,10 @@ export function HandoverEditorSections({
   selectedTemplateByAsset,
   setSelectedTemplateByAsset,
   addAssetToForm,
-  removeAssetFromForm,
+  requestRemoveAssetFromForm,
   updateItemNotes,
   addChecklistToAsset,
-  removeChecklistFromAsset,
+  requestRemoveChecklistFromAsset,
   updateChecklistAnswer,
   collapsedSections,
   toggleSection,
@@ -287,12 +398,29 @@ export function HandoverEditorSections({
   minCharsAssets,
   selectPrimaryReceiver,
   promoteAdditionalReceiverToPrimary,
-  removePrimaryReceiver,
+  requestRemovePrimaryReceiver,
   addAdditionalReceiver,
-  removeAdditionalReceiver,
+  requestRemoveAdditionalReceiver,
   updateAdditionalReceiverRole,
 }) {
   const topPanelsExpanded = !collapsedSections.document && !collapsedSections.receiver;
+  const [collapsedAssets, setCollapsedAssets] = useState({});
+  const [collapsedChecklists, setCollapsedChecklists] = useState({});
+
+  const toggleAsset = (assetId) => {
+    setCollapsedAssets((current) => ({
+      ...current,
+      [assetId]: !current[assetId],
+    }));
+  };
+
+  const toggleChecklist = (assetId, templateId) => {
+    const checklistKey = `${assetId}-${templateId}`;
+    setCollapsedChecklists((current) => ({
+      ...current,
+      [checklistKey]: !current[checklistKey],
+    }));
+  };
 
   return (
     <div className="grid gap-5">
@@ -430,7 +558,7 @@ export function HandoverEditorSections({
                       <p className="mt-1 text-xs text-[var(--text-muted)]">{[form.receiver.role, form.receiver.status].filter(Boolean).join(" / ")}</p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <CornerIconButton iconName="xmark" label="Quitar principal" onClick={removePrimaryReceiver} />
+                      <CornerIconButton iconName="xmark" label="Quitar principal" onClick={requestRemovePrimaryReceiver} />
                     </div>
                   </div>
                 </div>
@@ -459,7 +587,7 @@ export function HandoverEditorSections({
                         <Button size="sm" variant="secondary" onClick={() => promoteAdditionalReceiverToPrimary(person.id)}>
                           Hacer principal
                         </Button>
-                        <CornerIconButton iconName="xmark" label="Quitar secundario" onClick={() => removeAdditionalReceiver(person.id)} />
+                        <CornerIconButton iconName="xmark" label="Quitar secundario" onClick={() => requestRemoveAdditionalReceiver(person.id)} />
                       </div>
                     </div>
                   </div>
@@ -474,7 +602,7 @@ export function HandoverEditorSections({
       <EditorSectionPanel
         eyebrow="Activos"
         title="Activos incluidos"
-        helper="Agrega los equipos o elementos entregados y documenta sus observaciones y checklist asociado."
+        helper="Usa este bloque como separador para buscar y agregar activos al documento."
         isCollapsed={collapsedSections.assets}
         onToggle={() => toggleSection("assets")}
       >
@@ -492,15 +620,19 @@ export function HandoverEditorSections({
           {assetResults.length ? (
             <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-20 max-h-[320px] overflow-y-auto rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-2 shadow-[var(--shadow-soft)]">
               <div className="grid gap-3">
-                {assetResults.map((asset) => (
+                {assetResults.map((asset) => {
+                  const restrictionMessage = getAssetAssignmentRestriction(asset);
+
+                  return (
                   <ResultCard
                     key={asset.id}
                     title={`${asset.code} / ${asset.name}`}
                     subtitle={[asset.className, asset.serial].filter(Boolean).join(" / ")}
-                    helper={[asset.status, asset.assignedUser].filter(Boolean).join(" / ")}
-                    actions={<Button size="sm" variant="secondary" onClick={() => addAssetToForm(asset)}>Agregar</Button>}
+                    helper={[asset.status, asset.assignedUser, restrictionMessage].filter(Boolean).join(" / ")}
+                    actions={<Button size="sm" variant="secondary" onClick={() => addAssetToForm(asset)} disabled={Boolean(restrictionMessage)}>Agregar</Button>}
                   />
-                ))}
+                  );
+                })}
               </div>
             </div>
           ) : assetLoading ? (
@@ -509,89 +641,146 @@ export function HandoverEditorSections({
             </div>
           ) : null}
         </div>
+      </EditorSectionPanel>
 
-        {!form.items.length ? (
-          <MessageBanner>No hay activos agregados a esta acta.</MessageBanner>
-        ) : (
-          <div className="grid gap-4">
-            {form.items.map((item) => {
-              const availableTemplates = activeTemplates.filter((template) => !item.checklists.some((checklist) => checklist.templateId === template.id));
+      {form.items.length ? (
+        <div className="grid gap-4">
+          {form.items.map((item) => {
+            const assetId = item.asset?.id;
+            const availableTemplates = activeTemplates.filter((template) => (
+              matchesTemplateCmdbClass(item.asset?.className, template.cmdbClassLabel)
+              && !item.checklists.some((checklist) => checklist.templateId === template.id)
+            ));
+            const isCollapsed = Boolean(collapsedAssets[assetId]);
 
-              return (
-                <div key={item.asset?.id} className="rounded-[24px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-5 shadow-[var(--shadow-subtle)]">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-base font-semibold text-[var(--text-primary)]">{item.asset?.code} / {item.asset?.name}</p>
-                      <p className="mt-1 text-sm text-[var(--text-secondary)]">{[item.asset?.className, item.asset?.brand, item.asset?.model].filter(Boolean).join(" / ")}</p>
-                      <p className="mt-1 text-xs text-[var(--text-muted)]">{[item.asset?.serial, item.asset?.status, item.asset?.assignedUser].filter(Boolean).join(" / ")}</p>
-                    </div>
-                    <Button size="sm" variant="secondary" onClick={() => removeAssetFromForm(item.asset?.id)}>
+            return (
+              <Panel key={assetId} className="bg-[var(--bg-app)]">
+                <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
+                  <div className="min-w-0">
+                    <p className="mb-1 text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Activo agregado</p>
+                    <h3 className="text-base font-semibold text-[var(--text-primary)]">{item.asset?.code} / {item.asset?.name}</h3>
+                    <p className="mt-3 text-sm text-[var(--text-secondary)]">{[item.asset?.className, item.asset?.brand, item.asset?.model].filter(Boolean).join(" / ")}</p>
+                    <p className="mt-1 text-xs text-[var(--text-muted)]">{[item.asset?.serial, item.asset?.status, item.asset?.assignedUser].filter(Boolean).join(" / ")}</p>
+                  </div>
+                  <div className="flex flex-wrap justify-end gap-3">
+                    <Button size="sm" variant="secondary" onClick={() => requestRemoveAssetFromForm(item.asset)}>
                       <Icon name="xmark" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                       Quitar
                     </Button>
-                  </div>
-
-                  <div className="mt-5 grid gap-5">
-                    <Field label="Observacion del item">
-                      <textarea rows="3" value={item.notes || ""} onChange={(event) => updateItemNotes(item.asset?.id, event.target.value)} className={TEXTAREA_CLASS_NAME} placeholder="Accesorios, condiciones particulares o acuerdos asociados al activo" />
-                    </Field>
-
-                    <div className="rounded-[20px] border border-[var(--border-color)] bg-[var(--bg-app)] p-4">
-                      <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto]">
-                        <Field label="Agregar checklist">
-                          <select value={selectedTemplateByAsset[item.asset?.id] || ""} onChange={(event) => setSelectedTemplateByAsset((current) => ({ ...current, [item.asset?.id]: event.target.value }))} className={INPUT_CLASS_NAME}>
-                            <option value="">Selecciona una plantilla</option>
-                            {availableTemplates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
-                          </select>
-                        </Field>
-                        <div className="flex items-end">
-                          <Button variant="secondary" onClick={() => addChecklistToAsset(item.asset?.id)} disabled={!availableTemplates.length}>
-                            <Icon name="plus" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                            Agregar checklist
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-
-                    {!item.checklists.length ? (
-                      <MessageBanner>Este activo aun no tiene checklist aplicado.</MessageBanner>
-                    ) : (
-                      <div className="grid gap-4">
-                        {item.checklists.map((checklist) => (
-                          <div key={`${item.asset?.id}-${checklist.templateId}`} className="rounded-[20px] border border-[var(--border-color)] bg-[var(--bg-app)] p-4">
-                            <div className="flex flex-wrap items-start justify-between gap-3">
-                              <div>
-                                <p className="text-sm font-semibold text-[var(--text-primary)]">{checklist.templateName}</p>
-                                {checklist.templateDescription ? <p className="mt-1 text-sm text-[var(--text-secondary)]">{checklist.templateDescription}</p> : null}
-                              </div>
-                              <Button size="sm" variant="secondary" onClick={() => removeChecklistFromAsset(item.asset?.id, checklist.templateId)}>
-                                <Icon name="xmark" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                                Quitar
-                              </Button>
-                            </div>
-
-                            <div className="mt-4 grid gap-4">
-                              {checklist.answers.map((answer) => (
-                                <div key={answer.checklistItemId} className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-4">
-                                  <p className="text-sm font-semibold text-[var(--text-primary)]">{answer.name}</p>
-                                  {answer.description ? <p className="mt-1 text-sm text-[var(--text-secondary)]">{answer.description}</p> : null}
-                                  <div className="mt-3">
-                                    <ChecklistAnswerField answer={answer} groupName={`asset-${item.asset?.id}-template-${checklist.templateId}-check-${answer.checklistItemId}`} onChange={(value) => updateChecklistAnswer(item.asset?.id, checklist.templateId, answer.checklistItemId, value)} />
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                    <CollapseToggleButton
+                      isCollapsed={isCollapsed}
+                      onClick={() => toggleAsset(assetId)}
+                      collapsedLabel={`Expandir ${item.asset?.code || "activo"}`}
+                      expandedLabel={`Contraer ${item.asset?.code || "activo"}`}
+                    />
                   </div>
                 </div>
-              );
-            })}
-          </div>
-        )}
-      </EditorSectionPanel>
+
+                <div
+                  className={`grid transition-[grid-template-rows,opacity,margin-top] duration-300 ease-out ${isCollapsed ? "overflow-hidden" : "overflow-visible"}`}
+                  style={{
+                    gridTemplateRows: isCollapsed ? "0fr" : "1fr",
+                    opacity: isCollapsed ? 0 : 1,
+                    marginTop: isCollapsed ? 0 : 20,
+                  }}
+                >
+                  <div className="min-h-0">
+                    <div className={`grid gap-5 ${isCollapsed ? "pointer-events-none" : ""}`}>
+                      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.92fr)]">
+                        <section className="rounded-[22px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-4">
+                          <Field label="Observacion del item">
+                            <textarea rows="4" value={item.notes || ""} onChange={(event) => updateItemNotes(assetId, event.target.value)} className={TEXTAREA_CLASS_NAME} placeholder="Accesorios, condiciones particulares o acuerdos asociados al activo" />
+                          </Field>
+                        </section>
+
+                        <section className="rounded-[22px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-4">
+                          <div className="grid gap-3">
+                            <Field label="Agregar checklist">
+                              <ChecklistTemplatePicker
+                                assetId={assetId}
+                                availableTemplates={availableTemplates}
+                                selectedTemplateId={selectedTemplateByAsset[assetId] || ""}
+                                onChange={(value) => setSelectedTemplateByAsset((current) => ({ ...current, [assetId]: value }))}
+                              />
+                            </Field>
+                            <div className="flex justify-start xl:justify-end">
+                              <Button variant="secondary" onClick={() => addChecklistToAsset(assetId)} disabled={!availableTemplates.length || !selectedTemplateByAsset[assetId]}>
+                                <Icon name="plus" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                                Agregar checklist
+                              </Button>
+                            </div>
+                          </div>
+                        </section>
+                      </div>
+
+                      {item.checklists.length ? (
+                        <div className="grid gap-4">
+                          {item.checklists.map((checklist) => {
+                            const checklistKey = `${assetId}-${checklist.templateId}`;
+                            const isChecklistCollapsed = Boolean(collapsedChecklists[checklistKey]);
+
+                            return (
+                            <section key={checklistKey} className="rounded-[22px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-4">
+                              <div className="flex flex-wrap items-start justify-between gap-3">
+                                <div>
+                                  <p className="text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Checklist aplicado</p>
+                                  <p className="mt-1 text-sm font-semibold text-[var(--text-primary)]">{checklist.templateName}</p>
+                                  {checklist.templateDescription ? <p className="mt-1 text-sm text-[var(--text-secondary)]">{checklist.templateDescription}</p> : null}
+                                </div>
+                                <div className="flex flex-wrap items-center gap-3">
+                                  <Button size="sm" variant="secondary" onClick={() => requestRemoveChecklistFromAsset(assetId, checklist.templateId)}>
+                                    <Icon name="xmark" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                                    Quitar
+                                  </Button>
+                                  <CollapseToggleButton
+                                    isCollapsed={isChecklistCollapsed}
+                                    onClick={() => toggleChecklist(assetId, checklist.templateId)}
+                                    collapsedLabel={`Expandir ${checklist.templateName || "checklist"}`}
+                                    expandedLabel={`Contraer ${checklist.templateName || "checklist"}`}
+                                  />
+                                </div>
+                              </div>
+
+                              <div
+                                className={`grid transition-[grid-template-rows,opacity,margin-top] duration-300 ease-out ${isChecklistCollapsed ? "overflow-hidden" : "overflow-visible"}`}
+                                style={{
+                                  gridTemplateRows: isChecklistCollapsed ? "0fr" : "1fr",
+                                  opacity: isChecklistCollapsed ? 0 : 1,
+                                  marginTop: isChecklistCollapsed ? 0 : 16,
+                                }}
+                              >
+                                <div className="min-h-0">
+                                  <div className={`grid gap-3 ${isChecklistCollapsed ? "pointer-events-none" : ""}`}>
+                                    {checklist.answers.map((answer) => (
+                                      <div key={answer.checklistItemId} className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-4">
+                                        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(280px,0.9fr)] xl:items-start">
+                                          <div className="min-w-0">
+                                            <p className="text-sm font-semibold text-[var(--text-primary)]">{answer.name}</p>
+                                            {answer.description ? <p className="mt-1 text-sm text-[var(--text-secondary)]">{answer.description}</p> : null}
+                                          </div>
+                                          <div className="min-w-0">
+                                            <p className="mb-2 text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Respuesta</p>
+                                            <ChecklistAnswerField answer={answer} groupName={`asset-${assetId}-template-${checklist.templateId}-check-${answer.checklistItemId}`} onChange={(value) => updateChecklistAnswer(assetId, checklist.templateId, answer.checklistItemId, value)} />
+                                          </div>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+                            </section>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              </Panel>
+            );
+          })}
+        </div>
+      ) : null}
     </div>
   );
 }
