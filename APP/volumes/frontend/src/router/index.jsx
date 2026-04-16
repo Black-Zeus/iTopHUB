@@ -22,12 +22,27 @@ import { SettingsPage } from "@pages/settings/SettingsPage";
 import { isPdqModuleEnabled, subscribeToModuleVisibility } from "../services/module-visibility-service";
 
 /* ── Guard de ruta autenticada ── */
+function RouterLoadingScreen() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-[var(--bg-app)] p-8">
+      <div className="text-center">
+        <p className="text-sm font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+          Cargando
+        </p>
+        <p className="mt-2 text-base text-[var(--text-primary)]">
+          Recuperando sesion del Hub...
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function RequireAuth({ children }) {
   const { isAuthenticated, loading, user } = useContext(AuthContext);
 
   // Mientras se consulta la sesion server-side no tomamos ninguna decision de navegacion.
   // Evita el loop: loading=true -> no redirect -> loading=false -> evalua auth.
-  if (loading) return null;
+  if (loading) return <RouterLoadingScreen />;
 
   if (!isAuthenticated) return <Navigate to="/login" replace />;
   if (!user) return <Navigate to="/login" replace />;
@@ -37,7 +52,7 @@ function RequireAuth({ children }) {
 function RequireModuleAccess({ moduleCode, children }) {
   const { user, loading } = useContext(AuthContext);
 
-  if (loading) return null;
+  if (loading) return <RouterLoadingScreen />;
 
   if (!user) return <Navigate to="/login" replace />;
   if (!canViewModule(user, moduleCode)) {
@@ -50,7 +65,7 @@ function RequireModuleAccess({ moduleCode, children }) {
 function DefaultHomeRedirect() {
   const { user, loading } = useContext(AuthContext);
 
-  if (loading) return null;
+  if (loading) return <RouterLoadingScreen />;
   return <Navigate to={getDefaultRoute(user)} replace />;
 }
 
