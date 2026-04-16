@@ -133,6 +133,14 @@ export function Field({ label, children }) {
   );
 }
 
+function ReadOnlyValue({ value, placeholder = "Sin dato" }) {
+  return (
+    <div className="min-h-[50px] rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-3 text-sm text-[var(--text-primary)]">
+      {String(value || "").trim() || placeholder}
+    </div>
+  );
+}
+
 function ResultCard({ title, subtitle, helper, actions }) {
   return (
     <div className="flex flex-wrap items-start justify-between gap-3 rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-4">
@@ -438,27 +446,20 @@ export function HandoverEditorSections({
               <div className="md:col-span-2 grid gap-4">
                 <div className="grid gap-4 rounded-[20px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-4 md:grid-cols-3">
                   <Field label="Estado del acta">
-                    <select value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value }))} className={INPUT_CLASS_NAME}>
-                      {statusOptions.map((option) => <option key={option.label} value={option.label}>{option.label}</option>)}
-                    </select>
+                    <ReadOnlyValue value={form.status} />
                   </Field>
                   <Field label="Fecha creacion">
-                    <input type="datetime-local" value={form.creationDate || ""} onChange={(event) => setForm((current) => ({ ...current, creationDate: event.target.value }))} className={INPUT_CLASS_NAME} />
+                    <ReadOnlyValue value={form.creationDate} />
                   </Field>
                   <Field label="Fecha asignacion">
-                    <input type="datetime-local" value={form.assignmentDate || ""} onChange={(event) => setForm((current) => ({ ...current, assignmentDate: event.target.value }))} className={INPUT_CLASS_NAME} />
+                    <ReadOnlyValue value={form.assignmentDate} placeholder="Sin dato" />
                   </Field>
                 </div>
 
                 <div className="grid gap-4 rounded-[20px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-4">
-                  <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_220px] md:items-end">
-                    <div>
-                      <p className="text-sm font-semibold text-[var(--text-primary)]">Adjuntos de evidencia</p>
-                      <p className="mt-1 text-sm text-[var(--text-secondary)]">Cada adjunto quedara asociado a su evidencia y podra sumar una observacion o categorizacion cuando se defina esa estructura.</p>
-                    </div>
-                    <Field label="Fecha evidencia">
-                      <input type="datetime-local" value={form.evidenceDate || ""} onChange={(event) => setForm((current) => ({ ...current, evidenceDate: event.target.value }))} className={INPUT_CLASS_NAME} />
-                    </Field>
+                  <div>
+                    <p className="text-sm font-semibold text-[var(--text-primary)]">Adjuntos de evidencia</p>
+                    <p className="mt-1 text-sm text-[var(--text-secondary)]">Vista de adjuntos y metadata historica. La carga manual se gestiona desde el listado general del modulo.</p>
                   </div>
 
                   {form.evidenceAttachments?.length ? (
