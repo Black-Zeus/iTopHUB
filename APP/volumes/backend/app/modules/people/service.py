@@ -1,9 +1,6 @@
-import logging
-import os
 from datetime import date, datetime
 from typing import Any
 
-import pymysql
 from modules.cmdb_visibility import (
     is_visible_ci_status,
     should_show_implementation_assets,
@@ -12,41 +9,6 @@ from modules.cmdb_visibility import (
 from modules.auth.service import AuthenticationError
 from integrations.itop_cmdb_connector import iTopCMDBConnector
 from integrations.itop_runtime import get_itop_runtime_config
-from pymysql.cursors import DictCursor
-
-
-logger = logging.getLogger(__name__)
-
-
-def _read_bool(name: str, default: bool = True) -> bool:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    return value.strip().lower() not in {"0", "false", "no", "off"}
-
-
-def _read_int(name: str, default: int) -> int:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    try:
-        return int(value)
-    except ValueError:
-        return default
-
-
-def _get_itop_db_connection():
-    return pymysql.connect(
-        host=os.getenv("ITOP_DB_HOST", "mariadb"),
-        port=_read_int("ITOP_DB_PORT", 3306),
-        user=os.getenv("ITOP_DB_USER", ""),
-        password=os.getenv("ITOP_DB_PASSWORD", ""),
-        database=os.getenv("ITOP_DB_NAME", ""),
-        charset="utf8mb4",
-        cursorclass=DictCursor,
-        autocommit=True,
-    )
-
 
 def _escape_oql(value: str) -> str:
     return value.replace("\\", "\\\\").replace("'", "\\'")
@@ -236,13 +198,14 @@ def _append_ci_date_field(
 def _build_ci_detail(ci, warranty_alert_days: int) -> dict[str, object]:
     summary = _build_ci_summary(ci)
     class_name = summary["className"]
+    raw_class = str(ci.get("finalclass") or ci.itop_class or "").strip().lower()
     detail_fields: list[dict[str, str]] = []
 
     _append_ci_field(detail_fields, "Estado", _format_ci_status(ci.get("status")))
     _append_ci_field(detail_fields, "Organizacion", ci.get("org_id_friendlyname") or ci.get("organization_name"))
     _append_ci_field(detail_fields, "Ubicacion", ci.get("location_id_friendlyname") or ci.get("location_name"))
 
-    if class_name in {"PC", "Server", "VirtualMachine"}:
+    if raw_class in {"pc", "server", "virtualmachine", "virtual machine"}:
         _append_ci_field(detail_fields, "Tipo", _format_ci_type(ci.get("type")))
         _append_ci_field(detail_fields, "Marca", ci.get("brand_id_friendlyname") or ci.get("brand_name"))
         _append_ci_field(detail_fields, "Modelo", ci.get("model_id_friendlyname") or ci.get("model_name"))
@@ -271,7 +234,7 @@ def _build_ci_detail(ci, warranty_alert_days: int) -> dict[str, object]:
         _append_ci_date_field(detail_fields, "Compra", ci.get("purchase_date"))
         _append_ci_date_field(detail_fields, "Garantia", ci.get("end_of_warranty"), warranty_alert_days)
 
-    if class_name == "Phone":
+    if raw_class in {"phone", "mobilephone", "mobile phone"}:
         _append_ci_field(detail_fields, "Numero", ci.get("phonenumber"))
 
     _append_ci_field(detail_fields, "Descripcion", ci.get("description"))
@@ -283,60 +246,6 @@ def _build_ci_detail(ci, warranty_alert_days: int) -> dict[str, object]:
         **summary,
         "fields": detail_fields,
     }
-
-
-def _load_person_ci_history(person_id: int) -> list[dict[str, str | int]]:
-    sql = """
-        SELECT
-            change_log.id AS change_id,
-            change_log.date AS changed_at,
-            change_log.userinfo AS changed_by,
-            change_log.origin AS origin,
-            links.item_id AS ci_id,
-            links_op.type AS action_type,
-            functionalci.name AS ci_name,
-            functionalci.finalclass AS ci_class
-        FROM priv_change AS change_log
-        INNER JOIN priv_changeop AS op
-            ON op.changeid = change_log.id
-        INNER JOIN priv_changeop_links AS links
-            ON links.id = op.id
-        INNER JOIN priv_changeop_links_addremove AS links_op
-            ON links_op.id = op.id
-        LEFT JOIN functionalci
-            ON functionalci.id = links.item_id
-        WHERE op.objclass = 'Person'
-          AND op.objkey = %s
-          AND op.optype = 'CMDBChangeOpSetAttributeLinksAddRemove'
-          AND links.item_class = 'FunctionalCI'
-          AND links_op.type IN ('added', 'removed')
-        ORDER BY change_log.date DESC, change_log.id DESC
-    """
-
-    connection = _get_itop_db_connection()
-    try:
-        with connection.cursor() as cursor:
-            cursor.execute(sql, (person_id,))
-            rows = cursor.fetchall() or []
-    finally:
-        connection.close()
-
-    history: list[dict[str, str | int]] = []
-    for row in rows:
-        history.append(
-            {
-                "id": int(row.get("change_id") or 0),
-                "ciId": int(row.get("ci_id") or 0),
-                "ciName": str(row.get("ci_name") or f"Objeto {int(row.get('ci_id') or 0)}").strip(),
-                "ciClass": _format_ci_class(row.get("ci_class")),
-                "action": "Agregado" if str(row.get("action_type") or "").strip().lower() == "added" else "Removido",
-                "changedAt": str(row.get("changed_at") or "").strip(),
-                "changedBy": str(row.get("changed_by") or "").strip(),
-                "origin": str(row.get("origin") or "").strip(),
-            }
-        )
-
-    return history
 
 
 def _matches_person_query(item, query: str) -> bool:
@@ -361,100 +270,6 @@ def _matches_person_status(item, status: str) -> bool:
     if not status:
         return True
     return str(item.get("status") or "").strip().lower() == status
-
-
-def _search_itop_people_via_db(query: str, status: str = "", limit: int = 50) -> list[dict[str, str | int]]:
-    normalized_query = query.strip()
-    normalized_status = status.strip().lower()
-    logger.info(
-        "People DB fallback search started query='%s' status='%s' limit=%s",
-        normalized_query,
-        normalized_status,
-        limit,
-    )
-
-    filters: list[str] = []
-    params: list[Any] = []
-
-    if normalized_query:
-        like = f"%{normalized_query}%"
-        filters.append(
-            """
-            (
-                friendlyname LIKE %s
-                OR name LIKE %s
-                OR first_name LIKE %s
-                OR email LIKE %s
-                OR function LIKE %s
-            )
-            """
-        )
-        params.extend([like, like, like, like, like])
-
-    if normalized_status:
-        filters.append("status = %s")
-        params.append(normalized_status)
-
-    where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
-    sql = f"""
-        SELECT
-            id,
-            name,
-            first_name,
-            friendlyname,
-            email,
-            phone,
-            function,
-            status
-        FROM person
-        {where_clause}
-        ORDER BY friendlyname ASC, id ASC
-        LIMIT %s
-    """
-    params.append(limit)
-
-    connection = _get_itop_db_connection()
-    try:
-        with connection.cursor() as cursor:
-            cursor.execute(sql, tuple(params))
-            rows = cursor.fetchall() or []
-    except Exception:
-        logger.exception(
-            "People DB fallback search failed query='%s' status='%s'",
-            normalized_query,
-            normalized_status,
-        )
-        raise
-    finally:
-        connection.close()
-
-    logger.info(
-        "People DB fallback search completed query='%s' status='%s' rows=%s",
-        normalized_query,
-        normalized_status,
-        len(rows),
-    )
-
-    return [
-        {
-            "id": int(row.get("id") or 0),
-            "code": f"PER-{int(row.get('id') or 0):05d}",
-            "person": str(row.get("friendlyname") or "").strip()
-            or " ".join(
-                part for part in [
-                    str(row.get("first_name") or "").strip(),
-                    str(row.get("name") or "").strip(),
-                ]
-                if part
-            ).strip()
-            or f"Persona {int(row.get('id') or 0)}",
-            "asset": str(row.get("email") or "").strip(),
-            "phone": str(row.get("phone") or "").strip(),
-            "role": str(row.get("function") or "").strip(),
-            "status": str(row.get("status") or "").strip().capitalize() or "Desconocido",
-        }
-        for row in rows
-    ]
 
 
 def search_itop_people(query: str, runtime_token: str, status: str = "", limit: int = 50) -> list[dict[str, str | int]]:
@@ -505,27 +320,6 @@ def search_itop_people(query: str, runtime_token: str, status: str = "", limit: 
                 if _matches_person_query(item, normalized_query) and _matches_person_status(item, normalized_status)
             ]
     except ConnectionError as exc:
-        logger.warning(
-            "People REST search failed, switching to DB fallback query='%s' status='%s': %s",
-            normalized_query,
-            normalized_status,
-            exc,
-        )
-        try:
-            rows = _search_itop_people_via_db(normalized_query, normalized_status, limit)
-            logger.info(
-                "People DB fallback satisfied REST failure query='%s' status='%s' rows=%s",
-                normalized_query,
-                normalized_status,
-                len(rows),
-            )
-            return rows
-        except Exception:
-            logger.exception(
-                "People DB fallback failed after REST error query='%s' status='%s'",
-                normalized_query,
-                normalized_status,
-            )
         raise AuthenticationError(
             f"No fue posible consultar personas en iTop: {exc}",
             status_code=503,
@@ -535,28 +329,6 @@ def search_itop_people(query: str, runtime_token: str, status: str = "", limit: 
         connector.close()
 
     rows = [_build_person_row(item) for item in items]
-
-    if normalized_query and not rows:
-        logger.info(
-            "People REST search returned no rows, trying DB fallback query='%s' status='%s'",
-            normalized_query,
-            normalized_status,
-        )
-        try:
-            rows = _search_itop_people_via_db(normalized_query, normalized_status, limit)
-            logger.info(
-                "People DB fallback after empty REST result query='%s' status='%s' rows=%s",
-                normalized_query,
-                normalized_status,
-                len(rows),
-            )
-        except Exception:
-            logger.exception(
-                "People DB fallback failed after empty REST result query='%s' status='%s'",
-                normalized_query,
-                normalized_status,
-            )
-            rows = []
 
     rows.sort(key=lambda row: str(row["person"]).lower())
     return rows[:limit]
@@ -599,7 +371,7 @@ def get_itop_person_detail(person_id: int, runtime_token: str) -> dict[str, obje
             if not is_visible_ci_status(visible_ci.get("status"), show_obsolete_assets, show_implementation_assets):
                 continue
             detailed_cis.append(_build_ci_detail(visible_ci, warranty_alert_days))
-        history_items = _load_person_ci_history(person_id)
+        history_items: list[dict[str, str | int]] = []
     except ConnectionError as exc:
         raise AuthenticationError(
             f"No fue posible consultar el detalle de la persona en iTop: {exc}",

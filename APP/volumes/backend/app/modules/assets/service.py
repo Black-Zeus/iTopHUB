@@ -1,8 +1,5 @@
-import logging
-import os
 from typing import Any
 
-import pymysql
 from modules.cmdb_visibility import (
     is_visible_ci_status,
     should_show_implementation_assets,
@@ -12,11 +9,6 @@ from modules.auth.service import AuthenticationError
 from integrations.itop_cmdb_connector import iTopCMDBConnector
 from integrations.itop_runtime import get_itop_runtime_config
 from modules.people.service import _build_ci_detail, _format_ci_status
-from pymysql.cursors import DictCursor
-
-
-logger = logging.getLogger(__name__)
-
 
 CMDB_TYPE_RULES: dict[str, dict[str, set[str]]] = {
     "Desktop (PC)": {
@@ -55,36 +47,6 @@ CMDB_QUERY_MAP: dict[str, list[str]] = {
 }
 
 
-def _read_bool(name: str, default: bool = True) -> bool:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    return value.strip().lower() not in {"0", "false", "no", "off"}
-
-
-def _read_int(name: str, default: int) -> int:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    try:
-        return int(value)
-    except ValueError:
-        return default
-
-
-def _get_itop_db_connection():
-    return pymysql.connect(
-        host=os.getenv("ITOP_DB_HOST", "mariadb"),
-        port=_read_int("ITOP_DB_PORT", 3306),
-        user=os.getenv("ITOP_DB_USER", ""),
-        password=os.getenv("ITOP_DB_PASSWORD", ""),
-        database=os.getenv("ITOP_DB_NAME", ""),
-        charset="utf8mb4",
-        cursorclass=DictCursor,
-        autocommit=True,
-    )
-
-
 def _normalize_text(value: Any) -> str:
     return str(value or "").strip().lower()
 
@@ -95,6 +57,13 @@ def _normalize_space(value: Any) -> str:
 
 def _escape_oql(value: str) -> str:
     return value.replace("\\", "\\\\").replace("'", "\\'")
+
+
+def _safe_int(value: Any) -> int:
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return 0
 
 
 def _build_asset_query_conditions(query: str) -> list[str]:
@@ -214,200 +183,160 @@ def _build_asset_row(item, enabled_labels: list[str], assigned_contacts: list[di
 
 
 def _build_contact_row(item) -> dict[str, str | int]:
+    status_value = _normalize_space(item.get("status")).capitalize() or "Sin dato"
+    class_name = _normalize_space(item.get("finalclass") or item.itop_class)
     return {
         "id": item.id,
         "name": _normalize_space(item.get("friendlyname") or item.get("name") or f"Persona {item.id}"),
         "email": _normalize_space(item.get("email")),
         "role": _normalize_space(item.get("function")),
-        "status": _normalize_space(item.get("status")).capitalize() or "Sin dato",
+        "status": status_value,
+        "className": class_name,
     }
 
 
-def _load_asset_contact_audit(asset_class: str, asset_id: int) -> dict[int, dict[str, str]]:
-    sql = """
-        SELECT
-            links.item_id AS contact_id,
-            change_log.date AS assigned_at,
-            change_log.userinfo AS assigned_by,
-            change_log.origin AS origin
-        FROM priv_change AS change_log
-        INNER JOIN priv_changeop AS op
-            ON op.changeid = change_log.id
-        INNER JOIN priv_changeop_links AS links
-            ON links.id = op.id
-        INNER JOIN priv_changeop_links_addremove AS links_op
-            ON links_op.id = op.id
-        WHERE op.objclass = %s
-          AND op.objkey = %s
-          AND op.optype = 'CMDBChangeOpSetAttributeLinksAddRemove'
-          AND links.item_class = 'Contact'
-          AND links_op.type = 'added'
-        ORDER BY change_log.date DESC, change_log.id DESC
-    """
-
-    audit_by_contact: dict[int, dict[str, str]] = {}
-    connection = _get_itop_db_connection()
-    try:
-        with connection.cursor() as cursor:
-            cursor.execute(sql, (asset_class, asset_id))
-            rows = cursor.fetchall() or []
-    finally:
-        connection.close()
-
-    for row in rows:
-        contact_id = int(row.get("contact_id") or 0)
-        if contact_id <= 0 or contact_id in audit_by_contact:
+def _load_change_index(connector: iTopCMDBConnector, change_ids: list[int]) -> dict[int, dict[str, str]]:
+    normalized_ids = sorted({change_id for change_id in change_ids if change_id > 0})
+    change_index: dict[int, dict[str, str]] = {}
+    for change_id in normalized_ids:
+        change = connector.get("CMDBChange", change_id, output_fields="*").first()
+        if not change:
             continue
-        audit_by_contact[contact_id] = {
-            "assignedAt": str(row.get("assigned_at") or "").strip(),
-            "assignedBy": _normalize_space(row.get("assigned_by")),
-            "origin": _normalize_space(row.get("origin")),
+        change_index[change_id] = {
+            "changedAt": str(change.get("date") or "").strip(),
+            "changedBy": _normalize_space(change.get("userinfo")),
+            "origin": _normalize_space(change.get("origin")),
         }
+    return change_index
 
-    return audit_by_contact
 
+def _load_asset_contact_history(
+    connector: iTopCMDBConnector,
+    asset_class: str,
+    asset_id: int,
+) -> list[dict[str, str | int]]:
+    safe_asset_class = _escape_oql(asset_class)
+    history_items: list[dict[str, str | int]] = []
 
-def _load_asset_contact_history(asset_class: str, asset_id: int) -> list[dict[str, str | int]]:
-    sql = """
-        SELECT
-            change_log.id AS change_id,
-            change_log.date AS changed_at,
-            change_log.userinfo AS changed_by,
-            change_log.origin AS origin,
-            links.item_id AS contact_id,
-            links_op.type AS action_type,
-            contact.finalclass AS contact_class,
-            contact.name AS contact_last_name,
-            person.first_name AS contact_first_name,
-            contact.email AS contact_email,
-            contact.function AS contact_role
-        FROM priv_change AS change_log
-        INNER JOIN priv_changeop AS op
-            ON op.changeid = change_log.id
-        INNER JOIN priv_changeop_links AS links
-            ON links.id = op.id
-        INNER JOIN priv_changeop_links_addremove AS links_op
-            ON links_op.id = op.id
-        LEFT JOIN contact
-            ON contact.id = links.item_id
-        LEFT JOIN person
-            ON person.id = links.item_id
-        WHERE op.objclass = %s
-          AND op.objkey = %s
-          AND op.optype = 'CMDBChangeOpSetAttributeLinksAddRemove'
-          AND links.item_class = 'Contact'
-          AND links_op.type IN ('added', 'removed')
-        ORDER BY change_log.date DESC, change_log.id DESC
-    """
-
-    connection = _get_itop_db_connection()
-    try:
-        with connection.cursor() as cursor:
-            cursor.execute(sql, (asset_class, asset_id))
-            rows = cursor.fetchall() or []
-    finally:
-        connection.close()
-
-    history: list[dict[str, str | int]] = []
-    for row in rows:
-        full_name = _normalize_space(
-            " ".join(
-                part
-                for part in [
-                    row.get("contact_first_name"),
-                    row.get("contact_last_name"),
-                ]
-                if str(part or "").strip()
-            )
-        )
-        history.append(
+    create_ops = connector.oql(
+        f"SELECT CMDBChangeOpCreate WHERE objclass = '{safe_asset_class}' AND objkey = {asset_id}",
+        output_fields="*",
+    )
+    create_change_index = _load_change_index(
+        connector,
+        [_safe_int(item.get("change") or item.get("change_id")) for item in create_ops],
+    )
+    for operation in create_ops:
+        change_id = _safe_int(operation.get("change") or operation.get("change_id"))
+        change_info = create_change_index.get(change_id, {})
+        history_items.append(
             {
-                "id": int(row.get("change_id") or 0),
-                "contactId": int(row.get("contact_id") or 0),
-                "contactName": full_name or f"Contacto {int(row.get('contact_id') or 0)}",
-                "contactEmail": _normalize_space(row.get("contact_email")),
-                "contactRole": _normalize_space(row.get("contact_role")),
-                "action": "Agregado" if str(row.get("action_type") or "").strip().lower() == "added" else "Removido",
-                "changedAt": str(row.get("changed_at") or "").strip(),
-                "changedBy": _normalize_space(row.get("changed_by")),
-                "origin": _normalize_space(row.get("origin")),
+                "id": int(operation.id),
+                "contactId": 0,
+                "contactName": "Objeto creado",
+                "contactEmail": "",
+                "contactRole": "",
+                "action": "Creado",
+                "changedAt": str(change_info.get("changedAt") or "").strip(),
+                "changedBy": str(change_info.get("changedBy") or "").strip(),
+                "origin": str(change_info.get("origin") or "").strip(),
+                "contactStatus": "",
             }
         )
 
-    return history
+    link_ops = connector.oql(
+        f"SELECT CMDBChangeOpSetAttributeLinksAddRemove WHERE objclass = '{safe_asset_class}' AND objkey = {asset_id}",
+        output_fields="*",
+    )
+    link_change_index = _load_change_index(
+        connector,
+        [_safe_int(item.get("change") or item.get("change_id")) for item in link_ops],
+    )
+
+    for operation in link_ops:
+        item_class = _normalize_space(operation.get("item_class"))
+        if item_class.lower() not in {"contact", "person"}:
+            continue
+
+        contact_id = _safe_int(operation.get("item_id") or operation.get("contact_id"))
+        contact = connector.get(
+            "Contact",
+            contact_id,
+            output_fields="id,name,friendlyname,email,function,status,finalclass",
+        ).first()
+        contact_row = _build_contact_row(contact) if contact else {
+            "id": contact_id,
+            "name": f"Contacto {contact_id}",
+            "email": "",
+            "role": "",
+            "status": "",
+            "className": "",
+        }
+        change_id = _safe_int(operation.get("change") or operation.get("change_id"))
+        change_info = link_change_index.get(change_id, {})
+        action_type = _normalize_space(operation.get("type")).lower()
+        history_items.append(
+            {
+                "id": int(operation.id),
+                "contactId": int(contact_row.get("id") or 0),
+                "contactName": str(contact_row.get("name") or f"Contacto {contact_id}"),
+                "contactEmail": str(contact_row.get("email") or ""),
+                "contactRole": str(contact_row.get("role") or ""),
+                "action": "Agregado" if action_type == "added" else "Removido",
+                "changedAt": str(change_info.get("changedAt") or "").strip(),
+                "changedBy": str(change_info.get("changedBy") or "").strip(),
+                "origin": str(change_info.get("origin") or "").strip(),
+                "contactStatus": str(contact_row.get("status") or ""),
+            }
+        )
+
+    history_items.sort(
+        key=lambda item: (
+            str(item.get("changedAt") or ""),
+            int(item.get("id") or 0),
+        ),
+        reverse=True,
+    )
+    return history_items
 
 
-def _load_asset_assigned_users(asset_ids: list[int]) -> dict[int, list[dict[str, str | int]]]:
+def _load_asset_assigned_users(connector: iTopCMDBConnector, asset_ids: list[int]) -> dict[int, list[dict[str, str | int]]]:
     normalized_ids = sorted({int(asset_id) for asset_id in asset_ids if int(asset_id) > 0})
     if not normalized_ids:
         return {}
 
-    placeholders = ",".join(["%s"] * len(normalized_ids))
-    sql = f"""
-        SELECT
-            lnk.functionalci_id AS asset_id,
-            person.id AS person_id,
-            person.first_name AS person_first_name,
-            contact.name AS contact_last_name
-        FROM `lnkContactToFunctionalCI` AS lnk
-        INNER JOIN contact
-            ON contact.id = lnk.contact_id
-        LEFT JOIN person
-            ON person.id = contact.id
-        WHERE lnk.functionalci_id IN ({placeholders})
-        ORDER BY lnk.functionalci_id ASC, person.first_name ASC, contact.name ASC
-    """
-
-    connection = _get_itop_db_connection()
-    try:
-        with connection.cursor() as cursor:
-            cursor.execute(sql, normalized_ids)
-            rows = cursor.fetchall() or []
-    except pymysql.MySQLError:
-        logger.exception(
-            "Asset assigned-user lookup failed for ids=%s. Returning empty assignments.",
-            normalized_ids,
-        )
-        return {}
-    finally:
-        connection.close()
-
     contacts_by_asset: dict[int, list[dict[str, str | int]]] = {}
-    for row in rows:
-        asset_id = int(row.get("asset_id") or 0)
-        if asset_id <= 0:
+    for asset_id in normalized_ids:
+        contacts = connector.oql(
+            (
+                "SELECT Contact AS c "
+                "JOIN lnkContactToFunctionalCI AS l ON l.contact_id = c.id "
+                f"WHERE l.functionalci_id = {asset_id}"
+            ),
+            output_fields="id,name,friendlyname,finalclass,status",
+        )
+        if not contacts:
             continue
 
-        full_name = _normalize_space(
-            " ".join(
-                part
-                for part in [
-                    str(row.get("person_first_name") or "").strip(),
-                    str(row.get("contact_last_name") or "").strip(),
-                ]
-                if part
+        contacts_by_asset[asset_id] = []
+        for contact in contacts:
+            contact_name = _normalize_space(contact.get("friendlyname") or contact.get("name") or f"Persona {contact.id}")
+            if not contact_name:
+                continue
+            if any(int(item.get("id") or 0) == int(contact.id) for item in contacts_by_asset[asset_id]):
+                continue
+            contacts_by_asset[asset_id].append(
+                {
+                    "id": int(contact.id),
+                    "name": contact_name,
+                }
             )
-        )
-        if not full_name:
-            continue
-
-        contacts_by_asset.setdefault(asset_id, [])
-        person_id = int(row.get("person_id") or 0)
-        if any(int(contact.get("id") or 0) == person_id and str(contact.get("name") or "").strip() == full_name for contact in contacts_by_asset[asset_id]):
-            continue
-
-        contacts_by_asset[asset_id].append(
-            {
-                "id": person_id,
-                "name": full_name,
-            }
-        )
 
     return contacts_by_asset
 
 
-def _list_assigned_user_catalog(asset_ids: list[int]) -> list[dict[str, str]]:
-    assigned_users_by_asset = _load_asset_assigned_users(asset_ids)
+def _list_assigned_user_catalog(connector: iTopCMDBConnector, asset_ids: list[int]) -> list[dict[str, str]]:
+    assigned_users_by_asset = _load_asset_assigned_users(connector, asset_ids)
     unique_names = sorted(
         {
             name.strip()
@@ -451,6 +380,85 @@ def list_itop_asset_catalog(runtime_token: str) -> dict[str, list[dict[str, obje
         for query_class in _iter_query_classes(enabled_labels):
             query_items = connector.oql(f"SELECT {query_class}", output_fields="*")
             asset_items.extend(query_items)
+        brand_index = {
+            int(item.id): {
+                "id": item.id,
+                "name": _normalize_space(item.get("friendlyname") or item.get("name")),
+                "classes": set(),
+            }
+            for item in brands
+            if _normalize_space(item.get("friendlyname") or item.get("name"))
+        }
+
+        model_index = {
+            int(item.id): {
+                "id": item.id,
+                "name": _normalize_space(item.get("friendlyname") or item.get("name")),
+                "brandId": int(str(item.get("brand_id") or "0") or "0"),
+                "brandName": _normalize_space(item.get("brand_id_friendlyname") or item.get("brand_name")),
+                "classes": set(),
+            }
+            for item in models
+            if _normalize_space(item.get("friendlyname") or item.get("name"))
+        }
+
+        visible_asset_items = [
+            item
+            for item in asset_items
+            if is_visible_ci_status(item.get("status"), show_obsolete_assets, show_implementation_assets)
+        ]
+
+        for item in visible_asset_items:
+            class_name = _resolve_asset_type_label(item, enabled_labels)
+            if enabled_labels and class_name not in enabled_labels:
+                continue
+
+            brand_name = _normalize_space(item.get("brand_id_friendlyname") or item.get("brand_name"))
+            model_name = _normalize_space(item.get("model_id_friendlyname") or item.get("model_name"))
+
+            for brand in brand_index.values():
+                if brand["name"] == brand_name:
+                    brand["classes"].add(class_name)
+                    break
+
+            for model in model_index.values():
+                if model["name"] == model_name and model["brandName"] == brand_name:
+                    model["classes"].add(class_name)
+                    break
+
+        brand_items = [
+            {
+                "id": item["id"],
+                "name": item["name"],
+                "classes": sorted(item["classes"]),
+            }
+            for item in brand_index.values()
+            if item["name"]
+        ]
+        brand_items.sort(key=lambda item: str(item["name"]).lower())
+
+        model_items = [
+            {
+                "id": item["id"],
+                "name": item["name"],
+                "brandId": item["brandId"],
+                "brandName": item["brandName"],
+                "classes": sorted(item["classes"]),
+            }
+            for item in model_index.values()
+            if item["name"]
+        ]
+        model_items.sort(key=lambda item: (str(item["brandName"]).lower(), str(item["name"]).lower()))
+        # Building the assigned-user catalog from iTop requires one relation query per asset
+        # and can time out on large CMDBs. Keep the catalog lightweight here so the Assets page
+        # can load reliably; per-asset related contacts are still resolved in detail/search flows.
+        assigned_user_items: list[dict[str, str]] = []
+
+        return {
+            "brands": brand_items,
+            "models": model_items,
+            "assignedUsers": assigned_user_items,
+        }
     except ConnectionError as exc:
         raise AuthenticationError(
             f"No fue posible consultar catalogos de activos en iTop: {exc}",
@@ -459,83 +467,6 @@ def list_itop_asset_catalog(runtime_token: str) -> dict[str, list[dict[str, obje
         ) from exc
     finally:
         connector.close()
-
-    brand_index = {
-        int(item.id): {
-            "id": item.id,
-            "name": _normalize_space(item.get("friendlyname") or item.get("name")),
-            "classes": set(),
-        }
-        for item in brands
-        if _normalize_space(item.get("friendlyname") or item.get("name"))
-    }
-
-    model_index = {
-        int(item.id): {
-            "id": item.id,
-            "name": _normalize_space(item.get("friendlyname") or item.get("name")),
-            "brandId": int(str(item.get("brand_id") or "0") or "0"),
-            "brandName": _normalize_space(item.get("brand_id_friendlyname") or item.get("brand_name")),
-            "classes": set(),
-        }
-        for item in models
-        if _normalize_space(item.get("friendlyname") or item.get("name"))
-    }
-
-    visible_asset_items = [
-        item
-        for item in asset_items
-        if is_visible_ci_status(item.get("status"), show_obsolete_assets, show_implementation_assets)
-    ]
-
-    for item in visible_asset_items:
-        class_name = _resolve_asset_type_label(item, enabled_labels)
-        if enabled_labels and class_name not in enabled_labels:
-            continue
-
-        brand_name = _normalize_space(item.get("brand_id_friendlyname") or item.get("brand_name"))
-        model_name = _normalize_space(item.get("model_id_friendlyname") or item.get("model_name"))
-
-        for brand in brand_index.values():
-            if brand["name"] == brand_name:
-                brand["classes"].add(class_name)
-                break
-
-        for model in model_index.values():
-            if model["name"] == model_name and model["brandName"] == brand_name:
-                model["classes"].add(class_name)
-                break
-
-    brand_items = [
-        {
-            "id": item["id"],
-            "name": item["name"],
-            "classes": sorted(item["classes"]),
-        }
-        for item in brand_index.values()
-        if item["name"]
-    ]
-    brand_items.sort(key=lambda item: str(item["name"]).lower())
-
-    model_items = [
-        {
-            "id": item["id"],
-            "name": item["name"],
-            "brandId": item["brandId"],
-            "brandName": item["brandName"],
-            "classes": sorted(item["classes"]),
-        }
-        for item in model_index.values()
-        if item["name"]
-    ]
-    model_items.sort(key=lambda item: (str(item["brandName"]).lower(), str(item["name"]).lower()))
-    assigned_user_items = _list_assigned_user_catalog([int(item.id) for item in visible_asset_items])
-
-    return {
-        "brands": brand_items,
-        "models": model_items,
-        "assignedUsers": assigned_user_items,
-    }
 
 
 def _load_asset_summary(connector: iTopCMDBConnector, item):
@@ -616,6 +547,23 @@ def search_itop_assets(query: str, runtime_token: str, limit: int = 200) -> list
             for query_class in _iter_query_classes(enabled_labels):
                 query_items = connector.oql(f"SELECT {query_class}", output_fields=ASSET_SEARCH_OUTPUT_FIELDS)
                 enriched_items.extend(query_items)
+        filtered_items = [
+            item
+            for item in enriched_items
+            if (
+                _matches_enabled_asset_types(item, enabled_labels)
+                and _matches_asset_query(item, normalized_query)
+                and is_visible_ci_status(item.get("status"), show_obsolete_assets, show_implementation_assets)
+            )
+        ]
+
+        assigned_users_by_asset = _load_asset_assigned_users(connector, [int(item.id) for item in filtered_items])
+        rows = [
+            _build_asset_row(item, enabled_labels, assigned_users_by_asset.get(int(item.id), []))
+            for item in filtered_items
+        ]
+        rows.sort(key=lambda row: (str(row["className"]).lower(), str(row["name"]).lower(), str(row["code"]).lower()))
+        return rows[:limit]
     except ConnectionError as exc:
         raise AuthenticationError(
             f"No fue posible consultar activos en iTop: {exc}",
@@ -624,24 +572,6 @@ def search_itop_assets(query: str, runtime_token: str, limit: int = 200) -> list
         ) from exc
     finally:
         connector.close()
-
-    filtered_items = [
-        item
-        for item in enriched_items
-        if (
-            _matches_enabled_asset_types(item, enabled_labels)
-            and _matches_asset_query(item, normalized_query)
-            and is_visible_ci_status(item.get("status"), show_obsolete_assets, show_implementation_assets)
-        )
-    ]
-
-    assigned_users_by_asset = _load_asset_assigned_users([int(item.id) for item in filtered_items])
-    rows = [
-        _build_asset_row(item, enabled_labels, assigned_users_by_asset.get(int(item.id), []))
-        for item in filtered_items
-    ]
-    rows.sort(key=lambda row: (str(row["className"]).lower(), str(row["name"]).lower(), str(row["code"]).lower()))
-    return rows[:limit]
 
 
 def get_itop_asset_detail(asset_id: int, runtime_token: str) -> dict[str, object]:
@@ -667,12 +597,14 @@ def get_itop_asset_detail(asset_id: int, runtime_token: str) -> dict[str, object
 
         contacts = connector.oql(
             (
-                "SELECT Person AS p "
-                "JOIN lnkContactToFunctionalCI AS l ON l.contact_id = p.id "
+                "SELECT Contact AS c "
+                "JOIN lnkContactToFunctionalCI AS l ON l.contact_id = c.id "
                 f"WHERE l.functionalci_id = {asset_id}"
             ),
-            output_fields="id,name,first_name,friendlyname,email,function,status",
+            output_fields="id,name,friendlyname,email,function,status,finalclass",
         )
+        asset_class = str(item.itop_class or item.get("finalclass") or "FunctionalCI").strip() or "FunctionalCI"
+        history_items = _load_asset_contact_history(connector, asset_class, asset_id)
     except ConnectionError as exc:
         raise AuthenticationError(
             f"No fue posible consultar el detalle del activo en iTop: {exc}",
@@ -682,9 +614,6 @@ def get_itop_asset_detail(asset_id: int, runtime_token: str) -> dict[str, object
     finally:
         connector.close()
 
-    asset_class = str(item.itop_class or item.get("finalclass") or "FunctionalCI")
-    contact_audit = _load_asset_contact_audit(asset_class, asset_id)
-    contact_history = _load_asset_contact_history(asset_class, asset_id)
     detail = _build_ci_detail(item, warranty_alert_days)
     return {
         **detail,
@@ -692,11 +621,8 @@ def get_itop_asset_detail(asset_id: int, runtime_token: str) -> dict[str, object
         "className": _resolve_asset_type_label(item, enabled_labels),
         "status": _format_ci_status(item.get("status")),
         "contacts": [
-            {
-                **_build_contact_row(contact),
-                **contact_audit.get(int(contact.id), {}),
-            }
+            _build_contact_row(contact)
             for contact in contacts
         ],
-        "contactHistory": contact_history,
+        "contactHistory": history_items,
     }

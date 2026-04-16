@@ -41,6 +41,7 @@ Hosts the custom application API and integration layer between the frontend, iTo
 - Personal iTop tokens are stored encrypted in MariaDB and only decrypted in backend memory right before calling iTop.
 - Shared runtime lookups against iTop should be exposed under `/v1/itop/*`; business routers such as `handover` should consume that integration surface instead of publishing module-specific iTop search endpoints.
 - The `Personas` module must query `Person` directly from iTop with the session runtime token; Hub does not create or seed local person records for that module.
+- Runtime detail/search flows for `Personas` and `Activos` must use the iTop REST connector with the session token and must not read iTop internal MariaDB tables such as `priv_change*`.
 - Person detail responses enrich associated CIs from iTop and evaluate warranty alerts using the `cmdb.warrantyAlertDays` setting stored in MariaDB.
 - The settings module exposes backend endpoints for panel configuration and synchronization task definitions stored in MariaDB.
 - The settings module also exposes service validation endpoints used directly from the UI, including SMTP test, draft iTop connectivity validation with configurable SSL behavior, and PDQ database path validation against the current panel draft.

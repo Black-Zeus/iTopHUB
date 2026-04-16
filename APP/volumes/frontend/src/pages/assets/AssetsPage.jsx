@@ -33,6 +33,12 @@ const CMDB_FIELD_ORDER = [
   "Clase",
 ];
 
+const RESOURCE_FIELD_LABELS = new Set([
+  "Sistema operativo",
+  "Procesador",
+  "RAM",
+]);
+
 const ASSET_FILTER_CONTROL_HEIGHT = "h-[66px]";
 
 
@@ -57,6 +63,17 @@ function formatAssignmentDate(value) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(date);
+}
+
+
+function getHistoryBadgeClassName(action) {
+  if (action === "Agregado") {
+    return "bg-[rgba(127,191,156,0.14)] text-[var(--success)]";
+  }
+  if (action === "Creado") {
+    return "bg-[rgba(81,152,194,0.14)] text-[var(--accent-strong)]";
+  }
+  return "bg-[rgba(210,138,138,0.14)] text-[var(--danger)]";
 }
 
 
@@ -186,6 +203,8 @@ function AssetDetailModalContent({ row }) {
         { label: "Estado", value: detail?.status || "Sin dato" },
       ];
   const orderedFields = sortCmdbFields(detail?.fields ?? []);
+  const generalFields = orderedFields.filter((field) => !RESOURCE_FIELD_LABELS.has(field.label));
+  const resourceFields = orderedFields.filter((field) => RESOURCE_FIELD_LABELS.has(field.label));
 
   return (
     <div className="flex h-[640px] flex-col overflow-hidden p-6">
@@ -231,9 +250,21 @@ function AssetDetailModalContent({ row }) {
 
             <DetailRows items={summaryItems} loading={loading} columns={2} />
 
-            {orderedFields.length > 0 ? (
+            {generalFields.length > 0 ? (
               <div className="mt-6 border-t border-[var(--border-color)] pt-5">
-                <DetailRows items={orderedFields} loading={loading} columns={2} />
+                <p className="mb-4 text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+                  Informacion general
+                </p>
+                <DetailRows items={generalFields} loading={loading} columns={2} />
+              </div>
+            ) : null}
+
+            {resourceFields.length > 0 ? (
+              <div className="mt-6 border-t border-[var(--border-color)] pt-5">
+                <p className="mb-4 text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+                  Recursos
+                </p>
+                <DetailRows items={resourceFields} loading={loading} columns={2} />
               </div>
             ) : null}
           </section>
@@ -326,11 +357,7 @@ function AssetDetailModalContent({ row }) {
                     <div className="grid gap-3 md:grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)] md:items-start">
                       <div>
                         <span
-                          className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
-                            entry.action === "Agregado"
-                              ? "bg-[rgba(127,191,156,0.14)] text-[var(--success)]"
-                              : "bg-[rgba(210,138,138,0.14)] text-[var(--danger)]"
-                          }`}
+                          className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getHistoryBadgeClassName(entry.action)}`}
                         >
                           {entry.action}
                         </span>
@@ -340,7 +367,10 @@ function AssetDetailModalContent({ row }) {
                           {entry.contactName}
                         </p>
                         <p className="mt-1 truncate text-sm text-[var(--text-secondary)]">
-                          {entry.contactEmail || entry.contactRole || "Sin detalle adicional"}
+                          {entry.contactEmail || entry.contactRole || entry.contactStatus || "Sin detalle adicional"}
+                        </p>
+                        <p className="mt-1 truncate text-xs text-[var(--text-secondary)]">
+                          {entry.contactStatus ? `Estado ${entry.contactStatus}` : "Estado no disponible"}
                         </p>
                       </div>
                       <div className="min-w-0">
@@ -575,12 +605,12 @@ export function AssetsPage() {
     [appliedFilters]
   );
 
-  const loadAssets = async () => {
+  const loadAssets = async (query = "") => {
     setLoading(true);
     setError("");
 
     try {
-      const items = await searchItopAssets();
+      const items = await searchItopAssets({ query });
       setRows(items);
     } catch (loadError) {
       setRows([]);
@@ -643,7 +673,7 @@ export function AssetsPage() {
     event.preventDefault();
     setAppliedFilters(draftFilters);
     setHasSearched(true);
-    await loadAssets();
+    await loadAssets(draftFilters.query);
   };
 
   const toggleFilterValue = (key, value, selectionMode = "multiple") => {
