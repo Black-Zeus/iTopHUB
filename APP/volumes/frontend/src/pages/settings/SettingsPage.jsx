@@ -37,6 +37,13 @@ const CMDB_OPTIONS = [
   "Periferico (Peripheral)",
 ];
 
+const EVIDENCE_EXTENSION_OPTIONS = [
+  { value: "pdf", label: "PDF" },
+  { value: "doc", label: "DOC" },
+  { value: "docx", label: "DOCX" },
+  { value: "txt", label: "TXT" },
+];
+
 const EMPTY_TASK = {
   schedule: "",
   description: "",
@@ -823,6 +830,29 @@ export function SettingsPage() {
                 checked={Boolean(drafts.docs?.allowEvidenceUpload)}
                 onChange={(e) => updateField("docs", "allowEvidenceUpload", e.target.checked)}
               />
+            </div>
+            <div className="mt-4 rounded-[20px] border border-[var(--border-color)] bg-[var(--bg-app)] p-5">
+              <p className="text-sm font-semibold text-[var(--text-primary)]">Tipos permitidos para evidencia</p>
+              <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                Selecciona las extensiones admitidas para la carga manual de evidencias en documentos.
+              </p>
+              <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                {EVIDENCE_EXTENSION_OPTIONS.map((item) => (
+                  <label key={item.value} className="rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3 text-sm font-semibold text-[var(--text-secondary)]">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(drafts.docs?.evidenceAllowedExtensions?.includes(item.value))}
+                      onChange={(e) => {
+                        const current = drafts.docs?.evidenceAllowedExtensions || [];
+                        const next = e.target.checked ? [...current, item.value] : current.filter((value) => value !== item.value);
+                        updateField("docs", "evidenceAllowedExtensions", next);
+                      }}
+                      className="mr-3 accent-[var(--accent-strong)]"
+                    />
+                    {item.label}
+                  </label>
+                ))}
+              </div>
             </div>
             <Actions dirty={dirtyMap.docs} saving={savingPanel === "docs"} onReset={() => resetPanel("docs")} onSave={() => savePanel("docs", "Documentos")} />
           </div>

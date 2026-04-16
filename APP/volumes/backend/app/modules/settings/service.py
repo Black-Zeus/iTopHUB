@@ -90,6 +90,7 @@ PANEL_DEFAULTS: dict[str, dict[str, Any]] = {
         "numberingFormat": "AAAA-NNNN",
         "defaultObservation": "El documento se emite como respaldo formal del movimiento registrado en CMDB.",
         "allowEvidenceUpload": True,
+        "evidenceAllowedExtensions": ["pdf", "doc", "docx"],
     },
     "cmdb": {
         "enabledAssetTypes": ["Desktop (PC)", "Laptop (Laptop)"],
@@ -199,6 +200,14 @@ def normalize_panel_config(panel_code: str, config: dict[str, Any]) -> dict[str,
             "numberingFormat": _coerce_str(merged.get("numberingFormat")),
             "defaultObservation": _coerce_str(merged.get("defaultObservation")),
             "allowEvidenceUpload": _coerce_bool(merged.get("allowEvidenceUpload"), True),
+            "evidenceAllowedExtensions": [
+                item
+                for item in _coerce_list(
+                    merged.get("evidenceAllowedExtensions"),
+                    PANEL_DEFAULTS["docs"]["evidenceAllowedExtensions"],
+                )
+                if item in {"pdf", "doc", "docx", "txt"}
+            ] or PANEL_DEFAULTS["docs"]["evidenceAllowedExtensions"],
         }
 
     return {
