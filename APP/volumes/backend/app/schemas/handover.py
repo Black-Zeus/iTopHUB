@@ -22,6 +22,7 @@ class HandoverEvidenceFileRequest(BaseModel):
     name: str = ""
     mimeType: str = ""
     contentBase64: str = ""
+    observation: str = ""
 
 
 class HandoverEvidenceUploadRequest(BaseModel):

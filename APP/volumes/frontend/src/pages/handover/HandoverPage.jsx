@@ -145,6 +145,7 @@ function EvidenceFileTypeIcon({ file }) {
 
 function EvidenceUploadModal({ row, willConfirmStatus, allowedExtensions, onCancel, onSubmit }) {
   const [selectedFiles, setSelectedFiles] = useState([]);
+  const [observations, setObservations] = useState({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [acknowledged, setAcknowledged] = useState(!willConfirmStatus);
@@ -163,7 +164,7 @@ function EvidenceUploadModal({ row, willConfirmStatus, allowedExtensions, onCanc
     const invalidFiles = incomingList.filter((file) => !isAcceptedEvidenceFile(file, normalizedAllowedExtensions));
 
     if (!validFiles.length && invalidFiles.length) {
-      setError(`Formato no admitido. Solo se permiten ${allowedExtensionsLabel}: ${invalidFiles.map((file) => file.name).join(", ")}`);
+      setError(`Formato no autorizado para evidencia. Solo se admiten ${allowedExtensionsLabel}.`);
       return;
     }
 
@@ -181,7 +182,7 @@ function EvidenceUploadModal({ row, willConfirmStatus, allowedExtensions, onCanc
     });
     setError(
       invalidFiles.length
-        ? `Se omitieron archivos no admitidos. Solo se permiten ${allowedExtensionsLabel}: ${invalidFiles.map((file) => file.name).join(", ")}`
+        ? `Se cargaron solo los formatos autorizados. Los documentos con formato no admitido fueron omitidos. Formatos validos: ${allowedExtensionsLabel}.`
         : ""
     );
   };
@@ -239,9 +240,13 @@ function EvidenceUploadModal({ row, willConfirmStatus, allowedExtensions, onCanc
       return;
     }
 
-    setSelectedFiles((current) =>
-      current.filter((file) => `${file.name}-${file.size}-${file.lastModified}` !== `${fileToRemove.name}-${fileToRemove.size}-${fileToRemove.lastModified}`)
-    );
+    const fileKey = `${fileToRemove.name}-${fileToRemove.size}-${fileToRemove.lastModified}`;
+    setSelectedFiles((current) => current.filter((file) => `${file.name}-${file.size}-${file.lastModified}` !== fileKey));
+    setObservations((current) => {
+      const next = { ...current };
+      delete next[fileKey];
+      return next;
+    });
   };
 
   const selectedCountLabel = selectedFiles.length === 1 ? "1 adjunto preparado" : `${selectedFiles.length} adjuntos preparados`;
@@ -261,7 +266,11 @@ function EvidenceUploadModal({ row, willConfirmStatus, allowedExtensions, onCanc
     setError("");
 
     try {
-      await onSubmit(selectedFiles);
+      const items = selectedFiles.map((file) => ({
+        file,
+        observation: observations[`${file.name}-${file.size}-${file.lastModified}`] || "",
+      }));
+      await onSubmit(items);
     } catch (submitError) {
       setError(submitError?.message || "No fue posible cargar las evidencias.");
       setBusy(false);
@@ -333,22 +342,19 @@ function EvidenceUploadModal({ row, willConfirmStatus, allowedExtensions, onCanc
                 {selectedFiles.map((file) => (
                   <li
                     key={`${file.name}-${file.size}-${file.lastModified}`}
-                    className="grid gap-3 rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-3 md:grid-cols-[minmax(0,1fr)_auto]"
+                    className="grid gap-3 rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-3"
                   >
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <EvidenceFileTypeIcon file={file} />
-                        <p className="truncate text-sm font-semibold text-[var(--text-primary)]">{file.name}</p>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <EvidenceFileTypeIcon file={file} />
+                          <p className="truncate text-sm font-semibold text-[var(--text-primary)]">{file.name}</p>
+                        </div>
                       </div>
-                      <p className="mt-1 break-all text-xs text-[var(--text-muted)]">
-                        {getEvidenceFileTypeMeta(file).label} / {file.size} B
-                      </p>
-                    </div>
-                    <div className="flex justify-end">
                       <Button
                         size="sm"
                         variant="secondary"
-                        className="px-3 py-1.5 text-[11px]"
+                        className="shrink-0 px-3 py-1.5 text-[11px]"
                         onClick={() => handleRemoveFile(file)}
                         disabled={busy}
                       >
@@ -356,6 +362,17 @@ function EvidenceUploadModal({ row, willConfirmStatus, allowedExtensions, onCanc
                         Quitar
                       </Button>
                     </div>
+                    <textarea
+                      rows="2"
+                      value={observations[`${file.name}-${file.size}-${file.lastModified}`] || ""}
+                      onChange={(event) => {
+                        const fileKey = `${file.name}-${file.size}-${file.lastModified}`;
+                        setObservations((current) => ({ ...current, [fileKey]: event.target.value }));
+                      }}
+                      disabled={busy}
+                      placeholder="Observacion del adjunto (opcional)"
+                      className="w-full rounded-[12px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 py-2 text-xs text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)] resize-none"
+                    />
                   </li>
                 ))}
               </ol>
@@ -544,8 +561,8 @@ export function HandoverPage() {
           willConfirmStatus={willConfirmStatus}
           allowedExtensions={actionConfig.evidenceAllowedExtensions}
           onCancel={() => ModalManager.close(modalId)}
-          onSubmit={async (files) => {
-            await uploadHandoverEvidence(row.id, files);
+          onSubmit={async (items) => {
+            await uploadHandoverEvidence(row.id, items);
             ModalManager.close(modalId);
             setNotice(
               willConfirmStatus
@@ -576,64 +593,135 @@ export function HandoverPage() {
     {
       key: "actions",
       label: "Acciones",
-      headerClassName: "w-[16.5rem] min-w-[16.5rem] text-right",
-      cellClassName: "w-[16.5rem] min-w-[16.5rem] text-right",
+      headerClassName: "w-[20rem] min-w-[20rem] text-right",
+      cellClassName: "w-[20rem] min-w-[20rem] align-top",
       render: (_, row) => {
         const isDraft = row.status === "En creacion";
         const isIssued = row.status === "Emitida";
         const isConfirmed = row.status === "Confirmada";
-        const actionContainerClassName = isDraft
-          ? "ml-auto flex max-w-[16.5rem] flex-nowrap items-center justify-end gap-1.5"
-          : "ml-auto grid max-w-[16.5rem] grid-cols-2 justify-items-end gap-1.5";
-        const sharedButtonClassName = "inline-flex min-h-[36px] items-center justify-center whitespace-nowrap px-2.5 py-1.5 text-[11px]";
-        const draftButtonClassName = `${sharedButtonClassName} min-w-[5.75rem]`;
-        const compactActionButtonClassName = `${sharedButtonClassName} min-w-[5.5rem]`;
-        const evidenceButtonClassName = `${sharedButtonClassName} min-w-[7rem]`;
-        const evidenceButtonLabel = isIssued ? "Evidencia" : "Cargar evidencia";
+
+        const actions = [];
+
+        if (isDraft) {
+          actions.push({
+            key: "edit",
+            label: "Editar",
+            icon: "edit",
+            onClick: () => navigate(`/handover/${row.id}`),
+          });
+        }
+
+        if (isConfirmed || isIssued) {
+          actions.push({
+            key: "view",
+            label: "Ver",
+            icon: "eye",
+            onClick: () => navigate(`/handover/${row.id}`),
+          });
+        }
+
+        if (isDraft) {
+          actions.push({
+            key: "process",
+            label: "Procesar",
+            icon: "check",
+            onClick: () => handleProcess(row),
+          });
+        }
+
+        if (actionConfig.allowEvidenceUpload && isIssued) {
+          actions.push({
+            key: "attachment",
+            label: "Adjunto",
+            icon: "paperclip",
+            onClick: () => openEvidenceModal(row),
+          });
+        }
+
+        if (isIssued || isConfirmed) {
+          actions.push({
+            key: "pdf",
+            label: "PDF",
+            icon: "download",
+            onClick: () => openPdfModal(row),
+          });
+        }
+
+        if (isIssued) {
+          actions.push({
+            key: "rollback",
+            label: "Cancelar",
+            icon: "history",
+            onClick: () => handleRollback(row),
+          });
+        }
+
+        if (isDraft || isIssued) {
+          actions.push({
+            key: "void",
+            label: "Anular",
+            icon: "xmark",
+            onClick: () => handleCancel(row),
+          });
+        }
+
+        const actionButtonClassName =
+          "inline-flex w-full min-h-[36px] items-center justify-center gap-1.5 whitespace-nowrap px-2 py-1.5 text-[11px]";
+
+        const renderActionButton = (action) => (
+          <Button
+            key={action.key}
+            size="sm"
+            variant="secondary"
+            className={actionButtonClassName}
+            onClick={action.onClick}
+          >
+            <Icon
+              name={action.icon}
+              size={14}
+              className="h-3.5 w-3.5 shrink-0"
+              aria-hidden="true"
+            />
+            {action.label}
+          </Button>
+        );
+
+        const totalActions = actions.length;
+
+        if (totalActions <= 2) {
+          return (
+            <div className="ml-auto grid w-full max-w-[20rem] grid-cols-2 gap-1.5">
+              {actions.map(renderActionButton)}
+            </div>
+          );
+        }
+
+        if (totalActions === 3) {
+          return (
+            <div className="ml-auto grid w-full max-w-[20rem] grid-cols-3 gap-1.5">
+              {actions.map(renderActionButton)}
+            </div>
+          );
+        }
+
+        const firstRow = actions.slice(0, 3);
+        const secondRow = actions.slice(3);
 
         return (
-          <div className={actionContainerClassName}>
-            {isDraft ? (
-              <Button size="sm" variant="secondary" className={draftButtonClassName} onClick={() => navigate(`/handover/${row.id}`)}>
-                <Icon name="edit" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                Editar
-              </Button>
-            ) : null}
-            {isDraft ? (
-              <Button size="sm" variant="secondary" className={draftButtonClassName} onClick={() => handleProcess(row)}>
-                <Icon name="check" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                Procesar
-              </Button>
-            ) : null}
-            {isIssued ? (
-              <Button size="sm" variant="secondary" className={compactActionButtonClassName} onClick={() => handleRollback(row)}>
-                <Icon name="history" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                Cancelar
-              </Button>
-            ) : null}
-            {isDraft || isIssued ? (
-              <Button size="sm" variant="secondary" className={compactActionButtonClassName} onClick={() => handleCancel(row)}>
-                <Icon name="xmark" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                Anular
-              </Button>
-            ) : null}
-            {isIssued || isConfirmed ? (
-              <Button size="sm" variant="secondary" className={compactActionButtonClassName} onClick={() => openPdfModal(row)}>
-                <Icon name="download" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                PDF
-              </Button>
-            ) : null}
-            {actionConfig.allowEvidenceUpload && (isIssued || isConfirmed) ? (
-              <Button size="sm" variant="secondary" className={evidenceButtonClassName} onClick={() => openEvidenceModal(row)}>
-                <Icon name="paperclip" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                {evidenceButtonLabel}
-              </Button>
-            ) : null}
+          <div className="ml-auto flex w-full max-w-[20rem] flex-col gap-1.5">
+            <div className="grid grid-cols-3 gap-1.5">
+              {firstRow.map(renderActionButton)}
+            </div>
+
+            <div className={`grid gap-1.5 ${secondRow.length === 1 ? "grid-cols-1" : "grid-cols-2"}`}>
+              {secondRow.map(renderActionButton)}
+            </div>
           </div>
         );
       },
     },
   ];
+
 
   return (
     <div className="grid gap-5">

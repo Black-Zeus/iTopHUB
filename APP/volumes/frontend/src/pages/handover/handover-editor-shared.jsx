@@ -1,11 +1,30 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CollapseToggleButton, Panel, PanelHeader } from "../../components/ui/general";
 import { Icon } from "../../components/ui/icon/Icon";
+import ModalManager from "../../components/ui/modal";
 import { Button } from "../../ui/Button";
+import { fetchHandoverEvidenceBlob } from "../../services/handover-service";
 
 export const INPUT_CLASS_NAME = "h-[50px] rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 text-sm text-[var(--text-primary)] outline-none";
 export const TEXTAREA_CLASS_NAME = "w-full rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-3 text-sm text-[var(--text-primary)] outline-none";
 const SECONDARY_RECEIVER_ROLE_OPTIONS = ["Contraturno", "Referente de area", "Respaldo operativo", "Testigo"];
+
+const formatAttachmentName = (filename = "") => {
+  const lastDot = filename.lastIndexOf(".");
+  const maxLength = 10;
+  if (lastDot <= 0) {
+    return filename.length > maxLength ? `${filename.slice(0, (maxLength - 3))}...` : filename;
+  }
+
+  const baseName = filename.slice(0, lastDot);
+  const extension = filename.slice(lastDot + 1);
+
+  if (baseName.length <= maxLength) {
+    return `${baseName}.${extension}`;
+  }
+
+  return `${baseName.slice(0, (maxLength - 3))}...${extension}`;
+}
 
 function normalizeComparisonText(value) {
   return String(value || "")
@@ -191,11 +210,10 @@ function SecondaryRoleMenu({ personId, currentRole, onChange }) {
                   onChange(option);
                   setIsOpen(false);
                 }}
-                className={`rounded-[12px] px-3 py-2 text-left text-sm transition ${
-                  option === currentRole
-                    ? "bg-[var(--bg-app)] text-[var(--text-primary)]"
-                    : "text-[var(--text-secondary)] hover:bg-[var(--bg-app)] hover:text-[var(--text-primary)]"
-                }`}
+                className={`rounded-[12px] px-3 py-2 text-left text-sm transition ${option === currentRole
+                  ? "bg-[var(--bg-app)] text-[var(--text-primary)]"
+                  : "text-[var(--text-secondary)] hover:bg-[var(--bg-app)] hover:text-[var(--text-primary)]"
+                  }`}
               >
                 {option}
               </button>
@@ -259,11 +277,10 @@ function ChecklistTemplatePicker({
                     onChange(String(template.id));
                     setIsOpen(false);
                   }}
-                  className={`rounded-[14px] border px-4 py-3 text-left transition ${
-                    isSelected
-                      ? "border-[rgba(81,152,194,0.26)] bg-[var(--accent-soft)] shadow-[0_10px_22px_rgba(81,152,194,0.14)]"
-                      : "border-transparent bg-[var(--bg-app)] hover:border-[var(--border-color)]"
-                  }`}
+                  className={`rounded-[14px] border px-4 py-3 text-left transition ${isSelected
+                    ? "border-[rgba(81,152,194,0.26)] bg-[var(--accent-soft)] shadow-[0_10px_22px_rgba(81,152,194,0.14)]"
+                    : "border-transparent bg-[var(--bg-app)] hover:border-[var(--border-color)]"
+                    }`}
                 >
                   <p className="text-sm font-semibold text-[var(--text-primary)]">{template.name}</p>
                   <p className="mt-1 text-sm text-[var(--text-secondary)]">{template.description || "Sin descripcion adicional."}</p>
@@ -322,6 +339,117 @@ function ChecklistAnswerField({ answer, onChange, groupName }) {
       ))}
     </div>
   );
+}
+
+function ChecklistAnswerReadOnly({ answer }) {
+  const plainValue = (() => {
+    if (answer.type === "Check") {
+      return answer.value ? "Si" : "No";
+    }
+
+    if (answer.type === "Option / Radio") {
+      return String(answer.value || "").trim() || "Sin respuesta registrada";
+    }
+
+    return String(answer.value || "").trim() || "Sin respuesta registrada";
+  })();
+
+  const isLongText = answer.type === "Text area";
+
+  return (
+    <div className={`text-sm text-[var(--text-primary)] ${isLongText ? "whitespace-pre-wrap leading-6" : ""}`}>
+      {plainValue}
+    </div>
+  );
+}
+
+function AttachmentPreviewContent({ attachment, documentId }) {
+  const [state, setState] = useState("loading");
+  const [blobUrl, setBlobUrl] = useState(null);
+  const isPdf = String(attachment.name || "").toLowerCase().endsWith(".pdf");
+
+  useEffect(() => {
+    let revoked = false;
+    fetchHandoverEvidenceBlob(documentId, attachment.storedName)
+      .then(({ url }) => {
+        if (!revoked) {
+          setBlobUrl(url);
+          setState("ready");
+        } else {
+          URL.revokeObjectURL(url);
+        }
+      })
+      .catch(() => {
+        if (!revoked) {
+          setState("error");
+        }
+      });
+
+    return () => {
+      revoked = true;
+      if (blobUrl) {
+        URL.revokeObjectURL(blobUrl);
+      }
+    };
+  }, []);
+
+  const handleDownload = () => {
+    if (!blobUrl) {
+      return;
+    }
+    const anchor = document.createElement("a");
+    anchor.href = blobUrl;
+    anchor.download = attachment.name || attachment.storedName || "adjunto";
+    anchor.click();
+  };
+
+  if (state === "loading") {
+    return (
+      <div className="flex min-h-[220px] items-center justify-center text-sm text-[var(--text-muted)]">
+        Cargando adjunto...
+      </div>
+    );
+  }
+
+  if (state === "error") {
+    return (
+      <div className="flex min-h-[220px] flex-col items-center justify-center gap-4 text-center">
+        <p className="text-sm text-[var(--text-secondary)]">No fue posible obtener el adjunto.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      {isPdf ? (
+        <iframe
+          src={blobUrl}
+          title={attachment.name || "Adjunto"}
+          className="h-[60vh] w-full rounded-[16px] border border-[var(--border-color)]"
+        />
+      ) : (
+        <div className="flex min-h-[120px] items-center justify-center rounded-[16px] border border-dashed border-[var(--border-color)] bg-[var(--bg-app)] text-sm text-[var(--text-secondary)]">
+          Vista previa no disponible para este formato.
+        </div>
+      )}
+      <div className="flex justify-end">
+        <Button variant="primary" onClick={handleDownload}>
+          <Icon name="export" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          Descargar
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function openAttachmentPreview(attachment, documentId) {
+  const isPdf = String(attachment.name || "").toLowerCase().endsWith(".pdf");
+  ModalManager.custom({
+    title: attachment.name || "Adjunto",
+    size: isPdf ? "pdfViewer" : "medium",
+    showFooter: false,
+    content: <AttachmentPreviewContent attachment={attachment} documentId={documentId} />,
+  });
 }
 
 function EditorSectionPanel({ eyebrow, title, helper, isCollapsed, onToggle, children, className = "" }) {
@@ -410,6 +538,8 @@ export function HandoverEditorSections({
   addAdditionalReceiver,
   requestRemoveAdditionalReceiver,
   updateAdditionalReceiverRole,
+  readOnly = false,
+  documentId = null,
 }) {
   const topPanelsExpanded = !collapsedSections.document && !collapsedSections.receiver;
   const [collapsedAssets, setCollapsedAssets] = useState({});
@@ -463,24 +593,43 @@ export function HandoverEditorSections({
                   </div>
 
                   {form.evidenceAttachments?.length ? (
-                    <div className="grid gap-3">
-                      {form.evidenceAttachments.map((attachment, index) => (
-                        <div key={`evidence-${index}`} className="grid gap-3 rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] p-4 md:grid-cols-[minmax(0,1.2fr)_minmax(180px,0.8fr)_minmax(220px,1fr)]">
-                          <div>
-                            <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Adjunto</p>
-                            <p className="mt-2 text-sm font-semibold text-[var(--text-primary)]">{attachment.name || `Adjunto ${index + 1}`}</p>
-                            <p className="mt-1 text-xs text-[var(--text-muted)]">{[attachment.mimeType, attachment.size, attachment.source].filter(Boolean).join(" / ") || "Sin metadata definida"}</p>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {form.evidenceAttachments.map((attachment, index) => {
+                        const ext = String(attachment.name || "").split(".").pop().toLowerCase();
+                        const iconName = ext === "pdf" ? "fileLines" : ext === "doc" || ext === "docx" ? "regFileLines" : "regFile";
+                        const canPreview = Boolean(attachment.storedName && documentId);
+                        return (
+                          <div key={`evidence-${index}`} className="rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-3">
+                            <div className="flex items-center gap-3">
+                              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] border border-[var(--border-color)] bg-[var(--bg-panel)]">
+                                <Icon name={iconName} size={16} className="h-4 w-4 text-[var(--text-secondary)]" aria-hidden="true" />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p
+                                  className="text-sm font-semibold text-[var(--text-primary)]"
+                                  title={attachment.name || `Adjunto ${index + 1}`}
+                                >
+                                  {formatAttachmentName(attachment.name || `Adjunto ${index + 1}`)}
+                                </p>
+                                <p className="mt-0.5 text-xs text-[var(--text-muted)]"> {(attachment.uploadedAt || form.evidenceDate || "Fecha de carga no registrada").replace("T", " ")}</p>
+                              </div>
+                              {canPreview ? (
+                                <button
+                                  type="button"
+                                  onClick={() => openAttachmentPreview(attachment, documentId)}
+                                  className="shrink-0 inline-flex h-8 items-center gap-1.5 rounded-[12px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 text-xs font-semibold text-[var(--text-secondary)] transition hover:text-[var(--text-primary)]"
+                                >
+                                  <Icon name="regWindowRestore" size={13} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                                  Ver
+                                </button>
+                              ) : null}
+                            </div>
+                            {attachment.observation ? (
+                              <p className="mt-2 pl-12 text-xs text-[var(--text-secondary)]">{attachment.observation}</p>
+                            ) : null}
                           </div>
-                          <div>
-                            <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Evidencia</p>
-                            <p className="mt-2 text-sm text-[var(--text-secondary)]">{form.evidenceDate || "Pendiente de registrar"}</p>
-                          </div>
-                          <div>
-                            <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Observacion / categoria</p>
-                            <p className="mt-2 text-sm text-[var(--text-secondary)]">Pendiente de definicion funcional.</p>
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   ) : (
                     <MessageBanner>No hay adjuntos de evidencia registrados todavia.</MessageBanner>
@@ -490,12 +639,18 @@ export function HandoverEditorSections({
             ) : null}
             <div className="md:col-span-2">
               <Field label="Motivo de entrega">
-                <textarea rows="3" value={form.reason} onChange={(event) => setForm((current) => ({ ...current, reason: event.target.value }))} className={TEXTAREA_CLASS_NAME} placeholder="Indica por que se emite esta acta" />
+                {readOnly
+                  ? <ReadOnlyValue value={form.reason} placeholder="Sin motivo registrado" />
+                  : <textarea rows="3" value={form.reason} onChange={(event) => setForm((current) => ({ ...current, reason: event.target.value }))} className={TEXTAREA_CLASS_NAME} placeholder="Indica por que se emite esta acta" />
+                }
               </Field>
             </div>
             <div className="md:col-span-2">
               <Field label="Observaciones generales">
-                <textarea rows="4" value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} className={TEXTAREA_CLASS_NAME} placeholder={notesPlaceholder || "Registra condiciones de entrega, accesorios, estado visible y acuerdos relevantes"} />
+                {readOnly
+                  ? <ReadOnlyValue value={form.notes} placeholder="Sin observaciones registradas" />
+                  : <textarea rows="4" value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} className={TEXTAREA_CLASS_NAME} placeholder={notesPlaceholder || "Registra condiciones de entrega, accesorios, estado visible y acuerdos relevantes"} />
+                }
               </Field>
             </div>
           </div>
@@ -510,42 +665,44 @@ export function HandoverEditorSections({
           className={topPanelsExpanded ? "h-full" : ""}
         >
           <div className="grid gap-4">
-            <div className="relative z-10">
-              <Field label="Buscar persona">
-                <input ref={personSearchInputRef} type="search" value={personSearchQuery} onChange={(event) => setPersonSearchQuery(event.target.value)} className={INPUT_CLASS_NAME} placeholder={`Escribe nombre, identificador o correo (${minCharsPeople}+ caracteres)`} />
-              </Field>
+            {!readOnly ? (
+              <div className="relative z-10">
+                <Field label="Buscar persona">
+                  <input ref={personSearchInputRef} type="search" value={personSearchQuery} onChange={(event) => setPersonSearchQuery(event.target.value)} className={INPUT_CLASS_NAME} placeholder={`Escribe nombre, identificador o correo (${minCharsPeople}+ caracteres)`} />
+                </Field>
 
-              {personSearchQuery.trim().length > 0 && personSearchQuery.trim().length < minCharsPeople ? (
-                <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-20">
-                  <MessageBanner>Ingresa al menos {minCharsPeople} caracteres para buscar en Personas de iTop.</MessageBanner>
-                </div>
-              ) : null}
-
-              {peopleResults.length ? (
-                <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-20 max-h-[320px] overflow-y-auto rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-2 shadow-[var(--shadow-soft)]">
-                  <div className="grid gap-3">
-                    {peopleResults.map((person) => (
-                      <ResultCard
-                        key={person.id}
-                        title={person.name}
-                        subtitle={`${person.code}${person.email ? ` / ${person.email}` : ""}`}
-                        helper={[person.role, person.status].filter(Boolean).join(" / ")}
-                        actions={(
-                          <>
-                            <Button size="sm" variant="secondary" onClick={() => selectPrimaryReceiver(person)}>Principal</Button>
-                            <Button size="sm" variant="secondary" onClick={() => addAdditionalReceiver(person)}>Agregar secundario</Button>
-                          </>
-                        )}
-                      />
-                    ))}
+                {personSearchQuery.trim().length > 0 && personSearchQuery.trim().length < minCharsPeople ? (
+                  <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-20">
+                    <MessageBanner>Ingresa al menos {minCharsPeople} caracteres para buscar en Personas de iTop.</MessageBanner>
                   </div>
-                </div>
-              ) : peopleLoading ? (
-                <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-20">
-                  <MessageBanner>Buscando personas...</MessageBanner>
-                </div>
-              ) : null}
-            </div>
+                ) : null}
+
+                {peopleResults.length ? (
+                  <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-20 max-h-[320px] overflow-y-auto rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-2 shadow-[var(--shadow-soft)]">
+                    <div className="grid gap-3">
+                      {peopleResults.map((person) => (
+                        <ResultCard
+                          key={person.id}
+                          title={person.name}
+                          subtitle={`${person.code}${person.email ? ` / ${person.email}` : ""}`}
+                          helper={[person.role, person.status].filter(Boolean).join(" / ")}
+                          actions={(
+                            <>
+                              <Button size="sm" variant="secondary" onClick={() => selectPrimaryReceiver(person)}>Principal</Button>
+                              <Button size="sm" variant="secondary" onClick={() => addAdditionalReceiver(person)}>Agregar secundario</Button>
+                            </>
+                          )}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ) : peopleLoading ? (
+                  <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-20">
+                    <MessageBanner>Buscando personas...</MessageBanner>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
 
             {form.receiver ? (
               <div className="grid gap-3">
@@ -558,9 +715,11 @@ export function HandoverEditorSections({
                       <p className="mt-1 text-sm text-[var(--text-secondary)]">{`${form.receiver.code || "Sin codigo"}${form.receiver.email ? ` / ${form.receiver.email}` : ""}`}</p>
                       <p className="mt-1 text-xs text-[var(--text-muted)]">{[form.receiver.role, form.receiver.status].filter(Boolean).join(" / ")}</p>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <CornerIconButton iconName="xmark" label="Quitar principal" onClick={requestRemovePrimaryReceiver} />
-                    </div>
+                    {!readOnly ? (
+                      <div className="flex items-center gap-2">
+                        <CornerIconButton iconName="xmark" label="Quitar principal" onClick={requestRemovePrimaryReceiver} />
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -575,21 +734,28 @@ export function HandoverEditorSections({
                   <div key={`secondary-${person.id}`} className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] p-4">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
-                        <SecondaryRoleMenu
-                          personId={person.id}
-                          currentRole={normalizeSecondaryReceiverRole(person.assignmentRole)}
-                          onChange={(nextRole) => updateAdditionalReceiverRole(person.id, nextRole)}
-                        />
+                        {readOnly
+                          ? <RoleChip label={normalizeSecondaryReceiverRole(person.assignmentRole)} />
+                          : (
+                            <SecondaryRoleMenu
+                              personId={person.id}
+                              currentRole={normalizeSecondaryReceiverRole(person.assignmentRole)}
+                              onChange={(nextRole) => updateAdditionalReceiverRole(person.id, nextRole)}
+                            />
+                          )
+                        }
                         <p className="truncate text-sm font-semibold text-[var(--text-primary)]">{person.name}</p>
                         <p className="mt-1 text-sm text-[var(--text-secondary)]">{`${person.code || "Sin codigo"}${person.email ? ` / ${person.email}` : ""}`}</p>
                         <p className="mt-1 text-xs text-[var(--text-muted)]">{[person.role, person.status].filter(Boolean).join(" / ")}</p>
                       </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Button size="sm" variant="secondary" onClick={() => promoteAdditionalReceiverToPrimary(person.id)}>
-                          Hacer principal
-                        </Button>
-                        <CornerIconButton iconName="xmark" label="Quitar secundario" onClick={() => requestRemoveAdditionalReceiver(person.id)} />
-                      </div>
+                      {!readOnly ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Button size="sm" variant="secondary" onClick={() => promoteAdditionalReceiverToPrimary(person.id)}>
+                            Hacer principal
+                          </Button>
+                          <CornerIconButton iconName="xmark" label="Quitar secundario" onClick={() => requestRemoveAdditionalReceiver(person.id)} />
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 ))}
@@ -599,51 +765,53 @@ export function HandoverEditorSections({
           </div>
         </EditorSectionPanel>
       </div>
-
+{!readOnly ? (
       <EditorSectionPanel
         eyebrow="Activos"
         title="Activos incluidos"
-        helper="Usa este bloque como separador para buscar y agregar activos al documento."
+        
         isCollapsed={collapsedSections.assets}
         onToggle={() => toggleSection("assets")}
       >
-        <div className="relative z-10">
-          <Field label="Buscar activo">
-            <input type="search" value={assetSearchQuery} onChange={(event) => setAssetSearchQuery(event.target.value)} className={INPUT_CLASS_NAME} placeholder={`Codigo, nombre o serie (${minCharsAssets}+ caracteres)`} />
-          </Field>
+        {!readOnly ? (
+          <div className="relative z-10">
+            <Field label="Buscar activo">
+              <input type="search" value={assetSearchQuery} onChange={(event) => setAssetSearchQuery(event.target.value)} className={INPUT_CLASS_NAME} placeholder={`Codigo, nombre o serie (${minCharsAssets}+ caracteres)`} />
+            </Field>
 
-          {assetSearchQuery.trim().length > 0 && assetSearchQuery.trim().length < minCharsAssets ? (
-            <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-20">
-              <MessageBanner>Ingresa al menos {minCharsAssets} caracteres para buscar dispositivos autorizados en CMDB.</MessageBanner>
-            </div>
-          ) : null}
-
-          {assetResults.length ? (
-            <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-20 max-h-[320px] overflow-y-auto rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-2 shadow-[var(--shadow-soft)]">
-              <div className="grid gap-3">
-                {assetResults.map((asset) => {
-                  const restrictionMessage = getAssetAssignmentRestriction(asset);
-
-                  return (
-                  <ResultCard
-                    key={asset.id}
-                    title={`${asset.code} / ${asset.name}`}
-                    subtitle={[asset.className, asset.serial].filter(Boolean).join(" / ")}
-                    helper={[asset.status, asset.assignedUser, restrictionMessage].filter(Boolean).join(" / ")}
-                    actions={<Button size="sm" variant="secondary" onClick={() => addAssetToForm(asset)} disabled={Boolean(restrictionMessage)}>Agregar</Button>}
-                  />
-                  );
-                })}
+            {assetSearchQuery.trim().length > 0 && assetSearchQuery.trim().length < minCharsAssets ? (
+              <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-20">
+                <MessageBanner>Ingresa al menos {minCharsAssets} caracteres para buscar dispositivos autorizados en CMDB.</MessageBanner>
               </div>
-            </div>
-          ) : assetLoading ? (
-            <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-20">
-              <MessageBanner>Buscando activos autorizados...</MessageBanner>
-            </div>
-          ) : null}
-        </div>
-      </EditorSectionPanel>
+            ) : null}
 
+            {assetResults.length ? (
+              <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-20 max-h-[320px] overflow-y-auto rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-2 shadow-[var(--shadow-soft)]">
+                <div className="grid gap-3">
+                  {assetResults.map((asset) => {
+                    const restrictionMessage = getAssetAssignmentRestriction(asset);
+
+                    return (
+                      <ResultCard
+                        key={asset.id}
+                        title={`${asset.code} / ${asset.name}`}
+                        subtitle={[asset.className, asset.serial].filter(Boolean).join(" / ")}
+                        helper={[asset.status, asset.assignedUser, restrictionMessage].filter(Boolean).join(" / ")}
+                        actions={<Button size="sm" variant="secondary" onClick={() => addAssetToForm(asset)} disabled={Boolean(restrictionMessage)}>Agregar</Button>}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+            ) : assetLoading ? (
+              <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-20">
+                <MessageBanner>Buscando activos autorizados...</MessageBanner>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </EditorSectionPanel>
+) : null}
       {form.items.length ? (
         <div className="grid gap-4">
           {form.items.map((item) => {
@@ -664,10 +832,12 @@ export function HandoverEditorSections({
                     <p className="mt-1 text-xs text-[var(--text-muted)]">{[item.asset?.serial, item.asset?.status, item.asset?.assignedUser].filter(Boolean).join(" / ")}</p>
                   </div>
                   <div className="flex flex-wrap justify-end gap-3">
-                    <Button size="sm" variant="secondary" onClick={() => requestRemoveAssetFromForm(item.asset)}>
-                      <Icon name="xmark" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                      Quitar
-                    </Button>
+                    {!readOnly ? (
+                      <Button size="sm" variant="secondary" onClick={() => requestRemoveAssetFromForm(item.asset)}>
+                        <Icon name="xmark" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                        Quitar
+                      </Button>
+                    ) : null}
                     <CollapseToggleButton
                       isCollapsed={isCollapsed}
                       onClick={() => toggleAsset(assetId)}
@@ -690,28 +860,33 @@ export function HandoverEditorSections({
                       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.92fr)]">
                         <section className="rounded-[22px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-4">
                           <Field label="Observacion del item">
-                            <textarea rows="4" value={item.notes || ""} onChange={(event) => updateItemNotes(assetId, event.target.value)} className={TEXTAREA_CLASS_NAME} placeholder="Accesorios, condiciones particulares o acuerdos asociados al activo" />
+                            {readOnly
+                              ? <ReadOnlyValue value={item.notes} placeholder="Sin observacion registrada" />
+                              : <textarea rows="4" value={item.notes || ""} onChange={(event) => updateItemNotes(assetId, event.target.value)} className={TEXTAREA_CLASS_NAME} placeholder="Accesorios, condiciones particulares o acuerdos asociados al activo" />
+                            }
                           </Field>
                         </section>
 
-                        <section className="rounded-[22px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-4">
-                          <div className="grid gap-3">
-                            <Field label="Agregar checklist">
-                              <ChecklistTemplatePicker
-                                assetId={assetId}
-                                availableTemplates={availableTemplates}
-                                selectedTemplateId={selectedTemplateByAsset[assetId] || ""}
-                                onChange={(value) => setSelectedTemplateByAsset((current) => ({ ...current, [assetId]: value }))}
-                              />
-                            </Field>
-                            <div className="flex justify-start xl:justify-end">
-                              <Button variant="secondary" onClick={() => addChecklistToAsset(assetId)} disabled={!availableTemplates.length || !selectedTemplateByAsset[assetId]}>
-                                <Icon name="plus" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                                Agregar checklist
-                              </Button>
+                        {!readOnly ? (
+                          <section className="rounded-[22px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-4">
+                            <div className="grid gap-3">
+                              <Field label="Agregar checklist">
+                                <ChecklistTemplatePicker
+                                  assetId={assetId}
+                                  availableTemplates={availableTemplates}
+                                  selectedTemplateId={selectedTemplateByAsset[assetId] || ""}
+                                  onChange={(value) => setSelectedTemplateByAsset((current) => ({ ...current, [assetId]: value }))}
+                                />
+                              </Field>
+                              <div className="flex justify-start xl:justify-end">
+                                <Button variant="secondary" onClick={() => addChecklistToAsset(assetId)} disabled={!availableTemplates.length || !selectedTemplateByAsset[assetId]}>
+                                  <Icon name="plus" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                                  Agregar checklist
+                                </Button>
+                              </div>
                             </div>
-                          </div>
-                        </section>
+                          </section>
+                        ) : null}
                       </div>
 
                       {item.checklists.length ? (
@@ -721,55 +896,60 @@ export function HandoverEditorSections({
                             const isChecklistCollapsed = Boolean(collapsedChecklists[checklistKey]);
 
                             return (
-                            <section key={checklistKey} className="rounded-[22px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-4">
-                              <div className="flex flex-wrap items-start justify-between gap-3">
-                                <div>
-                                  <p className="text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Checklist aplicado</p>
-                                  <p className="mt-1 text-sm font-semibold text-[var(--text-primary)]">{checklist.templateName}</p>
-                                  {checklist.templateDescription ? <p className="mt-1 text-sm text-[var(--text-secondary)]">{checklist.templateDescription}</p> : null}
-                                </div>
-                                <div className="flex flex-wrap items-center gap-3">
-                                  <Button size="sm" variant="secondary" onClick={() => requestRemoveChecklistFromAsset(assetId, checklist.templateId)}>
-                                    <Icon name="xmark" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                                    Quitar
-                                  </Button>
-                                  <CollapseToggleButton
-                                    isCollapsed={isChecklistCollapsed}
-                                    onClick={() => toggleChecklist(assetId, checklist.templateId)}
-                                    collapsedLabel={`Expandir ${checklist.templateName || "checklist"}`}
-                                    expandedLabel={`Contraer ${checklist.templateName || "checklist"}`}
-                                  />
-                                </div>
-                              </div>
-
-                              <div
-                                className={`grid transition-[grid-template-rows,opacity,margin-top] duration-300 ease-out ${isChecklistCollapsed ? "overflow-hidden" : "overflow-visible"}`}
-                                style={{
-                                  gridTemplateRows: isChecklistCollapsed ? "0fr" : "1fr",
-                                  opacity: isChecklistCollapsed ? 0 : 1,
-                                  marginTop: isChecklistCollapsed ? 0 : 16,
-                                }}
-                              >
-                                <div className="min-h-0">
-                                  <div className={`grid gap-3 ${isChecklistCollapsed ? "pointer-events-none" : ""}`}>
-                                    {checklist.answers.map((answer) => (
-                                      <div key={answer.checklistItemId} className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-4">
-                                        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(280px,0.9fr)] xl:items-start">
-                                          <div className="min-w-0">
-                                            <p className="text-sm font-semibold text-[var(--text-primary)]">{answer.name}</p>
-                                            {answer.description ? <p className="mt-1 text-sm text-[var(--text-secondary)]">{answer.description}</p> : null}
-                                          </div>
-                                          <div className="min-w-0">
-                                            <p className="mb-2 text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Respuesta</p>
-                                            <ChecklistAnswerField answer={answer} groupName={`asset-${assetId}-template-${checklist.templateId}-check-${answer.checklistItemId}`} onChange={(value) => updateChecklistAnswer(assetId, checklist.templateId, answer.checklistItemId, value)} />
-                                          </div>
-                                        </div>
-                                      </div>
-                                    ))}
+                              <section key={checklistKey} className="rounded-[22px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-4">
+                                <div className="flex flex-wrap items-start justify-between gap-3">
+                                  <div>
+                                    <p className="text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Checklist aplicado</p>
+                                    <p className="mt-1 text-sm font-semibold text-[var(--text-primary)]">{checklist.templateName}</p>
+                                    {checklist.templateDescription ? <p className="mt-1 text-sm text-[var(--text-secondary)]">{checklist.templateDescription}</p> : null}
+                                  </div>
+                                  <div className="flex flex-wrap items-center gap-3">
+                                    {!readOnly ? (
+                                      <Button size="sm" variant="secondary" onClick={() => requestRemoveChecklistFromAsset(assetId, checklist.templateId)}>
+                                        <Icon name="xmark" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                                        Quitar
+                                      </Button>
+                                    ) : null}
+                                    <CollapseToggleButton
+                                      isCollapsed={isChecklistCollapsed}
+                                      onClick={() => toggleChecklist(assetId, checklist.templateId)}
+                                      collapsedLabel={`Expandir ${checklist.templateName || "checklist"}`}
+                                      expandedLabel={`Contraer ${checklist.templateName || "checklist"}`}
+                                    />
                                   </div>
                                 </div>
-                              </div>
-                            </section>
+
+                                <div
+                                  className={`grid transition-[grid-template-rows,opacity,margin-top] duration-300 ease-out ${isChecklistCollapsed ? "overflow-hidden" : "overflow-visible"}`}
+                                  style={{
+                                    gridTemplateRows: isChecklistCollapsed ? "0fr" : "1fr",
+                                    opacity: isChecklistCollapsed ? 0 : 1,
+                                    marginTop: isChecklistCollapsed ? 0 : 16,
+                                  }}
+                                >
+                                  <div className="min-h-0">
+                                    <div className={`grid gap-3 ${isChecklistCollapsed ? "pointer-events-none" : ""}`}>
+                                      {checklist.answers.map((answer) => (
+                                        <div key={answer.checklistItemId} className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-4">
+                                          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(280px,0.9fr)] xl:items-start">
+                                            <div className="min-w-0">
+                                              <p className="text-sm font-semibold text-[var(--text-primary)]">{answer.name}</p>
+                                              {answer.description ? <p className="mt-1 text-sm text-[var(--text-secondary)]">{answer.description}</p> : null}
+                                            </div>
+                                            <div className="min-w-0">
+                                              <p className="mb-2 text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Respuesta</p>
+                                              {readOnly
+                                                ? <ChecklistAnswerReadOnly answer={answer} />
+                                                : <ChecklistAnswerField answer={answer} groupName={`asset-${assetId}-template-${checklist.templateId}-check-${answer.checklistItemId}`} onChange={(value) => updateChecklistAnswer(assetId, checklist.templateId, answer.checklistItemId, value)} />
+                                              }
+                                            </div>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                </div>
+                              </section>
                             );
                           })}
                         </div>

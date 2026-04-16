@@ -81,6 +81,7 @@ export function HandoverDocumentPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [form, setForm] = useState(createEmptyForm(null));
+  const isReadOnly = !isCreateMode && form.status === "Confirmada";
   const [personSearchQuery, setPersonSearchQuery] = useState("");
   const [peopleResults, setPeopleResults] = useState([]);
   const [peopleLoading, setPeopleLoading] = useState(false);
@@ -705,7 +706,7 @@ export function HandoverDocumentPage() {
             <p className="text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Workspace</p>
             <div>
               <h1 className="text-2xl font-semibold text-[var(--text-primary)]">
-                {isCreateMode ? "Nueva acta de entrega" : "Edicion de acta de entrega"}
+                {isCreateMode ? "Nueva acta de entrega" : isReadOnly ? "Detalle de acta de entrega" : "Edicion de acta de entrega"}
               </h1>
               <p className="mt-2 max-w-3xl text-sm text-[var(--text-secondary)]">
                 Trabaja el documento en una pagina completa para tener mejor separacion visual entre datos del acta, destinatario y activos asociados.
@@ -718,10 +719,12 @@ export function HandoverDocumentPage() {
               <Icon name="arrowLeft" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
               Volver al listado
             </Button>
-            <Button variant="primary" onClick={handleSave} disabled={saving || bootstrapLoading || editorLoading}>
-              <Icon name="save" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-              Guardar acta
-            </Button>
+            {!isReadOnly ? (
+              <Button variant="primary" onClick={handleSave} disabled={saving || bootstrapLoading || editorLoading}>
+                <Icon name="save" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                Guardar acta
+              </Button>
+            ) : null}
           </div>
         </div>
       </Panel>
@@ -770,6 +773,8 @@ export function HandoverDocumentPage() {
           addAdditionalReceiver={addAdditionalReceiver}
           requestRemoveAdditionalReceiver={requestRemoveAdditionalReceiver}
           updateAdditionalReceiverRole={updateAdditionalReceiverRole}
+          readOnly={isReadOnly}
+          documentId={isCreateMode ? null : slug}
         />
       )}
     </div>

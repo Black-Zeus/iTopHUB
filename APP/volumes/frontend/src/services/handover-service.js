@@ -1,6 +1,8 @@
 import { apiRequest } from "@services/api-client";
 import { searchItopAssets, searchItopPeople } from "./itop-service";
 
+const API_BASE_URL = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
+
 
 function readFileAsBase64(file) {
   return new Promise((resolve, reject) => {
@@ -105,12 +107,13 @@ export async function rollbackHandoverDocument(documentId) {
 }
 
 
-export async function uploadHandoverEvidence(documentId, files = []) {
+export async function uploadHandoverEvidence(documentId, items = []) {
   const serializedFiles = await Promise.all(
-    files.map(async (file) => ({
+    items.map(async ({ file, observation = "" }) => ({
       name: file.name,
       mimeType: file.type || "application/octet-stream",
       contentBase64: await readFileAsBase64(file),
+      observation,
     }))
   );
 
@@ -121,6 +124,19 @@ export async function uploadHandoverEvidence(documentId, files = []) {
     retryOnRevalidate: true,
   });
   return response.item;
+}
+
+
+export async function fetchHandoverEvidenceBlob(documentId, storedName) {
+  const response = await fetch(
+    `${API_BASE_URL}/v1/handover/documents/${documentId}/evidence/${encodeURIComponent(storedName)}`,
+    { credentials: "include" }
+  );
+  if (!response.ok) {
+    throw new Error("No fue posible obtener el adjunto.");
+  }
+  const blob = await response.blob();
+  return { blob, url: URL.createObjectURL(blob) };
 }
 
 

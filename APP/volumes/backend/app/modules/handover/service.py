@@ -523,6 +523,7 @@ def _deserialize_evidence_attachments(raw_value: Any) -> list[dict[str, Any]]:
                 "source": _coerce_str(item.get("source")),
                 "storedName": _coerce_str(item.get("storedName")),
                 "uploadedAt": _coerce_str(item.get("uploadedAt")),
+                "observation": _coerce_str(item.get("observation")),
             }
         )
     return normalized
@@ -546,6 +547,7 @@ def _normalize_evidence_attachments(payload: Any) -> str:
                 "source": _coerce_str(item.get("source")),
                 "storedName": _coerce_str(item.get("storedName")),
                 "uploadedAt": _coerce_str(item.get("uploadedAt")),
+                "observation": _coerce_str(item.get("observation")),
             }
         )
     return json.dumps(normalized, ensure_ascii=True)
@@ -1043,6 +1045,7 @@ def attach_handover_document_evidence(
                     "source": f"{settings.env_name}/handover_evidence/document_{document_id}/{stored_name}",
                     "storedName": stored_name,
                     "uploadedAt": evidence_at,
+                    "observation": _coerce_str(attachment.get("observation")),
                 }
             )
 

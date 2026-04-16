@@ -1,10 +1,14 @@
+import mimetypes
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Cookie, HTTPException
+from fastapi.responses import FileResponse
 
 from api.deps import ensure_module_access, ensure_session, model_to_dict, raise_auth_error
 from modules.auth.service import AuthenticationError, get_runtime_token
 from modules.handover.service import (
+    HANDOVER_EVIDENCE_ROOT,
     attach_handover_document_evidence,
     create_handover_document,
     emit_handover_document,
@@ -154,6 +158,7 @@ def handover_document_attach_evidence(
                 "name": item.name,
                 "mimeType": item.mimeType,
                 "contentBase64": item.contentBase64,
+                "observation": item.observation,
             }
             for item in payload.files
         ]
@@ -164,3 +169,28 @@ def handover_document_attach_evidence(
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"No fue posible cargar la evidencia del acta: {exc}") from exc
+
+
+@router.get("/documents/{document_id}/evidence/{stored_name}")
+def handover_document_evidence_download(
+    document_id: int,
+    stored_name: str,
+    hub_session_id: str | None = Cookie(default=None),
+) -> FileResponse:
+    session_id = ensure_session(hub_session_id)
+    try:
+        ensure_module_access(session_id, "handover")
+    except AuthenticationError as exc:
+        raise_auth_error(exc)
+
+    safe_name = Path(stored_name).name
+    file_path = HANDOVER_EVIDENCE_ROOT / f"document_{document_id}" / safe_name
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Adjunto no encontrado.")
+
+    media_type, _ = mimetypes.guess_type(safe_name)
+    return FileResponse(
+        path=str(file_path),
+        filename=safe_name,
+        media_type=media_type or "application/octet-stream",
+    )
