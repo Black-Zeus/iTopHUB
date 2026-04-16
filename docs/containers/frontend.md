@@ -38,7 +38,7 @@ Runs the custom React/Vite interface for the Hub layer on top of iTop.
 - The frontend must treat auth as a server-side session concern:
   - session cookie only in the browser
   - no personal token returned to client code
-  - modal warning 40 seconds before session expiry, with a visible 30-second auto-close countdown
+  - session warning modal must use backend-provided `warningSeconds`, but open 10 seconds earlier than that configured threshold as a safety margin
   - password revalidation modal when runtime token must be reloaded
 - If the backend reports that no Hub users exist yet, the login screen must switch to an initial setup wizard that collects the iTop URL, iTop administrator credentials, and that administrator's personal token.
 - User management UI must use `Vincular usuario` semantics, meaning link existing iTop accounts instead of creating identities in iTop.

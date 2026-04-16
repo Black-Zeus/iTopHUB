@@ -74,7 +74,7 @@ Covers Hub login, authorization, user linking, personal iTop token handling, and
   - currently 4 hours in `dev`
 - Runtime decrypted token TTL:
   - currently 1 hour in `dev`
-- About 40 seconds before session expiry, the frontend should warn the user and start a visible 30-second auto-close countdown so they can extend the session before the hard limit.
+- The frontend warning must use the configured `warningSeconds` returned by the backend, but it should open 10 seconds earlier than that threshold as a safety margin. Example: if `warningSeconds` is 40, the modal opens 50 seconds before expiry and keeps a visible 40-second countdown.
 - If a request needs iTop and the runtime token is no longer in Redis, the frontend must ask for the user's password to revalidate and reload the token into Redis.
 
 ## Notes
