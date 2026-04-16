@@ -13,8 +13,7 @@ import {
 } from "@services/auth-session-service";
 import { ApiError } from "@services/api-client";
 
-const SESSION_WARNING_OPEN_OFFSET_SECONDS = 40;
-const SESSION_WARNING_AUTO_CLOSE_SECONDS = 30;
+const SESSION_WARNING_EARLY_BUFFER_SECONDS = 10;
 
 export function useAuth() {
   const [loading, setLoading] = useState(true);
@@ -150,7 +149,8 @@ export function useAuth() {
       return undefined;
     }
 
-    const warningAtMs = expireAtMs - (SESSION_WARNING_OPEN_OFFSET_SECONDS * 1000);
+    const normalizedWarningSeconds = Math.max(1, Number(warningSeconds) || 30);
+    const warningAtMs = expireAtMs - ((normalizedWarningSeconds + SESSION_WARNING_EARLY_BUFFER_SECONDS) * 1000);
     const delay = Math.max(warningAtMs - Date.now(), 0);
     let modalId = null;
 
@@ -171,7 +171,7 @@ export function useAuth() {
           title: "La sesion esta por vencer",
           message:
             "Tu sesion esta por terminar. Si sigues activo, extiendela ahora para evitar interrupciones o errores de reingreso al limite del vencimiento.",
-          autoCloseSeconds: SESSION_WARNING_AUTO_CLOSE_SECONDS,
+          autoCloseSeconds: normalizedWarningSeconds,
           sessionExpiresAtMs: expireAtMs,
           onExtend: async () => {
             await keepSessionAlive();
@@ -206,7 +206,7 @@ export function useAuth() {
       }
       warningModalOpenRef.current = false;
     };
-  }, [user, expiresAt]);
+  }, [user, expiresAt, warningSeconds]);
 
   const login = async (credentials) => {
     const session = await authenticateUser(credentials);
