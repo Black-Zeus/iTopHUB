@@ -269,7 +269,7 @@ function EvidenceUploadModal({ row, willConfirmStatus, allowedExtensions, onCanc
   };
 
   return (
-    <div className="flex max-h-[78vh] min-h-0 min-w-0 flex-col overflow-hidden rounded-[22px] border border-[var(--border-color)] bg-[var(--bg-panel)]">
+    <div className="flex max-h-[78vh] min-h-0 min-w-0 flex-col overflow-hidden">
       <div className="grid min-h-0 flex-1 xl:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
         <div className="flex min-h-0 flex-col gap-5 border-b border-[var(--border-color)] p-5 xl:border-b-0 xl:border-r">
           <div className="grid flex-1 min-h-0 gap-3">
@@ -535,12 +535,7 @@ export function HandoverPage() {
     const willConfirmStatus = row.status === "Emitida";
     let modalId = null;
     modalId = ModalManager.custom({
-      title: (
-        <span className="inline-flex items-center gap-3">
-          <Icon name="warning" size={16} className="h-4 w-4 shrink-0 text-[var(--warning)]" aria-hidden="true" />
-          <span>Cargar evidencia {row.code}</span>
-        </span>
-      ),
+      title: `Cargar evidencia ${row.code}`,
       size: "personDetail",
       showFooter: false,
       content: (
