@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Acta de Entrega y Anexo de Revisión</title>
+    <style>
+        :root {
+            --bg: #eef3f8;
+            --surface: #ffffff;
+            --surface-soft: #f7fafd;
+            --line: #d7e1ec;
+            --line-strong: #b9c8d8;
+            --text: #1f2a37;
+            --muted: #607080;
+            --primary: #16324f;
+            --primary-soft: #eaf2fb;
+            --radius: 12px;
+        }
+
+        * { box-sizing: border-box; }
+
+        html, body {
+            margin: 0;
+            padding: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 14px;
+            line-height: 1.45;
+        }
+
+        body { padding: 20px; }
+
+        .page {
+            width: 210mm;
+            min-height: 297mm;
+            margin: 0 auto 18px auto;
+            padding: 15mm;
+            background: var(--surface);
+            page-break-after: always;
+        }
+
+        .page:last-child { page-break-after: auto; }
+
+        .document {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .header {
+            border: 1px solid var(--line-strong);
+            border-radius: 14px;
+            overflow: hidden;
+        }
+
+        .header-top {
+            display: grid;
+            grid-template-columns: 120px 1fr 180px;
+            background: linear-gradient(180deg, #f9fbfe 0%, #f4f8fc 100%);
+        }
+
+        .logo-box,
+        .title-box,
+        .folio-box {
+            padding: 14px;
+            min-height: 88px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .logo-box {
+            border-right: 1px solid var(--line);
+            align-items: center;
+            text-align: center;
+        }
+
+        .logo-box img {
+            max-width: 84px;
+            max-height: 50px;
+            object-fit: contain;
+            display: block;
+            margin-bottom: 6px;
+        }
+
+        .title-box { border-right: 1px solid var(--line); }
+
+        .folio-box { background: var(--primary-soft); }
+
+        .eyebrow,
+        .label {
+            display: block;
+            font-size: 11px;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: .08em;
+            margin-bottom: 4px;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 24px;
+            line-height: 1.2;
+            color: var(--primary);
+        }
+
+        .subtitle {
+            margin-top: 6px;
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .folio-code {
+            font-size: 19px;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .section {
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            overflow: hidden;
+            background: var(--surface);
+        }
+
+        .section-title {
+            margin: 0;
+            padding: 10px 14px;
+            background: #f7fafc;
+            border-bottom: 1px solid var(--line);
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: .08em;
+            color: var(--primary);
+        }
+
+        .section-body { padding: 14px; }
+
+        .value {
+            display: block;
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--text);
+            word-break: break-word;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .table th,
+        .table td {
+            border: 1px solid var(--line);
+            padding: 9px 10px;
+            vertical-align: top;
+            text-align: left;
+        }
+
+        .table th {
+            background: #f7fafc;
+            color: var(--primary);
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: .05em;
+        }
+
+        .asset-table td { font-size: 13px; }
+
+        .signature-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 320px));
+            justify-content: center;
+            gap: 28px;
+        }
+
+        .signature-box {
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            padding: 12px;
+            min-height: 145px;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            text-align: center;
+        }
+
+        .signature-line {
+            border-top: 1px solid var(--line-strong);
+            padding-top: 8px;
+            margin-top: 56px;
+        }
+
+        .muted {
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .footer-note {
+            font-size: 11px;
+            color: var(--muted);
+            text-align: justify;
+        }
+
+        .checklist-table .field-name {
+            width: 34%;
+            font-weight: 700;
+            background: #fbfdff;
+        }
+
+        .subsection-title {
+            margin: 0 0 10px 0;
+            padding: 8px 10px;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: .06em;
+            color: var(--primary);
+            background: #f7fafc;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+        }
+
+        .section-body .subsection-title + .table {
+            margin-bottom: 14px;
+        }
+
+        .static-text {
+            display: inline;
+            color: var(--text);
+            font: inherit;
+            white-space: pre-wrap;
+        }
+
+        @media print {
+            body {
+                background: #fff;
+                padding: 0;
+            }
+
+            .page {
+                width: auto;
+                min-height: auto;
+                margin: 0;
+                padding: 10mm;
+            }
+        }
+
+        @media (max-width: 980px) {
+            body { padding: 10px; }
+
+            .page {
+                width: 100%;
+                min-height: auto;
+                padding: 16px;
+            }
+
+            .header-top,
+            .signature-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .logo-box,
+            .title-box,
+            .folio-box {
+                border-right: 0;
+                border-bottom: 1px solid var(--line);
+            }
+
+            .header-top > :last-child { border-bottom: 0; }
+
+            .checklist-table .field-name { width: auto; }
+        }
+    </style>
+</head>
+<body>
+    <!-- HOJA 1: ACTA PRINCIPAL -->
+    <div class="page">
+        <div class="document">
+            <header class="header">
+                <div class="header-top">
+                    <div class="logo-box">
+                        <img src="logo.png" alt="Logo cliente" />
+                        <span class="muted">GFCL</span>
+                    </div>
+                    <div class="title-box">
+                        <span class="eyebrow">Identificación del cliente</span>
+                        <h1>Acta de Entrega de Activos</h1>
+                        <div class="subtitle">Minera Gold Fields · Operaciones TI · Chile</div>
+                    </div>
+                    <div class="folio-box">
+                        <span class="label">Código de acta</span>
+                        <span class="folio-code">ENT-2026-0048</span>
+                        <span class="label" style="margin-top:8px;">Fecha</span>
+                        <span class="value">16-04-2026</span>
+                    </div>
+                </div>
+            </header>
+
+            <section class="section">
+                <h2 class="section-title">Responsables de aceptación y anexos</h2>
+                <div class="section-body">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th style="width: 18%;">Tipo de responsabilidad</th>
+                                <th style="width: 24%;">Nombre</th>
+                                <th style="width: 22%;">Correo</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>Responsable</td>
+                                <td>María Fernanda Rojas Pérez</td>
+                                <td>maria.rojas@goldfields.com</td>
+                            </tr>
+                            <tr>
+                                <td>Contraturno</td>
+                                <td>Diego Andrés Muñoz Silva</td>
+                                <td>diego.munoz@goldfields.com</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="section">
+                <h2 class="section-title">Descripción y observaciones del acta</h2>
+                <div class="section-body">
+                    <table class="table">
+                        <tbody>
+                            <tr>
+                                <td style="width: 28%; font-weight: 700; background: #fbfdff;">Descripción</td>
+                                <td>Entrega formal de equipamiento corporativo para habilitación operativa de usuario titular y soporte de continuidad mediante responsable de contraturno.</td>
+                            </tr>
+                            <tr>
+                                <td style="font-weight: 700; background: #fbfdff;">Observaciones</td>
+                                <td>Los activos se entregan revisados, inventariados y registrados. El detalle de preparación técnica y validaciones previas se documenta en la hoja anexa de revisión y preparación.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="section">
+                <h2 class="section-title">Detalle de activos entregados</h2>
+                <div class="section-body">
+                    <table class="table asset-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 8%;">#</th>
+                                <th style="width: 14%;">Tipo</th>
+                                <th style="width: 29%;">Activo</th>
+                                <th style="width: 21%;">Marca / Modelo</th>
+                                <th style="width: 18%;">Serie / Identificador</th>
+                                <th style="width: 10%;">Cantidad</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>1</td>
+                                <td>Laptop</td>
+                                <td>Notebook corporativo</td>
+                                <td>HP / ProBook 640 G8</td>
+                                <td>CNU1423LNP</td>
+                                <td>1</td>
+                            </tr>
+                            <tr>
+                                <td>2</td>
+                                <td>Periférico</td>
+                                <td>Kit teclado / mouse inalámbrico</td>
+                                <td>Logitech / MK295</td>
+                                <td>KIT-LOG-88321</td>
+                                <td>1</td>
+                            </tr>
+                            <tr>
+                                <td>3</td>
+                                <td>Periférico</td>
+                                <td>Audífonos Bluetooth para reunión</td>
+                                <td>Jabra / Evolve2 65</td>
+                                <td>JAB-E265-44710</td>
+                                <td>1</td>
+                            </tr>
+                            <tr>
+                                <td>4</td>
+                                <td>Smartphone</td>
+                                <td>Celular corporativo</td>
+                                <td>Apple / iPhone 17 Pro</td>
+                                <td>IP17P-99001127</td>
+                                <td>1</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="section">
+                <h2 class="section-title">Aceptación y conformidad</h2>
+                <div class="section-body">
+                    <div class="signature-grid">
+                        <div class="signature-box">
+                            <div class="signature-line">
+                                <div class="value">María Fernanda Rojas Pérez</div>
+                                <div class="muted">Responsable de aceptación</div>
+                                <div class="muted">MFRP2147 · maria.rojas@goldfields.com</div>
+                            </div>
+                        </div>
+                        <div class="signature-box">
+                            <div class="signature-line">
+                                <div class="value">Víctor Soto S.</div>
+                                <div class="muted">Emisor / responsable de entrega</div>
+                                <div class="muted">SysAdmin / Auditor Interno IT</div>
+                            </div>
+                        </div>
+                    </div>
+                    <p class="footer-note" style="margin-top:12px; margin-bottom:0;">
+                        El firmante declara haber recibido los activos detallados en la presente acta, en la fecha indicada, aceptando su asignación conforme a la información registrada. La revisión técnica y de preparación de los equipos se documenta en hoja anexa separada.
+                    </p>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <!-- HOJA 2: ANEXO DE CHECKLIST -->
+    <div class="page">
+        <div class="document">
+            <header class="header">
+                <div class="header-top">
+                    <div class="logo-box">
+                        <img src="logo.png" alt="Logo cliente" />
+                        <span class="muted">GFCL</span>
+                    </div>
+                    <div class="title-box">
+                        <span class="eyebrow">Documento anexo</span>
+                        <h1>Anexo de Revisión y Preparación</h1>
+                        <div class="subtitle">Checklists técnicos separados del acta principal · Minera Gold Fields</div>
+                    </div>
+                    <div class="folio-box">
+                        <span class="label">Referencia acta</span>
+                        <span class="folio-code">ENTD-2026-0048</span>
+                        <span class="label" style="margin-top:8px;">Fecha</span>
+                        <span class="value">16-04-2026</span>
+                    </div>
+                </div>
+            </header>
+
+            <section class="section">
+                <h2 class="section-title">Laptop - CLGENTITLP2005</h2>
+                <div class="section-body">
+                    <h3 class="subsection-title">Especificaciones</h3>
+                    <table class="table checklist-table">
+                        <tbody>
+                            <tr>
+                                <td class="field-name">Serie</td>
+                                <td><span class="static-text">CNU1423LNP</span></td>
+                            </tr>
+                            <tr>
+                                <td class="field-name">Marca / Modelo</td>
+                                <td><span class="static-text">HP ProBook 640 G8</span></td>
+                            </tr>
+                            <tr>
+                                <td class="field-name">CPU</td>
+                                <td><span class="static-text">Intel Core i5 2.5 Ghz</span></td>
+                            </tr>
+                            <tr>
+                                <td class="field-name">RAM</td>
+                                <td><span class="static-text">8 GB</span></td>
+                            </tr>
+                            <tr>
+                                <td class="field-name">Sistema Operativo</td>
+                                <td><span class="static-text">Windows 11</span></td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <h3 class="subsection-title">Checklist</h3>
+                    <table class="table checklist-table">
+                        <tbody>
+                            <tr>
+                                <td class="field-name">Condición de salida</td>
+                                <td><span class="static-text">Refaccionado o spare</span></td>
+                            </tr>
+                            <tr>
+                                <td class="field-name">Estado visual</td>
+                                <td><span class="static-text">Conforme</span></td>
+                            </tr>
+                            <tr>
+                                <td class="field-name">Limpieza para entrega</td>
+                                <td><span class="static-text">Sí</span></td>
+                            </tr>
+                            <tr>
+                                <td class="field-name">Cargador incluido</td>
+                                <td><span class="static-text">Sí</span></td>
+                            </tr>
+                            <tr>
+                                <td class="field-name">Observaciones de preparación</td>
+                                <td><span class="static-text">Equipo operativo, formateado, unido a dominio y validado con conectividad corporativa. Presenta marcas menores de uso en tapa superior, sin impacto funcional.</span></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="section">
+                <h2 class="section-title">Periférico - PER-LOG-88321</h2>
+                <div class="section-body">
+                    <h3 class="subsection-title">Especificaciones</h3>
+                    <table class="table checklist-table">
+                        <tbody>
+                            <tr>
+                                <td class="field-name">Activo</td>
+                                <td><span class="static-text">Kit teclado / mouse inalámbrico</span></td>
+                            </tr>
+                            <tr>
+                                <td class="field-name">Marca / Modelo</td>
+                                <td><span class="static-text">Logitech MK295</span></td>
+                            </tr>
+                            <tr>
+                                <td class="field-name">Serie</td>
+                                <td><span class="static-text">KIT-LOG-88321</span></td>
+                            </tr>
+                            <tr>
+                                <td class="field-name">Tipo de conexión</td>
+                                <td><span class="static-text">Inalámbrica con receptor USB</span></td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <h3 class="subsection-title">Checklist</h3>
+                    <table class="table checklist-table">
+                        <tbody>
+                            <tr>
+                                <td class="field-name">Estado visual</td>
+                                <td><span class="static-text">Conforme</span></td>
+                            </tr>
+                            <tr>
+                                <td class="field-name">Baterías incluidas</td>
+                                <td><span class="static-text">Sí</span></td>
+                            </tr>
+                            <tr>
+                                <td class="field-name">Prueba funcional</td>
+                                <td><span class="static-text">Sí</span></td>
+                            </tr>
+                            <tr>
+                                <td class="field-name">Receptor USB incluido</td>
+                                <td><span class="static-text">Sí</span></td>
+                            </tr>
+                            <tr>
+                                <td class="field-name">Observaciones</td>
+                                <td><span class="static-text">Set inalámbrico entregado completo, con receptor USB y validación básica de funcionamiento.</span></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="section">
+                <h2 class="section-title">Periférico - HEADSET-BT-7781</h2>
+                <div class="section-body">
+                    <h3 class="subsection-title">Especificaciones</h3>
+                    <table class="table checklist-table">
+                        <tbody>
+                            <tr>
+                                <td class="field-name">Activo</td>
+                                <td><span class="static-text">Audífonos Bluetooth para reunión</span></td>
+                            </tr>
+                            <tr>
+                                <td class="field-name">Marca / Modelo</td>
+                                <td><span class="static-text">Jabra / Evolve2 65</span></td>
+                            </tr>
+                            <tr>
+                                <td class="field-name">Serie</td>
+                                <td><span class="static-text">JAB-E265-44710</span></td>
+                            </tr>
+                            <tr>
+                                <td class="field-name">Conectividad</td>
+                                <td><span class="static-text">Bluetooth / USB</span></td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <h3 class="subsection-title">Checklist</h3>
+                    <table class="table checklist-table">
+                        <tbody>
+                            <tr>
+                                <td class="field-name">Estado visual</td>
+                                <td><span class="static-text">Conforme</span></td>
+                            </tr>
+                            <tr>
+                                <td class="field-name">Carga de batería verificada</td>
+                                <td><span class="static-text">Sí</span></td>
+                            </tr>
+                            <tr>
+                                <td class="field-name">Emparejamiento probado</td>
+                                <td><span class="static-text">Sí</span></td>
+                            </tr>
+                            <tr>
+                                <td class="field-name">Cable de carga incluido</td>
+                                <td><span class="static-text">Sí</span></td>
+                            </tr>
+                            <tr>
+                                <td class="field-name">Observaciones</td>
+                                <td><span class="static-text">Se entrega con batería sobre 80%, cable de carga incluido y prueba de audio realizada correctamente.</span></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="section">
+                <h2 class="section-title">Smartphone - MOB-IPH17PRO-0001</h2>
+                <div class="section-body">
+                    <h3 class="subsection-title">Especificaciones</h3>
+                    <table class="table checklist-table">
+                        <tbody>
+                            <tr>
+                                <td class="field-name">Activo</td>
+                                <td><span class="static-text">Celular corporativo</span></td>
+                            </tr>
+                            <tr>
+                                <td class="field-name">Marca / Modelo</td>
+                                <td><span class="static-text">Apple / iPhone 17 Pro</span></td>
+                            </tr>
+                            <tr>
+                                <td class="field-name">Serie</td>
+                                <td><span class="static-text">IP17P-99001127</span></td>
+                            </tr>
+                            <tr>
+                                <td class="field-name">Capacidad / referencia</td>
+                                <td><span class="static-text">Referencia corporativa para enrolamiento inicial</span></td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <h3 class="subsection-title">Checklist</h3>
+                    <table class="table checklist-table">
+                        <tbody>
+                            <tr>
+                                <td class="field-name">Equipo nuevo / usado</td>
+                                <td><span class="static-text">Nuevo</span></td>
+                            </tr>
+                            <tr>
+                                <td class="field-name">Encendido inicial validado</td>
+                                <td><span class="static-text">Sí</span></td>
+                            </tr>
+                            <tr>
+                                <td class="field-name">Cable / accesorios base incluidos</td>
+                                <td><span class="static-text">Sí</span></td>
+                            </tr>
+                            <tr>
+                                <td class="field-name">Estado físico</td>
+                                <td><span class="static-text">Conforme</span></td>
+                            </tr>
+                            <tr>
+                                <td class="field-name">Observaciones</td>
+                                <td><span class="static-text">Equipo sellado, habilitado para activación corporativa posterior. Se entrega con cable USB-C y documentación base.</span></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+    </div>
+</body>
+</html>
