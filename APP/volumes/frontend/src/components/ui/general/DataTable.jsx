@@ -37,7 +37,7 @@ export function DataTable({ columns = [], rows = [], loading = false, emptyMessa
             {columns.map((col) => (
               <th
                 key={col.key}
-                className={`border-b border-[var(--border-color)] px-3 py-3 text-left text-[0.78rem] font-semibold uppercase tracking-[0.05em] text-[var(--text-muted)] ${col.headerClassName || ""}`}
+                className={`border-b border-[var(--border-color)] px-3 py-3 align-middle text-left text-[0.78rem] font-semibold uppercase tracking-[0.05em] text-[var(--text-muted)] ${col.headerClassName || ""}`}
               >
                 {col.sortable ? (
                   <button
@@ -78,7 +78,7 @@ export function DataTable({ columns = [], rows = [], loading = false, emptyMessa
                 {columns.map((col) => (
                   <td
                     key={col.key}
-                    className={`border-b border-[var(--border-color)] px-3 py-3 text-sm text-[var(--text-secondary)] align-top ${col.cellClassName || ""}`}
+                    className={`border-b border-[var(--border-color)] px-3 py-3 align-middle text-sm text-[var(--text-secondary)] ${col.cellClassName || ""}`}
                   >
                     {col.render ? col.render(row[col.key], row) : (row[col.key] ?? "—")}
                   </td>
