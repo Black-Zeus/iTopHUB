@@ -16,3 +16,13 @@ class HandoverSaveRequest(BaseModel):
     receiver: dict[str, Any] = Field(default_factory=dict)
     additionalReceivers: list[dict[str, Any]] = Field(default_factory=list)
     items: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class HandoverEvidenceFileRequest(BaseModel):
+    name: str = ""
+    mimeType: str = ""
+    contentBase64: str = ""
+
+
+class HandoverEvidenceUploadRequest(BaseModel):
+    files: list[HandoverEvidenceFileRequest] = Field(default_factory=list)

@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import json
 import unicodedata
+from base64 import b64decode
 from datetime import datetime
+from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from fastapi import HTTPException
 
+from core.config import settings
 from modules.handover.repository import (
     fetch_handover_checklist_answer_rows,
     fetch_handover_document_row,
@@ -55,6 +59,9 @@ INPUT_TYPE_DB_TO_UI = {
     "check": "Check",
     "radio": "Option / Radio",
 }
+INPUT_TYPE_UI_TO_DB = {value: key for key, value in INPUT_TYPE_DB_TO_UI.items()}
+HANDOVER_EVIDENCE_ROOT = Path("/app/data/handover_evidence")
+DEFAULT_EVIDENCE_ALLOWED_EXTENSIONS = {"pdf", "doc", "docx"}
 
 
 def _coerce_str(value: Any, default: str = "") -> str:
@@ -74,6 +81,31 @@ def _normalize_comparison_text(value: Any) -> str:
         .strip()
         .lower()
     )
+
+
+def _sanitize_attachment_filename(value: Any) -> str:
+    name = Path(_coerce_str(value)).name
+    sanitized = "".join(character if character.isalnum() or character in {".", "-", "_"} else "_" for character in name)
+    return sanitized.strip("._") or "evidencia"
+
+
+def _format_attachment_size(size_bytes: int) -> str:
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    if size_bytes < 1024 * 1024:
+        return f"{(size_bytes / 1024):.1f} KB"
+    return f"{(size_bytes / (1024 * 1024)):.1f} MB"
+
+
+def _get_allowed_evidence_extensions() -> set[str]:
+    docs_settings = get_settings_panel("docs")
+    configured_values = docs_settings.get("evidenceAllowedExtensions") or []
+    allowed = {
+        _coerce_str(item).lower().lstrip(".")
+        for item in configured_values
+        if _coerce_str(item).lower().lstrip(".") in {"pdf", "doc", "docx", "txt"}
+    }
+    return allowed or set(DEFAULT_EVIDENCE_ALLOWED_EXTENSIONS)
 
 
 def _get_asset_assignment_restriction(asset: dict[str, Any]) -> str:
@@ -170,6 +202,7 @@ def _matches_template_cmdb_class(asset_class_name: Any, template_class_label: An
 
 def get_handover_bootstrap(session_user: dict[str, Any], runtime_token: str) -> dict[str, Any]:
     docs_settings = get_settings_panel("docs")
+    allowed_evidence_extensions = sorted(_get_allowed_evidence_extensions())
     return {
         "sessionUser": {
             "id": session_user["id"],
@@ -188,6 +221,7 @@ def get_handover_bootstrap(session_user: dict[str, Any], runtime_token: str) -> 
         },
         "actions": {
             "allowEvidenceUpload": bool(docs_settings.get("allowEvidenceUpload", True)),
+            "evidenceAllowedExtensions": allowed_evidence_extensions,
         },
         "statusOptions": [
             {"value": value, "label": label}
@@ -388,6 +422,16 @@ def _normalize_response_value(answer: dict[str, Any], template_item: dict[str, A
     return value
 
 
+def _is_answer_completed(answer: dict[str, Any]) -> bool:
+    input_type = answer.get("input_type")
+    response_value = answer.get("response_value")
+
+    if input_type == "check":
+        return response_value in {"0", "1"}
+
+    return bool(_coerce_str(response_value))
+
+
 def _build_template_catalog_by_id() -> dict[int, dict[str, Any]]:
     template_map: dict[int, dict[str, Any]] = {}
     for template in _serialize_template_catalog(include_inactive=True):
@@ -477,6 +521,8 @@ def _deserialize_evidence_attachments(raw_value: Any) -> list[dict[str, Any]]:
                 "size": _coerce_str(item.get("size")),
                 "mimeType": _coerce_str(item.get("mimeType")),
                 "source": _coerce_str(item.get("source")),
+                "storedName": _coerce_str(item.get("storedName")),
+                "uploadedAt": _coerce_str(item.get("uploadedAt")),
             }
         )
     return normalized
@@ -498,9 +544,108 @@ def _normalize_evidence_attachments(payload: Any) -> str:
                 "size": _coerce_str(item.get("size")),
                 "mimeType": _coerce_str(item.get("mimeType")),
                 "source": _coerce_str(item.get("source")),
+                "storedName": _coerce_str(item.get("storedName")),
+                "uploadedAt": _coerce_str(item.get("uploadedAt")),
             }
         )
     return json.dumps(normalized, ensure_ascii=True)
+
+
+def _build_receiver_payload(receiver: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "receiver_person_id": int(receiver["id"]) if receiver.get("id") else None,
+        "receiver_code": _coerce_str(receiver.get("code")) or None,
+        "receiver_name": _coerce_str(receiver.get("name")),
+        "receiver_email": _coerce_str(receiver.get("email")) or None,
+        "receiver_phone": _coerce_str(receiver.get("phone")) or None,
+        "receiver_role": _coerce_str(receiver.get("role")) or None,
+        "receiver_status": _coerce_str(receiver.get("status")) or None,
+    }
+
+
+def _build_item_payloads_from_detail(detail_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    payloads: list[dict[str, Any]] = []
+    for item in detail_items:
+        asset = item.get("asset") or {}
+        checklists: list[dict[str, Any]] = []
+        for checklist in item.get("checklists") or []:
+            answers: list[dict[str, Any]] = []
+            for answer in checklist.get("answers") or []:
+                input_type = INPUT_TYPE_UI_TO_DB.get(_coerce_str(answer.get("type")), "input_text")
+                value = answer.get("value")
+                response_value = "1" if input_type == "check" and bool(value) else ("0" if input_type == "check" else _coerce_str(value))
+                answers.append(
+                    {
+                        "checklist_item_id": int(answer["checklistItemId"]),
+                        "check_name": _coerce_str(answer.get("name")),
+                        "check_description": _coerce_str(answer.get("description")),
+                        "input_type": input_type,
+                        "option_a": _coerce_str(answer.get("optionA")) or None,
+                        "option_b": _coerce_str(answer.get("optionB")) or None,
+                        "response_value": response_value,
+                    }
+                )
+
+            checklists.append(
+                {
+                    "template_id": int(checklist["templateId"]),
+                    "template_name": _coerce_str(checklist.get("templateName")),
+                    "template_description": _coerce_str(checklist.get("templateDescription")) or None,
+                    "answers": answers,
+                }
+            )
+
+        payloads.append(
+            {
+                "asset_itop_id": int(asset["id"]),
+                "asset_code": _coerce_str(asset.get("code")),
+                "asset_name": _coerce_str(asset.get("name")),
+                "asset_class_name": _coerce_str(asset.get("className")) or None,
+                "asset_brand": _coerce_str(asset.get("brand")) or None,
+                "asset_model": _coerce_str(asset.get("model")) or None,
+                "asset_serial": _coerce_str(asset.get("serial")) or None,
+                "asset_status": _coerce_str(asset.get("status")) or None,
+                "assigned_user_name": _coerce_str(asset.get("assignedUser")) or None,
+                "notes": _coerce_str(item.get("notes")) or None,
+                "checklists": checklists,
+            }
+        )
+    return payloads
+
+
+def _build_document_payload_from_detail(
+    current_detail: dict[str, Any],
+    existing_document: dict[str, Any],
+    *,
+    status_ui: str,
+    assignment_date: str,
+    evidence_date: str,
+    evidence_attachments: list[dict[str, Any]],
+) -> dict[str, Any]:
+    creation_at = _normalize_generated_at(current_detail.get("creationDate") or current_detail.get("generatedAt"))
+    assignment_at = _normalize_optional_datetime(assignment_date)
+    evidence_at = _normalize_optional_datetime(evidence_date)
+    additional_receivers = _normalize_additional_receivers(
+        current_detail.get("additionalReceivers") or [],
+        int(current_detail.get("receiver", {}).get("id")) if current_detail.get("receiver", {}).get("id") else 0,
+    )
+
+    return {
+        "document_number": existing_document["document_number"],
+        "generated_at": creation_at.strftime("%Y-%m-%d %H:%M:%S"),
+        "creation_date": creation_at.strftime("%Y-%m-%d %H:%M:%S"),
+        "assignment_date": assignment_at.strftime("%Y-%m-%d %H:%M:%S") if assignment_at else None,
+        "evidence_date": evidence_at.strftime("%Y-%m-%d %H:%M:%S") if evidence_at else None,
+        "owner_user_id": int(existing_document["owner_user_id"]),
+        "owner_name": existing_document["owner_name"],
+        "status": STATUS_UI_TO_DB[status_ui],
+        "handover_type": TYPE_UI_TO_DB[_coerce_str(current_detail.get("handoverType"), "Entrega inicial")],
+        "reason": _coerce_str(current_detail.get("reason")),
+        "notes": _coerce_str(current_detail.get("notes")) or None,
+        "additional_receivers": additional_receivers or None,
+        "evidence_attachments": _normalize_evidence_attachments(evidence_attachments) or None,
+        **_build_receiver_payload(current_detail.get("receiver") or {}),
+    }
 
 
 def _normalize_additional_receivers(payload: Any, primary_receiver_id: int) -> str:
@@ -754,4 +899,170 @@ def update_handover_document(
         existing_document=existing_document,
     )
     save_handover_document(document_id, document_payload, item_payloads)
+    return get_handover_document_detail(document_id)
+
+
+def emit_handover_document(document_id: int, session_user: dict[str, Any]) -> dict[str, Any]:
+    existing_document = fetch_handover_document_row(document_id)
+    if not existing_document:
+        raise HTTPException(status_code=404, detail="Acta de entrega no encontrada.")
+
+    current_status = STATUS_DB_TO_UI.get(existing_document["status"], existing_document["status"])
+    if current_status != "En creacion":
+        raise HTTPException(status_code=422, detail="Solo se puede emitir un acta en estado En creacion.")
+
+    current_detail = get_handover_document_detail(document_id)
+    if not current_detail.get("receiver", {}).get("id"):
+        raise HTTPException(status_code=422, detail="Debes seleccionar la persona destino antes de emitir el acta.")
+    if not current_detail.get("items"):
+        raise HTTPException(status_code=422, detail="Debes agregar al menos un activo antes de emitir el acta.")
+
+    for item in current_detail["items"]:
+        for checklist in item.get("checklists") or []:
+            incomplete_answer = next(
+                (answer for answer in checklist.get("answers") or [] if not _is_answer_completed({
+                    "input_type": {
+                        "Input text": "input_text",
+                        "Text area": "text_area",
+                        "Check": "check",
+                        "Option / Radio": "radio",
+                    }.get(answer.get("type"), "input_text"),
+                    "response_value": "1" if answer.get("type") == "Check" and bool(answer.get("value")) else (
+                        "0" if answer.get("type") == "Check" else _coerce_str(answer.get("value"))
+                    ),
+                })),
+                None,
+            )
+            if incomplete_answer is not None:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Debes completar el check '{incomplete_answer['name']}' del activo '{item['asset'].get('code') or item['asset'].get('name') or 'sin codigo'}' antes de emitir.",
+                )
+
+    assignment_at = datetime.now().strftime("%Y-%m-%dT%H:%M")
+    payload = {
+        "generatedAt": current_detail.get("generatedAt") or current_detail.get("creationDate") or assignment_at,
+        "creationDate": current_detail.get("creationDate") or current_detail.get("generatedAt") or assignment_at,
+        "assignmentDate": assignment_at,
+        "evidenceDate": current_detail.get("evidenceDate") or "",
+        "evidenceAttachments": current_detail.get("evidenceAttachments") or [],
+        "status": "Emitida",
+        "handoverType": current_detail.get("handoverType") or "Entrega inicial",
+        "reason": current_detail.get("reason") or "",
+        "notes": current_detail.get("notes") or "",
+        "receiver": current_detail.get("receiver") or {},
+        "additionalReceivers": current_detail.get("additionalReceivers") or [],
+        "items": current_detail.get("items") or [],
+    }
+    return update_handover_document(document_id, payload, session_user)
+
+
+def rollback_handover_document(document_id: int, session_user: dict[str, Any]) -> dict[str, Any]:
+    existing_document = fetch_handover_document_row(document_id)
+    if not existing_document:
+        raise HTTPException(status_code=404, detail="Acta de entrega no encontrada.")
+
+    current_status = STATUS_DB_TO_UI.get(existing_document["status"], existing_document["status"])
+    if current_status != "Emitida":
+        raise HTTPException(status_code=422, detail="Solo se puede cancelar la emision de un acta en estado Emitida.")
+
+    current_detail = get_handover_document_detail(document_id)
+    payload = {
+        "generatedAt": current_detail.get("generatedAt") or current_detail.get("creationDate") or "",
+        "creationDate": current_detail.get("creationDate") or current_detail.get("generatedAt") or "",
+        "assignmentDate": "",
+        "evidenceDate": current_detail.get("evidenceDate") or "",
+        "evidenceAttachments": current_detail.get("evidenceAttachments") or [],
+        "status": "En creacion",
+        "handoverType": current_detail.get("handoverType") or "Entrega inicial",
+        "reason": current_detail.get("reason") or "",
+        "notes": current_detail.get("notes") or "",
+        "receiver": current_detail.get("receiver") or {},
+        "additionalReceivers": current_detail.get("additionalReceivers") or [],
+        "items": current_detail.get("items") or [],
+    }
+    return update_handover_document(document_id, payload, session_user)
+
+
+def attach_handover_document_evidence(
+    document_id: int,
+    attachments: list[dict[str, Any]],
+    session_user: dict[str, Any],
+) -> dict[str, Any]:
+    del session_user
+
+    existing_document = fetch_handover_document_row(document_id)
+    if not existing_document:
+        raise HTTPException(status_code=404, detail="Acta de entrega no encontrada.")
+
+    current_status = STATUS_DB_TO_UI.get(existing_document["status"], existing_document["status"])
+    if current_status not in {"Emitida", "Confirmada"}:
+        raise HTTPException(status_code=422, detail="Solo se puede cargar evidencia sobre actas emitidas o confirmadas.")
+    if not attachments:
+        raise HTTPException(status_code=422, detail="Debes adjuntar al menos una evidencia.")
+
+    storage_directory = HANDOVER_EVIDENCE_ROOT / f"document_{document_id}"
+    storage_directory.mkdir(parents=True, exist_ok=True)
+
+    created_paths: list[Path] = []
+    current_detail = get_handover_document_detail(document_id)
+    now = datetime.now()
+    evidence_at = now.strftime("%Y-%m-%dT%H:%M")
+    serialized_attachments = list(current_detail.get("evidenceAttachments") or [])
+
+    try:
+        for index, attachment in enumerate(attachments, start=1):
+            original_name = _sanitize_attachment_filename(attachment.get("name"))
+            file_extension = Path(original_name).suffix.lower().lstrip(".")
+            allowed_extensions = _get_allowed_evidence_extensions()
+            if file_extension not in allowed_extensions:
+                allowed_label = ", ".join(f".{item}" for item in sorted(allowed_extensions))
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"El archivo '{original_name}' no es valido para evidencia. Tipos permitidos: {allowed_label}.",
+                )
+            raw_content = _coerce_str(attachment.get("contentBase64"))
+            try:
+                content = b64decode(raw_content, validate=True) if raw_content else b""
+            except Exception as exc:
+                raise HTTPException(status_code=422, detail="Una de las evidencias adjuntas no tiene un formato valido.") from exc
+            if not content:
+                raise HTTPException(status_code=422, detail="Una de las evidencias adjuntas no contiene datos validos.")
+
+            suffix = Path(original_name).suffix
+            stored_name = f"{now.strftime('%Y%m%d%H%M%S')}_{index}_{uuid4().hex[:8]}{suffix}"
+            stored_path = storage_directory / stored_name
+            stored_path.write_bytes(bytes(content))
+            created_paths.append(stored_path)
+
+            serialized_attachments.append(
+                {
+                    "name": Path(original_name).name,
+                    "size": _format_attachment_size(len(content)),
+                    "mimeType": _coerce_str(attachment.get("mimeType")) or "application/octet-stream",
+                    "source": f"{settings.env_name}/handover_evidence/document_{document_id}/{stored_name}",
+                    "storedName": stored_name,
+                    "uploadedAt": evidence_at,
+                }
+            )
+
+        document_payload = _build_document_payload_from_detail(
+            current_detail,
+            existing_document,
+            status_ui="Confirmada",
+            assignment_date=current_detail.get("assignmentDate") or evidence_at,
+            evidence_date=evidence_at,
+            evidence_attachments=serialized_attachments,
+        )
+        item_payloads = _build_item_payloads_from_detail(current_detail.get("items") or [])
+        save_handover_document(document_id, document_payload, item_payloads)
+    except Exception:
+        for path in created_paths:
+            try:
+                if path.exists():
+                    path.unlink()
+            except OSError:
+                continue
+        raise
+
     return get_handover_document_detail(document_id)
