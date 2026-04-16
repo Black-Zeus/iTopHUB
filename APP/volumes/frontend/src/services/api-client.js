@@ -54,15 +54,17 @@ export async function apiRequest(path, options = {}) {
     retryOnRevalidate = false,
     ...fetchOptions
   } = options;
+  const isFormDataBody = typeof FormData !== "undefined" && fetchOptions.body instanceof FormData;
+  const requestHeaders = {
+    Accept: "application/json",
+    ...(!isFormDataBody && fetchOptions.body ? { "Content-Type": "application/json" } : {}),
+    ...(fetchOptions.headers || {}),
+  };
 
   try {
     const response = await fetch(`${API_BASE_URL}${path}`, {
       credentials: "include",
-      headers: {
-        Accept: "application/json",
-        ...(fetchOptions.body ? { "Content-Type": "application/json" } : {}),
-        ...(fetchOptions.headers || {}),
-      },
+      headers: requestHeaders,
       ...fetchOptions,
     });
 
@@ -80,11 +82,7 @@ export async function apiRequest(path, options = {}) {
       await tokenRevalidationHandler(error);
       const retryResponse = await fetch(`${API_BASE_URL}${path}`, {
         credentials: "include",
-        headers: {
-          Accept: "application/json",
-          ...(fetchOptions.body ? { "Content-Type": "application/json" } : {}),
-          ...(fetchOptions.headers || {}),
-        },
+        headers: requestHeaders,
         ...fetchOptions,
       });
 

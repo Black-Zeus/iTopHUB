@@ -7,8 +7,11 @@ import { StatusChip } from "../../components/ui/general/StatusChip";
 import { Icon } from "../../components/ui/icon/Icon";
 import { Button } from "../../ui/Button";
 import {
+  emitHandoverDocument,
   getHandoverBootstrap,
   listHandoverDocuments,
+  rollbackHandoverDocument,
+  uploadHandoverEvidence,
   updateHandoverDocumentStatus,
 } from "../../services/handover-service";
 import { downloadRowsAsCsv } from "../../utils/export-csv";
@@ -97,6 +100,292 @@ function downloadListCsv(rows) {
   });
 }
 
+function isAcceptedEvidenceFile(file, allowedExtensions = []) {
+  const normalizedName = String(file?.name || "").toLowerCase();
+  return allowedExtensions.some((extension) => normalizedName.endsWith(`.${extension}`));
+}
+
+function getEvidenceFileTypeMeta(file) {
+  const normalizedName = String(file?.name || "").toLowerCase();
+  const normalizedType = String(file?.type || "").toLowerCase();
+
+  if (normalizedType.includes("pdf") || normalizedName.endsWith(".pdf")) {
+    return {
+      label: "PDF",
+      className: "bg-[rgba(210,138,138,0.16)] text-[var(--danger)]",
+    };
+  }
+
+  if (normalizedName.endsWith(".doc") || normalizedName.endsWith(".docx")) {
+    return {
+      label: normalizedName.endsWith(".docx") ? "DOCX" : "DOC",
+      className: "bg-[rgba(81,152,194,0.16)] text-[var(--accent-strong)]",
+    };
+  }
+
+  return {
+    label: "TXT",
+    className: "bg-[rgba(81,152,194,0.16)] text-[var(--accent-strong)]",
+  };
+}
+
+function EvidenceFileTypeIcon({ file }) {
+  const meta = getEvidenceFileTypeMeta(file);
+  const extensionLabel = meta.label === "DOCX" ? "W" : meta.label === "DOC" ? "W" : meta.label === "PDF" ? "P" : "T";
+  return (
+    <span
+      aria-label={meta.label}
+      title={meta.label}
+      className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-[8px] text-[11px] font-bold ${meta.className}`}
+    >
+      {extensionLabel}
+    </span>
+  );
+}
+
+function EvidenceUploadModal({ row, willConfirmStatus, allowedExtensions, onCancel, onSubmit }) {
+  const [selectedFiles, setSelectedFiles] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [acknowledged, setAcknowledged] = useState(!willConfirmStatus);
+  const [dragActive, setDragActive] = useState(false);
+  const normalizedAllowedExtensions = (allowedExtensions?.length ? allowedExtensions : ["pdf", "doc", "docx"]).map((item) => String(item).toLowerCase());
+  const acceptValue = normalizedAllowedExtensions.map((item) => `.${item}`).join(",");
+  const allowedExtensionsLabel = normalizedAllowedExtensions.map((item) => item.toUpperCase()).join(" / ");
+
+  const appendFiles = (incomingFiles) => {
+    const incomingList = Array.from(incomingFiles || []);
+    if (!incomingList.length) {
+      return;
+    }
+
+    const validFiles = incomingList.filter((file) => isAcceptedEvidenceFile(file, normalizedAllowedExtensions));
+    const invalidFiles = incomingList.filter((file) => !isAcceptedEvidenceFile(file, normalizedAllowedExtensions));
+
+    if (!validFiles.length && invalidFiles.length) {
+      setError(`Formato no admitido. Solo se permiten ${allowedExtensionsLabel}: ${invalidFiles.map((file) => file.name).join(", ")}`);
+      return;
+    }
+
+    setSelectedFiles((current) => {
+      const seenKeys = new Set(current.map((file) => `${file.name}-${file.size}-${file.lastModified}`));
+      const merged = [...current];
+      validFiles.forEach((file) => {
+        const fileKey = `${file.name}-${file.size}-${file.lastModified}`;
+        if (!seenKeys.has(fileKey)) {
+          merged.push(file);
+          seenKeys.add(fileKey);
+        }
+      });
+      return merged;
+    });
+    setError(
+      invalidFiles.length
+        ? `Se omitieron archivos no admitidos. Solo se permiten ${allowedExtensionsLabel}: ${invalidFiles.map((file) => file.name).join(", ")}`
+        : ""
+    );
+  };
+
+  const handleFilesChange = (event) => {
+    appendFiles(event.target.files || []);
+    event.target.value = "";
+  };
+
+  const handleDragEnter = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!busy) {
+      setDragActive(true);
+    }
+  };
+
+  const handleDragOver = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!busy) {
+      setDragActive(true);
+    }
+  };
+
+  const handleDragLeave = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const relatedTarget = event.relatedTarget;
+    if (relatedTarget && event.currentTarget.contains(relatedTarget)) {
+      return;
+    }
+    setDragActive(false);
+  };
+
+  const handleDrop = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setDragActive(false);
+    if (busy) {
+      return;
+    }
+    appendFiles(event.dataTransfer?.files || []);
+  };
+
+  const handleRemoveFile = async (fileToRemove) => {
+    const confirmed = await ModalManager.confirm({
+      title: "Quitar adjunto",
+      message: `Se quitara ${fileToRemove.name}.`,
+      content: "Confirma para remover este adjunto de la carga actual.",
+      buttons: { cancel: "Cancelar", confirm: "Quitar" },
+    });
+
+    if (!confirmed) {
+      return;
+    }
+
+    setSelectedFiles((current) =>
+      current.filter((file) => `${file.name}-${file.size}-${file.lastModified}` !== `${fileToRemove.name}-${fileToRemove.size}-${fileToRemove.lastModified}`)
+    );
+  };
+
+  const selectedCountLabel = selectedFiles.length === 1 ? "1 adjunto preparado" : `${selectedFiles.length} adjuntos preparados`;
+  const submitDisabled = busy || selectedFiles.length === 0 || (willConfirmStatus && !acknowledged);
+
+  const handleSubmit = async () => {
+    if (!selectedFiles.length) {
+      setError("Debes seleccionar al menos una evidencia.");
+      return;
+    }
+    if (willConfirmStatus && !acknowledged) {
+      setError("Debes confirmar que la carga cambiara el estado del acta.");
+      return;
+    }
+
+    setBusy(true);
+    setError("");
+
+    try {
+      await onSubmit(selectedFiles);
+    } catch (submitError) {
+      setError(submitError?.message || "No fue posible cargar las evidencias.");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="flex max-h-[78vh] min-h-0 min-w-0 flex-col overflow-hidden rounded-[22px] border border-[var(--border-color)] bg-[var(--bg-panel)]">
+      <div className="grid min-h-0 flex-1 xl:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+        <div className="flex min-h-0 flex-col gap-5 border-b border-[var(--border-color)] p-5 xl:border-b-0 xl:border-r">
+          <div className="grid flex-1 min-h-0 gap-3">
+            <span className="text-sm font-semibold text-[var(--text-primary)]">Agregar evidencia</span>
+            <input
+              type="file"
+              multiple
+              accept={acceptValue}
+              onChange={handleFilesChange}
+              disabled={busy}
+              className="hidden"
+              id={`handover-evidence-${row.id}`}
+            />
+            <label
+              htmlFor={`handover-evidence-${row.id}`}
+              className={`flex min-h-[14rem] flex-1 cursor-pointer flex-col items-center justify-center rounded-[18px] border border-dashed px-4 py-6 text-center transition ${dragActive ? "border-[var(--accent-strong)] bg-[var(--accent-soft)] text-[var(--accent-strong)]" : "border-[var(--border-color)] bg-[var(--bg-app)] text-[var(--text-secondary)]"} ${busy ? "pointer-events-none opacity-60" : ""}`}
+              onDragEnter={handleDragEnter}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+            >
+              <Icon name="paperclip" size={18} className="h-4.5 w-4.5 shrink-0" aria-hidden="true" />
+              <span className="mt-3 text-lg font-semibold text-[var(--text-primary)]">
+                {dragActive ? "Suelta archivos aqui" : "Arrastra archivos aqui"}
+              </span>
+              <span className="mt-1 text-sm text-[var(--text-muted)]">{allowedExtensionsLabel} · click para seleccionar</span>
+            </label>
+          </div>
+
+          {willConfirmStatus ? (
+            <label className="flex items-start gap-3 rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-4 text-sm text-[var(--text-secondary)]">
+              <input
+                type="checkbox"
+                checked={acknowledged}
+                onChange={(event) => setAcknowledged(event.target.checked)}
+                disabled={busy}
+                className="mt-0.5 h-4 w-4 rounded border border-[var(--border-color)]"
+              />
+              <span className="leading-6">
+                Confirmo que al aceptar esta carga el acta cambiara desde <strong className="text-[var(--text-primary)]">Emitida</strong> a{" "}
+                <strong className="text-[var(--success)]">Confirmada</strong>.
+              </span>
+            </label>
+          ) : null}
+        </div>
+
+        <div className="flex min-h-0 flex-col overflow-hidden">
+          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--border-color)] px-5 py-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Adjuntos preparados</p>
+            <span className="inline-flex rounded-full bg-[var(--accent-soft)] px-3 py-1 text-xs font-semibold text-[var(--accent-strong)]">
+              {selectedFiles.length} {selectedFiles.length === 1 ? "archivo" : "archivos"}
+            </span>
+          </div>
+          <div className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto] gap-3 border-b border-[var(--border-color)] bg-[var(--bg-app)] px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+            <span>Archivo</span>
+            <span className="text-right">Accion</span>
+          </div>
+          <div className="min-h-[22rem] flex-1 overflow-y-auto px-5 py-4">
+            {selectedFiles.length ? (
+              <ol className="grid gap-3">
+                {selectedFiles.map((file) => (
+                  <li
+                    key={`${file.name}-${file.size}-${file.lastModified}`}
+                    className="grid gap-3 rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-3 md:grid-cols-[minmax(0,1fr)_auto]"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <EvidenceFileTypeIcon file={file} />
+                        <p className="truncate text-sm font-semibold text-[var(--text-primary)]">{file.name}</p>
+                      </div>
+                      <p className="mt-1 break-all text-xs text-[var(--text-muted)]">
+                        {getEvidenceFileTypeMeta(file).label} / {file.size} B
+                      </p>
+                    </div>
+                    <div className="flex justify-end">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="px-3 py-1.5 text-[11px]"
+                        onClick={() => handleRemoveFile(file)}
+                        disabled={busy}
+                      >
+                        <Icon name="xmark" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                        Quitar
+                      </Button>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <div className="flex h-full min-h-[18rem] items-center justify-center px-5 text-center text-sm text-[var(--text-muted)]">
+                Sin adjuntos. Agrega archivos desde el panel izquierdo.
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {error ? (
+        <div className="mx-5 mb-0 shrink-0 rounded-[18px] border border-[rgba(210,138,138,0.45)] bg-[rgba(210,138,138,0.12)] px-4 py-3 text-sm text-[var(--text-primary)]">
+          {error}
+        </div>
+      ) : null}
+
+      <div className="flex shrink-0 flex-wrap justify-end gap-3 border-t border-[var(--border-color)] px-5 py-4">
+        <Button variant="secondary" onClick={onCancel} disabled={busy} className="min-w-[7.5rem]">
+          Cerrar
+        </Button>
+        <Button variant="primary" onClick={handleSubmit} disabled={submitDisabled} className="min-w-[11.5rem]">
+          {busy ? "Cargando..." : willConfirmStatus ? "Cargar y confirmar" : "Cargar evidencias"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export function HandoverPage() {
   const navigate = useNavigate();
   const [rows, setRows] = useState([]);
@@ -105,7 +394,7 @@ export function HandoverPage() {
   const [notice, setNotice] = useState("");
   const [filters, setFilters] = useState({ query: "", status: "" });
   const [catalog, setCatalog] = useState({ statusOptions: [] });
-  const [actionConfig, setActionConfig] = useState({ allowEvidenceUpload: true });
+  const [actionConfig, setActionConfig] = useState({ allowEvidenceUpload: true, evidenceAllowedExtensions: ["pdf", "doc", "docx"] });
 
   const kpis = useMemo(() => buildKpis(rows), [rows]);
 
@@ -130,6 +419,7 @@ export function HandoverPage() {
       });
       setActionConfig({
         allowEvidenceUpload: Boolean(bootstrap?.actions?.allowEvidenceUpload ?? true),
+        evidenceAllowedExtensions: bootstrap?.actions?.evidenceAllowedExtensions || ["pdf", "doc", "docx"],
       });
     } catch (loadError) {
       setError(loadError.message || "No fue posible preparar el modulo.");
@@ -168,7 +458,7 @@ export function HandoverPage() {
               variant="primary"
               onClick={async () => {
                 try {
-                  await updateHandoverDocumentStatus(row.id, "Emitida");
+                  await emitHandoverDocument(row.id);
                   ModalManager.close(modalId);
                   setNotice(`El acta ${row.code} quedo en estado Emitida.`);
                   setError("");
@@ -211,6 +501,28 @@ export function HandoverPage() {
     }
   };
 
+  const handleRollback = async (row) => {
+    const confirmed = await ModalManager.confirm({
+      title: "Cancelar emision",
+      message: `Se revertira ${row.code} a En creacion.`,
+      content: "Confirma para devolver esta acta al estado anterior. La fecha de asignacion se limpiara y el documento volvera a quedar editable.",
+      buttons: { cancel: "Cerrar", confirm: "Cancelar emision" },
+    });
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      await rollbackHandoverDocument(row.id);
+      setNotice(`El acta ${row.code} volvio a estado En creacion.`);
+      setError("");
+      await loadDocuments(filters);
+    } catch (rollbackError) {
+      setError(rollbackError.message || "No fue posible cancelar la emision del acta.");
+    }
+  };
+
   const openPdfModal = (row) => {
     ModalManager.info({
       title: `PDF ${row.code}`,
@@ -220,70 +532,111 @@ export function HandoverPage() {
   };
 
   const openEvidenceModal = (row) => {
-    const modalId = ModalManager.custom({
-      title: `Cargar evidencia ${row.code}`,
-      size: "medium",
+    const willConfirmStatus = row.status === "Emitida";
+    let modalId = null;
+    modalId = ModalManager.custom({
+      title: (
+        <span className="inline-flex items-center gap-3">
+          <Icon name="warning" size={16} className="h-4 w-4 shrink-0 text-[var(--warning)]" aria-hidden="true" />
+          <span>Cargar evidencia {row.code}</span>
+        </span>
+      ),
+      size: "personDetail",
       showFooter: false,
       content: (
-        <div className="grid gap-5">
-          <p className="text-sm text-[var(--text-secondary)]">
-            Este flujo quedara reservado para cargar manualmente el PDF firmado o documento final de respaldo cuando el archivo aun no venga generado desde el Hub.
-          </p>
-          <div className="rounded-[18px] border border-dashed border-[var(--border-color)] bg-[var(--bg-app)] p-5 text-sm text-[var(--text-secondary)]">
-            Placeholder de carga manual de evidencia PDF.
-          </div>
-          <div className="flex justify-end">
-            <Button variant="secondary" onClick={() => ModalManager.close(modalId)}>
-              Cerrar
-            </Button>
-          </div>
-        </div>
+        <EvidenceUploadModal
+          row={row}
+          willConfirmStatus={willConfirmStatus}
+          allowedExtensions={actionConfig.evidenceAllowedExtensions}
+          onCancel={() => ModalManager.close(modalId)}
+          onSubmit={async (files) => {
+            await uploadHandoverEvidence(row.id, files);
+            ModalManager.close(modalId);
+            setNotice(
+              willConfirmStatus
+                ? `El acta ${row.code} quedo Confirmada y las evidencias fueron registradas.`
+                : `Las evidencias del acta ${row.code} fueron registradas.`
+            );
+            setError("");
+            await loadDocuments(filters);
+          }}
+        />
       ),
     });
   };
 
   const tableColumns = [
-    { key: "code", label: "Acta", sortable: true },
+    { key: "code", label: "Acta", sortable: true, headerClassName: "w-[9rem] min-w-[9rem]", cellClassName: "w-[9rem] min-w-[9rem]" },
     { key: "person", label: "Destinatario", sortable: true },
     { key: "role", label: "Cargo", sortable: true },
     { key: "asset", label: "Activos" },
-    { key: "date", label: "Fecha", sortable: true },
-    { key: "status", label: "Estado", render: (value) => <StatusChip status={value} /> },
+    { key: "date", label: "Fecha", sortable: true, headerClassName: "w-[7.5rem] min-w-[7.5rem]", cellClassName: "w-[7.5rem] min-w-[7.5rem]" },
+    {
+      key: "status",
+      label: "Estado",
+      headerClassName: "w-[8.5rem] min-w-[8.5rem]",
+      cellClassName: "w-[8.5rem] min-w-[8.5rem]",
+      render: (value) => <StatusChip status={value} />,
+    },
     {
       key: "actions",
       label: "Acciones",
-      headerClassName: "w-[19rem] min-w-[19rem] text-right",
-      cellClassName: "w-[19rem] min-w-[19rem] text-right",
-      render: (_, row) => (
-        <div className="flex max-w-[19rem] flex-wrap items-center justify-end gap-1.5 ml-auto">
-          <Button size="sm" variant="secondary" className="px-3 py-1.5 text-xs" onClick={() => navigate(`/handover/${row.id}`)}>
-            <Icon name="edit" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-            Editar
-          </Button>
-          {row.status === "En creacion" ? (
-            <Button size="sm" variant="secondary" className="px-3 py-1.5 text-xs" onClick={() => handleProcess(row)}>
-              <Icon name="check" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-              Procesar
-            </Button>
-          ) : null}
-          {row.status !== "Anulada" ? (
-            <Button size="sm" variant="secondary" className="px-3 py-1.5 text-xs" onClick={() => handleCancel(row)}>
-              <Icon name="xmark" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-              Anular
-            </Button>
-          ) : null}
-          <Button size="sm" variant="secondary" className="px-3 py-1.5 text-xs" onClick={() => openPdfModal(row)}>
-            <Icon name="download" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-            PDF
-          </Button>
-          {actionConfig.allowEvidenceUpload ? (
-            <Button size="sm" variant="secondary" className="px-3 py-1.5 text-xs" onClick={() => openEvidenceModal(row)}>
-              <Icon name="paperclip" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-              Cargar evidencia
-            </Button>
-          ) : null}
-        </div>
-      ),
+      headerClassName: "w-[16.5rem] min-w-[16.5rem] text-right",
+      cellClassName: "w-[16.5rem] min-w-[16.5rem] text-right",
+      render: (_, row) => {
+        const isDraft = row.status === "En creacion";
+        const isIssued = row.status === "Emitida";
+        const isConfirmed = row.status === "Confirmada";
+        const actionContainerClassName = isDraft
+          ? "ml-auto flex max-w-[16.5rem] flex-nowrap items-center justify-end gap-1.5"
+          : "ml-auto grid max-w-[16.5rem] grid-cols-2 justify-items-end gap-1.5";
+        const sharedButtonClassName = "inline-flex min-h-[36px] items-center justify-center whitespace-nowrap px-2.5 py-1.5 text-[11px]";
+        const draftButtonClassName = `${sharedButtonClassName} min-w-[5.75rem]`;
+        const compactActionButtonClassName = `${sharedButtonClassName} min-w-[5.5rem]`;
+        const evidenceButtonClassName = `${sharedButtonClassName} min-w-[7rem]`;
+        const evidenceButtonLabel = isIssued ? "Evidencia" : "Cargar evidencia";
+
+        return (
+          <div className={actionContainerClassName}>
+            {isDraft ? (
+              <Button size="sm" variant="secondary" className={draftButtonClassName} onClick={() => navigate(`/handover/${row.id}`)}>
+                <Icon name="edit" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                Editar
+              </Button>
+            ) : null}
+            {isDraft ? (
+              <Button size="sm" variant="secondary" className={draftButtonClassName} onClick={() => handleProcess(row)}>
+                <Icon name="check" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                Procesar
+              </Button>
+            ) : null}
+            {isIssued ? (
+              <Button size="sm" variant="secondary" className={compactActionButtonClassName} onClick={() => handleRollback(row)}>
+                <Icon name="history" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                Cancelar
+              </Button>
+            ) : null}
+            {isDraft || isIssued ? (
+              <Button size="sm" variant="secondary" className={compactActionButtonClassName} onClick={() => handleCancel(row)}>
+                <Icon name="xmark" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                Anular
+              </Button>
+            ) : null}
+            {isIssued || isConfirmed ? (
+              <Button size="sm" variant="secondary" className={compactActionButtonClassName} onClick={() => openPdfModal(row)}>
+                <Icon name="download" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                PDF
+              </Button>
+            ) : null}
+            {actionConfig.allowEvidenceUpload && (isIssued || isConfirmed) ? (
+              <Button size="sm" variant="secondary" className={evidenceButtonClassName} onClick={() => openEvidenceModal(row)}>
+                <Icon name="paperclip" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                {evidenceButtonLabel}
+              </Button>
+            ) : null}
+          </div>
+        );
+      },
     },
   ];
 

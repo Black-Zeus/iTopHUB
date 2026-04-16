@@ -2,6 +2,20 @@ import { apiRequest } from "@services/api-client";
 import { searchItopAssets, searchItopPeople } from "./itop-service";
 
 
+function readFileAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      const base64Payload = result.includes(",") ? result.split(",").pop() : result;
+      resolve(base64Payload || "");
+    };
+    reader.onerror = () => reject(new Error(`No fue posible leer el archivo ${file.name}.`));
+    reader.readAsDataURL(file);
+  });
+}
+
+
 export async function getHandoverBootstrap() {
   return apiRequest("/v1/handover/bootstrap", {
     fallbackMessage: "No fue posible preparar el modulo de entrega.",
@@ -68,6 +82,45 @@ export async function updateHandoverDocumentStatus(documentId, status) {
     ...detail,
     status,
   });
+}
+
+
+export async function emitHandoverDocument(documentId) {
+  const response = await apiRequest(`/v1/handover/documents/${documentId}/emit`, {
+    method: "POST",
+    fallbackMessage: "No fue posible emitir el acta de entrega.",
+    retryOnRevalidate: true,
+  });
+  return response.item;
+}
+
+
+export async function rollbackHandoverDocument(documentId) {
+  const response = await apiRequest(`/v1/handover/documents/${documentId}/rollback`, {
+    method: "POST",
+    fallbackMessage: "No fue posible cancelar la emision del acta de entrega.",
+    retryOnRevalidate: true,
+  });
+  return response.item;
+}
+
+
+export async function uploadHandoverEvidence(documentId, files = []) {
+  const serializedFiles = await Promise.all(
+    files.map(async (file) => ({
+      name: file.name,
+      mimeType: file.type || "application/octet-stream",
+      contentBase64: await readFileAsBase64(file),
+    }))
+  );
+
+  const response = await apiRequest(`/v1/handover/documents/${documentId}/evidence`, {
+    method: "POST",
+    body: JSON.stringify({ files: serializedFiles }),
+    fallbackMessage: "No fue posible cargar la evidencia del acta de entrega.",
+    retryOnRevalidate: true,
+  });
+  return response.item;
 }
 
 
