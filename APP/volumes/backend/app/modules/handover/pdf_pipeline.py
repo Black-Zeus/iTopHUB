@@ -87,17 +87,22 @@ def _build_footer_template(
             font-size: 10px;
             margin: 0;
             padding: 0;
+            width: 100%;
         }}
         body {{
             margin: 0;
-            padding: 0;
+            padding: 0 26px 10px;
+            width: 100%;
+            box-sizing: border-box;
         }}
         .page-footer {{
             border-top: 1px solid #d7e1ec;
+            box-sizing: border-box;
             display: grid;
             gap: 12px;
             grid-template-columns: 1fr 1fr 1fr;
-            padding-top: 6px;
+            padding: 8px 10px 4px;
+            align-items: center;
             width: 100%;
         }}
         .page-footer-center {{
@@ -128,7 +133,7 @@ def _build_base_html(title: str, subtitle: str, code_label: str, code_value: str
     margin_top = max(0, int(docs_settings.get("marginTopMm") or 12))
     margin_right = max(0, int(docs_settings.get("marginRightMm") or 12))
     show_footer = bool(docs_settings.get("showFooter", True))
-    margin_bottom = max(16 if show_footer else 8, int(docs_settings.get("marginBottomMm") or 18))
+    margin_bottom = max(22 if show_footer else 8, int(docs_settings.get("marginBottomMm") or 22))
     margin_left = max(0, int(docs_settings.get("marginLeftMm") or 12))
     show_header = bool(docs_settings.get("showHeader", True))
     header_show_logo = bool(docs_settings.get("headerShowLogo", True))
@@ -197,22 +202,25 @@ def _build_base_html(title: str, subtitle: str, code_label: str, code_value: str
             font-family: Arial, Helvetica, sans-serif;
             font-size: 12px;
             line-height: 1.45;
-            width: 100%;
+            padding: 0 2px;
+            box-sizing: border-box;
+            max-width: 100%;
         }}
         .header {{
             border: 1px solid var(--line-strong);
             border-radius: 12px;
             overflow: hidden;
             margin-bottom: 14px;
+            width: 100%;
             max-width: 100%;
         }}
         .header-grid {{
             display: grid;
-            grid-template-columns: 72px minmax(0, 1fr) 156px;
+            grid-template-columns: 64px minmax(0, 1fr) 148px;
         }}
         .brand, .title, .folio {{
             min-height: 84px;
-            padding: 12px;
+            padding: 10px;
             min-width: 0;
         }}
         .brand {{
@@ -255,6 +263,8 @@ def _build_base_html(title: str, subtitle: str, code_label: str, code_value: str
             border-radius: 10px;
             margin-bottom: 12px;
             overflow: hidden;
+            width: 100%;
+            max-width: 100%;
         }}
         .section-title {{
             background: var(--soft);
@@ -269,6 +279,8 @@ def _build_base_html(title: str, subtitle: str, code_label: str, code_value: str
         }}
         .section-body {{
             padding: 12px;
+            width: 100%;
+            max-width: 100%;
         }}
         table {{
             border-collapse: collapse;
