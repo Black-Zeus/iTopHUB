@@ -989,9 +989,7 @@ def update_handover_document(
     return get_handover_document_detail(document_id)
 
 
-def emit_handover_document(document_id: int, session_user: dict[str, Any]) -> dict[str, Any]:
-    del session_user
-
+def emit_handover_document(document_id: int, session_user: dict[str, Any], session_id: str) -> dict[str, Any]:
     existing_document = fetch_handover_document_row(document_id)
     if not existing_document:
         raise HTTPException(status_code=404, detail="Acta de entrega no encontrada.")
@@ -1028,9 +1026,18 @@ def emit_handover_document(document_id: int, session_user: dict[str, Any]) -> di
                     detail=f"Debes completar el check '{incomplete_answer['name']}' del activo '{item['asset'].get('code') or item['asset'].get('name') or 'sin codigo'}' antes de emitir.",
                 )
 
-    job_id = create_job(document_id, "handover_emit", {
-        "document_id": document_id,
-    })
+    job_id = create_job(
+        document_id,
+        "handover_emit",
+        {
+            "document_id": document_id,
+        },
+        session_id=session_id,
+        owner_user_id=int(session_user["id"]),
+        owner_name=str(session_user["name"]),
+        module_code="handover",
+        resource_type="handover_document",
+    )
 
     return {
         "jobId": job_id,

@@ -120,7 +120,7 @@ def handover_document_emit(
     session_id = ensure_session(hub_session_id)
     try:
         session_user = ensure_module_access(session_id, "handover", write=True)
-        return {"item": emit_handover_document(document_id, session_user)}
+        return {"item": emit_handover_document(document_id, session_user, session_id)}
     except AuthenticationError as exc:
         raise_auth_error(exc)
     except HTTPException:
