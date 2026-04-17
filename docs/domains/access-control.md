@@ -76,6 +76,8 @@ Covers Hub login, authorization, user linking, personal iTop token handling, and
   - currently 1 hour in `dev`
 - The frontend warning must use the configured `warningSeconds` returned by the backend, but it should open 10 seconds earlier than that threshold as a safety margin. Example: if `warningSeconds` is 40, the modal opens 50 seconds before expiry and keeps a visible 40-second countdown.
 - If a request needs iTop and the runtime token is no longer in Redis, the frontend must ask for the user's password to revalidate and reload the token into Redis.
+- Async jobs that depend on the session runtime token must use the same Redis-backed token contract as direct API calls. If they cannot recover a valid runtime token, they must return a `TOKEN_REVALIDATION_REQUIRED` error to the UI instead of downgrading it to a generic processing failure.
+- Any service that needs to decode the Redis runtime token outside the main backend process must share the same token-encryption settings (`HUB_TOKEN_KEK` and `HUB_TOKEN_KEK_VERSION`), or the token cache becomes unreadable even if the session metadata is still valid.
 
 ## Notes
 

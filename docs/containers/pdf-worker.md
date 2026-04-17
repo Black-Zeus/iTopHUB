@@ -26,3 +26,5 @@ Generates PDFs and document outputs without loading that responsibility into the
 - Access to the internal render endpoint is protected with `INTERNAL_API_SECRET`.
 - When a queued PDF job reaches `processing`, `completed`, or `failed`, the worker must update the shared Redis job record so the backend SSE stream can notify the originating session.
 - If notification TTL/history tuning is changed in `backend`, keep the same values available in `pdf-worker` so event publication and replay use the same ephemeral policy.
+- If `pdf-worker` reads or refreshes user runtime-token state through shared backend session helpers, it must receive the same token-encryption configuration as `backend`, especially `HUB_TOKEN_KEK` and `HUB_TOKEN_KEK_VERSION`.
+- Handover emit jobs may enrich asset specifications from iTop before rendering the detail PDF; token-related failures must preserve the original revalidation error contract so the UI can reopen the password modal instead of surfacing a generic processing error.

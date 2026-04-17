@@ -57,6 +57,8 @@ Hosts the custom application API and integration layer between the frontend, iTo
 - The handover module now persists its own delivery-document records in MariaDB and reuses iTop searches only for selecting receiver and CMDB assets before emission.
 - Handover PDF files are generated through the internal `pdf-worker` service, stored temporarily under `/app/data/handover_documents`, and associated to each acta through `generated_documents` metadata in MariaDB.
 - Handover PDFs consume organization and document-layout settings from MariaDB, including logo, page size, margins, folio traceability, and footer page numbering.
+- Before enqueuing handover emission, `backend` must validate that the session still has a runtime iTop token available so the frontend can trigger password revalidation in the normal HTTP flow instead of discovering the problem only after the async job starts.
+- Handover PDF generation enriches each delivered asset from iTop at emit time using the current session runtime token; the PDF detail must prefer that live iTop snapshot for specifications rather than relying only on the draft payload saved in MariaDB.
 - Manual handover evidence uploads are stored temporarily under `/app/data/handover_evidence` inside the backend data mount, while document metadata continues to live in MariaDB.
 - Rolling back a handover from `Emitida` to `En creacion` removes the generated PDF files and clears `generated_documents`, but preserves `evidence_attachments`; evidence lifecycle is managed separately from PDF regeneration.
 - Expected runtime env vars for connector bootstrap:
