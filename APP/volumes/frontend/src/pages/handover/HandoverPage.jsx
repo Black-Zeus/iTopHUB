@@ -425,16 +425,58 @@ function getAttachmentIconName(name) {
   return "regFile";
 }
 
+function isPdfDocument(fileName) {
+  return String(fileName || "").toLowerCase().endsWith(".pdf");
+}
+
+function triggerBlobDownload({ url, fileName }) {
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+function BlobPdfPreviewModal({ blobUrl, fileName }) {
+  useEffect(() => () => URL.revokeObjectURL(blobUrl), [blobUrl]);
+
+  const handleDownload = () => {
+    const anchor = document.createElement("a");
+    anchor.href = blobUrl;
+    anchor.download = fileName;
+    anchor.click();
+  };
+
+  return (
+    <div className="flex flex-col gap-4">
+      <iframe
+        src={blobUrl}
+        title={fileName || "Documento PDF"}
+        className="h-[60vh] w-full rounded-[16px] border border-[var(--border-color)]"
+      />
+      <div className="flex justify-end">
+        <Button variant="primary" onClick={handleDownload}>
+          <Icon name="export" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          Descargar
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 async function openBlobPreview({ loadBlob, fallbackName }) {
   const { url } = await loadBlob();
-  const previewWindow = window.open(url, "_blank", "noopener,noreferrer");
-  if (!previewWindow) {
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = fallbackName;
-    anchor.click();
+  if (!isPdfDocument(fallbackName)) {
+    triggerBlobDownload({ url, fileName: fallbackName });
+    return;
   }
-  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+
+  ModalManager.custom({
+    title: fallbackName || "Documento PDF",
+    size: "pdfViewer",
+    showFooter: false,
+    content: <BlobPdfPreviewModal blobUrl={url} fileName={fallbackName || "documento.pdf"} />,
+  });
 }
 
 function DocumentLibraryModal({ row, detail, allowEvidenceUpload, onClose, onOpenGeneratedDocument, onOpenAttachment }) {
