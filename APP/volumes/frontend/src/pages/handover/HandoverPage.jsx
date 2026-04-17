@@ -9,26 +9,21 @@ import { Button } from "../../ui/Button";
 import { useToast } from "../../ui";
 import {
   emitHandoverDocument,
+  fetchHandoverEvidenceBlob,
   fetchHandoverGeneratedPdfBlob,
-  getHandoverEmitJobStatus,
   getHandoverBootstrap,
+  getHandoverDocument,
   listHandoverDocuments,
   rollbackHandoverDocument,
   uploadHandoverEvidence,
   updateHandoverDocumentStatus,
 } from "../../services/handover-service";
+import { runtimeConfig } from "../../config/runtime";
+import { waitForJobNotification } from "../../services/notification-service";
 import { downloadRowsAsCsv } from "../../utils/export-csv";
 import { MessageBanner } from "./handover-editor-shared";
 
 const HANDOVER_FILTER_CONTROL_HEIGHT = "h-[66px]";
-const HANDOVER_JOB_POLL_INTERVAL_MS = 2000;
-const HANDOVER_JOB_POLL_TIMEOUT_MS = 120000;
-
-function sleep(ms) {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, ms);
-  });
-}
 
 function buildKpis(rows) {
   const draftCount = rows.filter((row) => row.status === "En creacion").length;
@@ -414,13 +409,172 @@ function EvidenceUploadModal({ row, willConfirmStatus, allowedExtensions, onCanc
   );
 }
 
+function formatDocumentTimestamp(value, fallbackLabel) {
+  const normalizedValue = String(value || "").trim();
+  return normalizedValue ? normalizedValue.replace("T", " ") : fallbackLabel;
+}
+
+function getAttachmentIconName(name) {
+  const extension = String(name || "").split(".").pop()?.toLowerCase();
+  if (extension === "pdf") {
+    return "fileLines";
+  }
+  if (extension === "doc" || extension === "docx") {
+    return "regFileLines";
+  }
+  return "regFile";
+}
+
+async function openBlobPreview({ loadBlob, fallbackName }) {
+  const { url } = await loadBlob();
+  const previewWindow = window.open(url, "_blank", "noopener,noreferrer");
+  if (!previewWindow) {
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = fallbackName;
+    anchor.click();
+  }
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+function DocumentLibraryModal({ row, detail, allowEvidenceUpload, onClose, onOpenGeneratedDocument, onOpenAttachment }) {
+  const generatedDocuments = detail?.generatedDocuments || [];
+  const evidenceAttachments = detail?.evidenceAttachments || [];
+
+  return (
+    <div className="grid max-h-[78vh] gap-5 overflow-y-auto">
+      <div className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-4 text-sm text-[var(--text-secondary)]">
+        <p className="font-semibold text-[var(--text-primary)]">{row.code}</p>
+        <p className="mt-2">
+          Revisa los documentos generados por el pipeline y los adjuntos de evidencia registrados para esta acta.
+        </p>
+      </div>
+
+      <div className="grid gap-4">
+        <div>
+          <p className="text-sm font-semibold text-[var(--text-primary)]">Documentos generados</p>
+          <p className="mt-1 text-sm text-[var(--text-secondary)]">PDFs emitidos desde el backend para esta acta.</p>
+        </div>
+
+        {generatedDocuments.length ? (
+          <div className="grid gap-3 md:grid-cols-2">
+            {generatedDocuments.map((generatedDocument, index) => (
+              <div
+                key={`generated-document-${generatedDocument.kind || index}`}
+                className="rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-3"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] border border-[var(--border-color)] bg-[var(--bg-panel)]">
+                    <Icon name="fileLines" size={16} className="h-4 w-4 text-[var(--text-secondary)]" aria-hidden="true" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p
+                      className="truncate text-sm font-semibold text-[var(--text-primary)]"
+                      title={generatedDocument.name || generatedDocument.code || `PDF ${index + 1}`}
+                    >
+                      {generatedDocument.name || generatedDocument.code || `PDF ${index + 1}`}
+                    </p>
+                    <p className="mt-0.5 text-xs text-[var(--text-muted)]">
+                      {formatDocumentTimestamp(
+                        generatedDocument.uploadedAt || detail?.assignmentDate,
+                        "Fecha de generacion no registrada"
+                      )}
+                    </p>
+                    {generatedDocument.title ? (
+                      <p className="mt-0.5 text-xs text-[var(--text-secondary)]">{generatedDocument.title}</p>
+                    ) : null}
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="shrink-0 px-3 py-1.5 text-[11px]"
+                    onClick={() => onOpenGeneratedDocument(generatedDocument)}
+                    disabled={!generatedDocument.kind}
+                  >
+                    <Icon name="regWindowRestore" size={13} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    Ver
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <MessageBanner>No hay PDFs generados asociados todavia.</MessageBanner>
+        )}
+      </div>
+
+      {allowEvidenceUpload ? (
+        <div className="grid gap-4">
+          <div>
+            <p className="text-sm font-semibold text-[var(--text-primary)]">Adjuntos de evidencia</p>
+            <p className="mt-1 text-sm text-[var(--text-secondary)]">Documentos anexados manualmente al expediente del acta.</p>
+          </div>
+
+          {evidenceAttachments.length ? (
+            <div className="grid gap-3 md:grid-cols-2">
+              {evidenceAttachments.map((attachment, index) => (
+                <div
+                  key={`evidence-attachment-${attachment.storedName || index}`}
+                  className="rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-3"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] border border-[var(--border-color)] bg-[var(--bg-panel)]">
+                      <Icon
+                        name={getAttachmentIconName(attachment.name)}
+                        size={16}
+                        className="h-4 w-4 text-[var(--text-secondary)]"
+                        aria-hidden="true"
+                      />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p
+                        className="truncate text-sm font-semibold text-[var(--text-primary)]"
+                        title={attachment.name || `Adjunto ${index + 1}`}
+                      >
+                        {attachment.name || `Adjunto ${index + 1}`}
+                      </p>
+                      <p className="mt-0.5 text-xs text-[var(--text-muted)]">
+                        {formatDocumentTimestamp(attachment.uploadedAt, "Fecha de carga no registrada")}
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="shrink-0 px-3 py-1.5 text-[11px]"
+                      onClick={() => onOpenAttachment(attachment)}
+                      disabled={!attachment.storedName}
+                    >
+                      <Icon name="regWindowRestore" size={13} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                      Ver
+                    </Button>
+                  </div>
+                  {attachment.observation ? (
+                    <p className="mt-2 pl-12 text-xs text-[var(--text-secondary)]">{attachment.observation}</p>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <MessageBanner>No hay adjuntos de evidencia registrados todavia.</MessageBanner>
+          )}
+        </div>
+      ) : null}
+
+      <div className="flex justify-end">
+        <Button variant="secondary" onClick={onClose} className="min-w-[7.5rem]">
+          Cerrar
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export function HandoverPage() {
   const navigate = useNavigate();
   const { add } = useToast();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
   const [filters, setFilters] = useState({ query: "", status: "" });
   const [catalog, setCatalog] = useState({ statusOptions: [] });
   const [actionConfig, setActionConfig] = useState({ allowEvidenceUpload: true, evidenceAllowedExtensions: ["pdf", "doc", "docx"] });
@@ -462,7 +616,6 @@ export function HandoverPage() {
 
   const handleFilterSubmit = async (event) => {
     event.preventDefault();
-    setNotice("");
     await loadDocuments(filters);
   };
 
@@ -501,76 +654,32 @@ export function HandoverPage() {
             <Button
               variant="primary"
               onClick={async () => {
+                let loadingModalId = null;
                 try {
                   const { jobId } = await emitHandoverDocument(row.id);
-                  const loadingModalId = ModalManager.loading({
+                  loadingModalId = ModalManager.loading({
                     title: "Procesando acta",
-                    message: "Generando documentos PDF y consultando el estado del proceso...",
+                    message: "Generando documentos PDF y esperando la notificación del proceso...",
                     showProgress: false,
+                    cancelLabel: "Cerrar",
                   });
 
                   ModalManager.close(modalId);
-
-                  const startedAt = Date.now();
-                  let latestJob = null;
-
-                  while (Date.now() - startedAt < HANDOVER_JOB_POLL_TIMEOUT_MS) {
-                    latestJob = await getHandoverEmitJobStatus(jobId);
-
-                    if (latestJob?.status === "completed") {
-                      ModalManager.close(loadingModalId);
-                      add({ message: `El acta ${row.code} quedo en estado Emitida.`, tone: "success" });
-                      await loadDocuments(filters);
-                      return;
-                    }
-
-                    if (latestJob?.status === "failed") {
-                      ModalManager.close(loadingModalId);
-                      throw new Error(latestJob?.error?.detail || "Ocurrio un error al procesar el acta.");
-                    }
-
-                    await sleep(HANDOVER_JOB_POLL_INTERVAL_MS);
-                  }
+                  await waitForJobNotification(jobId, {
+                    timeoutMs: runtimeConfig.jobNotificationTimeoutMs,
+                  });
 
                   ModalManager.close(loadingModalId);
-                  ModalManager.error({
-                    title: "Proceso en revision",
-                    message: latestJob?.status === "processing"
-                      ? "La generacion sigue en curso. Refresca el listado en unos segundos para validar el resultado."
-                      : "No se recibio confirmacion a tiempo. Refresca el listado para validar si la emision termino.",
+                  add({
+                    title: "Acta emitida",
+                    description: `El acta ${row.code} quedó en estado Emitida y sus PDFs fueron generados correctamente.`,
+                    tone: "success",
                   });
-                  return;
-
-                  const eventSource = new EventSource(`/api/v1/events/job/${jobId}`);
-
-                  eventSource.onmessage = (e) => {
-                    const data = JSON.parse(e.data);
-
-                    if (data.status === "completed") {
-                      eventSource.close();
-                      ModalManager.close(loadingModalId);
-                      ModalManager.close(modalId);
-                      add({ message: `El acta ${row.code} quedó en estado Emitida.`, tone: "success" });
-                      loadDocuments(filters);
-                    } else if (data.status === "failed") {
-                      eventSource.close();
-                      ModalManager.close(loadingModalId);
-                      ModalManager.error({
-                        title: "No fue posible procesar el acta",
-                        message: data.error?.detail || "Ocurrió un error al procesar el acta.",
-                      });
-                    }
-                  };
-
-                  eventSource.onerror = () => {
-                    eventSource.close();
-                    ModalManager.close(loadingModalId);
-                    ModalManager.error({
-                      title: "Error de conexión",
-                      message: "Se perdió la conexión. El proceso puede haber continuado. Recargue la página.",
-                    });
-                  };
+                  await loadDocuments(filters);
                 } catch (processError) {
+                  if (loadingModalId) {
+                    ModalManager.close(loadingModalId);
+                  }
                   ModalManager.error({
                     title: "No fue posible procesar el acta",
                     message: processError.message || "Ocurrio un error al iniciar el proceso.",
@@ -600,8 +709,12 @@ export function HandoverPage() {
 
     try {
       await updateHandoverDocumentStatus(row.id, "Anulada");
-      setNotice(`El acta ${row.code} fue anulada.`);
       setError("");
+      add({
+        title: "Acta anulada",
+        description: `El acta ${row.code} fue marcada como Anulada en el Hub.`,
+        tone: "success",
+      });
       await loadDocuments(filters);
     } catch (cancelError) {
       setError(cancelError.message || "No fue posible anular el acta.");
@@ -626,8 +739,12 @@ export function HandoverPage() {
 
     try {
       await rollbackHandoverDocument(row.id);
-      setNotice(`El acta ${row.code} volvio a estado En creacion.`);
       setError("");
+      add({
+        title: "Emisión cancelada",
+        description: `El acta ${row.code} volvió a estado En creación y quedó editable nuevamente.`,
+        tone: "success",
+      });
       await loadDocuments(filters);
     } catch (rollbackError) {
       setError(rollbackError.message || "No fue posible cancelar la emision del acta.");
@@ -636,25 +753,102 @@ export function HandoverPage() {
 
   const openPdfModal = async (row) => {
     const loadingModalId = ModalManager.loading({
-      title: `Preparando PDF ${row.code}`,
-      message: "Obteniendo el documento principal generado para esta acta...",
+      title: `Preparando documentos ${row.code}`,
+      message: "Obteniendo los documentos generados y adjuntos asociados a esta acta...",
       showProgress: false,
+      cancelLabel: "Cerrar",
     });
 
     try {
-      const { url } = await fetchHandoverGeneratedPdfBlob(row.id, "main");
-      const previewWindow = window.open(url, "_blank", "noopener,noreferrer");
-      if (!previewWindow) {
-        const anchor = document.createElement("a");
-        anchor.href = url;
-        anchor.download = `${row.code || "acta"}.pdf`;
-        anchor.click();
-      }
-      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      const detail = await getHandoverDocument(row.id);
+      let modalId = null;
+      const handleClose = () => {
+        if (modalId) {
+          ModalManager.close(modalId);
+        }
+      };
+
+      const handleOpenGeneratedDocument = async (generatedDocument) => {
+        if (!generatedDocument?.kind) {
+          ModalManager.error({
+            title: "Documento no disponible",
+            message: "El documento seleccionado no tiene un identificador valido para su previsualizacion.",
+          });
+          return;
+        }
+
+        const previewLoadingId = ModalManager.loading({
+          title: `Abriendo ${generatedDocument.name || generatedDocument.code || "PDF generado"}`,
+          message: "Obteniendo el PDF generado para previsualizacion...",
+          showProgress: false,
+          cancelLabel: "Cerrar",
+        });
+
+        try {
+          await openBlobPreview({
+            loadBlob: () => fetchHandoverGeneratedPdfBlob(row.id, generatedDocument.kind),
+            fallbackName: generatedDocument.name || `${generatedDocument.code || generatedDocument.kind || row.code}.pdf`,
+          });
+        } catch (downloadError) {
+          ModalManager.error({
+            title: "No fue posible abrir el PDF",
+            message: downloadError.message || "El documento seleccionado no esta disponible para esta acta.",
+          });
+        } finally {
+          ModalManager.close(previewLoadingId);
+        }
+      };
+
+      const handleOpenAttachment = async (attachment) => {
+        if (!attachment?.storedName) {
+          ModalManager.error({
+            title: "Adjunto no disponible",
+            message: "El adjunto seleccionado no tiene una referencia valida para su apertura.",
+          });
+          return;
+        }
+
+        const previewLoadingId = ModalManager.loading({
+          title: `Abriendo ${attachment.name || "adjunto"}`,
+          message: "Obteniendo el adjunto seleccionado para previsualizacion...",
+          showProgress: false,
+          cancelLabel: "Cerrar",
+        });
+
+        try {
+          await openBlobPreview({
+            loadBlob: () => fetchHandoverEvidenceBlob(row.id, attachment.storedName),
+            fallbackName: attachment.name || attachment.storedName || `${row.code || "acta"}-adjunto`,
+          });
+        } catch (downloadError) {
+          ModalManager.error({
+            title: "No fue posible abrir el adjunto",
+            message: downloadError.message || "El adjunto seleccionado no esta disponible para esta acta.",
+          });
+        } finally {
+          ModalManager.close(previewLoadingId);
+        }
+      };
+
+      modalId = ModalManager.custom({
+        title: `Documentos ${row.code}`,
+        size: "personDetail",
+        showFooter: false,
+        content: (
+          <DocumentLibraryModal
+            row={row}
+            detail={detail}
+            allowEvidenceUpload={actionConfig.allowEvidenceUpload}
+            onClose={handleClose}
+            onOpenGeneratedDocument={handleOpenGeneratedDocument}
+            onOpenAttachment={handleOpenAttachment}
+          />
+        ),
+      });
     } catch (downloadError) {
       ModalManager.error({
-        title: "No fue posible abrir el PDF",
-        message: downloadError.message || "El documento principal no esta disponible para esta acta.",
+        title: "No fue posible abrir la biblioteca documental",
+        message: downloadError.message || "No fue posible cargar los documentos asociados a esta acta.",
       });
     } finally {
       ModalManager.close(loadingModalId);
@@ -677,12 +871,14 @@ export function HandoverPage() {
           onSubmit={async (items) => {
             await uploadHandoverEvidence(row.id, items);
             ModalManager.close(modalId);
-            setNotice(
-              willConfirmStatus
-                ? `El acta ${row.code} quedo Confirmada y las evidencias fueron registradas.`
-                : `Las evidencias del acta ${row.code} fueron registradas.`
-            );
             setError("");
+            add({
+              title: willConfirmStatus ? "Acta confirmada" : "Evidencias registradas",
+              description: willConfirmStatus
+                ? `El acta ${row.code} quedó Confirmada y las evidencias fueron registradas correctamente.`
+                : `Las evidencias del acta ${row.code} fueron registradas correctamente.`,
+              tone: "success",
+            });
             await loadDocuments(filters);
           }}
         />
@@ -755,7 +951,7 @@ export function HandoverPage() {
         if (isIssued || isConfirmed) {
           actions.push({
             key: "pdf",
-            label: "PDF",
+            label: "Docs",
             icon: "download",
             onClick: () => openPdfModal(row),
           });
@@ -844,7 +1040,6 @@ export function HandoverPage() {
       </div>
 
       {error ? <MessageBanner tone="danger">{error}</MessageBanner> : null}
-      {notice ? <MessageBanner tone="success">{notice}</MessageBanner> : null}
 
       <Panel>
         <PanelHeader eyebrow="Operacion" title="Filtros Actas de Entrega" />

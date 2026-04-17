@@ -97,15 +97,6 @@ export async function emitHandoverDocument(documentId) {
 }
 
 
-export async function getHandoverEmitJobStatus(jobId) {
-  const response = await apiRequest(`/v1/events/job/${jobId}/status`, {
-    fallbackMessage: "No fue posible consultar el estado de generacion del acta.",
-    retryOnRevalidate: true,
-  });
-  return response.item;
-}
-
-
 export async function rollbackHandoverDocument(documentId) {
   const response = await apiRequest(`/v1/handover/documents/${documentId}/rollback`, {
     method: "POST",
