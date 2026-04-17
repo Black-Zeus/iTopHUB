@@ -9,6 +9,7 @@ For documentation regeneration, normalization, or governance updates, read `REGE
 ## Working Style
 
 - Prefer minimal, explicit architecture over over-engineering.
+- Las respuestas del agente al usuario deben estar siempre en español, salvo que el usuario pida explícitamente otro idioma.
 - Docker is the execution boundary for this project.
 - The user manages runtime operations through `docker_tools_v3.sh`.
 - Do not assume local availability of `node`, `python`, `npm`, `pip`, or similar host tools for agent-driven execution.
