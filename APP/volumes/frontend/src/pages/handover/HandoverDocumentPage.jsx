@@ -4,6 +4,7 @@ import { Panel, PanelHeader } from "../../components/ui/general";
 import { Icon } from "../../components/ui/icon/Icon";
 import ModalManager from "../../components/ui/modal";
 import { Button } from "../../ui/Button";
+import { useToast } from "../../ui";
 import {
   createHandoverDocument,
   getHandoverBootstrap,
@@ -73,6 +74,7 @@ export function HandoverDocumentPage() {
   const navigate = useNavigate();
   const { slug } = useParams();
   const isCreateMode = slug === "nueva";
+  const { add } = useToast();
 
   const [bootstrap, setBootstrap] = useState(null);
   const [bootstrapLoading, setBootstrapLoading] = useState(true);
@@ -686,12 +688,13 @@ export function HandoverDocumentPage() {
         ? await createHandoverDocument(payload)
         : await updateHandoverDocument(slug, payload);
 
-      setForm(createFormFromDetail(savedItem, bootstrap));
-      setNotice(`Acta ${savedItem.documentNumber || ""} guardada correctamente.`);
+      add({
+        title: isCreateMode ? "Acta creada" : "Acta actualizada",
+        description: `El acta ${savedItem.documentNumber || ""} fue guardada correctamente.`,
+        tone: "success",
+      });
 
-      if (isCreateMode && savedItem.id) {
-        navigate(`/handover/${savedItem.id}`, { replace: true });
-      }
+      navigate("/handover");
     } catch (saveError) {
       setError(saveError.message || "No fue posible guardar el acta.");
     } finally {
