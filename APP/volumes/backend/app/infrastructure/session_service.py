@@ -1,5 +1,6 @@
 import os
 import secrets
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -15,6 +16,8 @@ from infrastructure.redis_cache import (
 from modules.auth.repository import touch_last_used
 from modules.settings.repository import fetch_settings_panels
 from modules.settings.service import normalize_panel_config
+
+logger = logging.getLogger(__name__)
 
 
 def _read_int(name: str, default: int) -> int:
@@ -137,6 +140,12 @@ def refresh_runtime_token(session_id: str, token: str, meta: dict[str, Any]) -> 
     updated = _with_runtime_expiration(updated)
     _persist_session_meta(session_id, updated)
     load_runtime_token(session_id, encode_runtime_token(token), get_runtime_token_ttl_seconds())
+    logger.info(
+        "Runtime token refreshed for session=%s user_id=%s ttl_seconds=%s",
+        session_id[:8],
+        user.get("id"),
+        get_runtime_token_ttl_seconds(),
+    )
     return updated
 
 
@@ -151,12 +160,22 @@ def get_runtime_token_for_session(
             token = decode_runtime_token(encoded)
         except Exception:
             delete_runtime_token(session_id)
+            logger.warning(
+                "Runtime token decode failed; token key deleted for session=%s user_id=%s",
+                session_id[:8],
+                user_id,
+            )
         else:
             touch_last_used(user_id)
             updated = refresh_runtime_token(session_id, token, meta)
             return token, False, updated
 
     if meta.get("user", {}).get("hasRuntimeToken") or meta.get("tokenValidUntil"):
+        logger.info(
+            "Runtime token missing for session=%s user_id=%s; revalidation required",
+            session_id[:8],
+            user_id,
+        )
         updated = dict(meta)
         user = dict(updated["user"])
         user["hasRuntimeToken"] = False

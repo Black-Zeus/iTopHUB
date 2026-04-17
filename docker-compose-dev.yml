@@ -232,6 +232,8 @@ services:
       APP_DB_USER: ${MARIADB_USER}
       APP_DB_PASSWORD: ${MARIADB_PASSWORD}
       APP_DB_NAME: ${APP_DB_NAME}
+      HUB_TOKEN_KEK: ${HUB_TOKEN_KEK}
+      HUB_TOKEN_KEK_VERSION: ${HUB_TOKEN_KEK_VERSION}
     volumes:
       - ${VOLUMES_ROOT}/pdf-worker/app:/app
       - ${DATA_ROOT}/backend_data:/app/data

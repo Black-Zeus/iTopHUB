@@ -5,6 +5,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from fastapi import HTTPException
+
 sys.path.insert(0, "/app")
 
 
@@ -45,6 +47,31 @@ def render_handover_pdf(html: str, footer_html: str | None = None) -> dict[str, 
     }
 
 
+def _extract_job_error(exc: Exception) -> tuple[str, str]:
+    detail = getattr(exc, "detail", None)
+
+    if isinstance(detail, dict):
+        return (
+            str(detail.get("code") or "PROCESSING_ERROR"),
+            str(detail.get("message") or detail or str(exc)),
+        )
+
+    if isinstance(exc, HTTPException):
+        if exc.status_code == 428:
+            return ("TOKEN_REVALIDATION_REQUIRED", str(detail or str(exc)))
+        return ("PROCESSING_ERROR", str(detail or str(exc)))
+
+    error_code = getattr(exc, "code", None)
+    error_message = getattr(exc, "message", None)
+    if error_code or error_message:
+        return (
+            str(error_code or "PROCESSING_ERROR"),
+            str(error_message or str(exc)),
+        )
+
+    return ("PROCESSING_ERROR", str(exc))
+
+
 def process_handover_emit_job(job: dict[str, Any]) -> dict[str, Any]:
     sys.path.insert(0, "/app_backend")
 
@@ -60,9 +87,11 @@ def process_handover_emit_job(job: dict[str, Any]) -> dict[str, Any]:
         fetch_handover_document_row,
         _build_document_payload_from_detail,
         _build_item_payloads_from_detail,
+        enrich_handover_detail_for_pdf,
     )
 
     document_id = int(job["payload"]["document_id"])
+    session_id = str(job.get("session_id") or "").strip()
     env_name = os.getenv("ENV_NAME", "dev")
     current_detail = get_handover_document_detail(document_id)
     assignment_at = current_detail.get("assignmentDate") or current_detail.get("assignment_at") or ""
@@ -75,6 +104,10 @@ def process_handover_emit_job(job: dict[str, Any]) -> dict[str, Any]:
         "assignmentDate": assignment_at,
         "status": "Emitida",
     }
+    detail_for_pdf = enrich_handover_detail_for_pdf(
+        detail_for_pdf,
+        session_id=session_id or None,
+    )
 
     html_main, footer_main = build_handover_main_html(detail_for_pdf)
     html_detail, footer_detail = build_handover_detail_html(detail_for_pdf)
@@ -173,7 +206,8 @@ def process_job(job_type: str) -> bool:
         set_job_status(job_id, "completed", result=result)
         return True
     except Exception as exc:
-        set_job_status(job_id, "failed", error_code="PROCESSING_ERROR", error_detail=str(exc))
+        error_code, error_detail = _extract_job_error(exc)
+        set_job_status(job_id, "failed", error_code=error_code, error_detail=error_detail)
         return True
 
 

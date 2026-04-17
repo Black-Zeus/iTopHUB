@@ -1,4 +1,6 @@
 import { runtimeConfig } from "../config/runtime";
+import { ApiError } from "./api-client";
+import { promptRuntimeTokenRevalidation } from "./auth-session-service";
 
 function parseNotificationEvent(event) {
   try {
@@ -27,7 +29,7 @@ export function waitForJobNotification(jobId, { timeoutMs = runtimeConfig.jobNot
       callback();
     };
 
-    const handleJobUpdate = (event) => {
+    const handleJobUpdate = async (event) => {
       const payload = parseNotificationEvent(event);
       if (!payload) {
         return;
@@ -45,8 +47,52 @@ export function waitForJobNotification(jobId, { timeoutMs = runtimeConfig.jobNot
       }
 
       if (status === "failed" || status === "timeout") {
+        const errorCode = payload?.error?.code || "PROCESSING_ERROR";
         const message = payload?.error?.detail || "Ocurrió un error al procesar la tarea.";
-        settle(() => reject(new Error(message)));
+
+        if (errorCode === "TOKEN_REVALIDATION_REQUIRED") {
+          try {
+            await promptRuntimeTokenRevalidation();
+            settle(() =>
+              reject(
+                new ApiError(
+                  "El token personal de iTop fue reactivado. Vuelve a procesar el acta para reiniciar la emisión.",
+                  {
+                    status: 428,
+                    code: errorCode,
+                    detail: payload?.error || null,
+                  }
+                )
+              )
+            );
+            return;
+          } catch (revalidationError) {
+            const revalidationMessage =
+              revalidationError instanceof Error && revalidationError.message
+                ? revalidationError.message
+                : message;
+            settle(() =>
+              reject(
+                new ApiError(revalidationMessage, {
+                  status: 428,
+                  code: errorCode,
+                  detail: payload?.error || null,
+                })
+              )
+            );
+            return;
+          }
+        }
+
+        settle(() =>
+          reject(
+            new ApiError(message, {
+              status: status === "timeout" ? 504 : 500,
+              code: errorCode,
+              detail: payload?.error || null,
+            })
+          )
+        );
       }
     };
 

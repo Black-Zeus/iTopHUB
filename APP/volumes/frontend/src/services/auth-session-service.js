@@ -22,6 +22,13 @@ export function configureAuthSessionHandlers({ onRuntimeTokenPrompt, onSessionEx
   });
 }
 
+export async function promptRuntimeTokenRevalidation() {
+  if (!runtimeTokenPromptHandler) {
+    throw new Error("No existe manejador para revalidar el token.");
+  }
+  await runtimeTokenPromptHandler();
+}
+
 export async function fetchBootstrapStatus() {
   return apiRequest("/v1/auth/bootstrap", {
     fallbackMessage: "No fue posible consultar el estado inicial del Hub.",

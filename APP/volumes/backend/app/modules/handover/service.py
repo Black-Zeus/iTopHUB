@@ -206,6 +206,103 @@ def _matches_template_cmdb_class(asset_class_name: Any, template_class_label: An
     return normalized_asset_class == normalized_template_class
 
 
+def _build_itop_field_lookup(fields: list[dict[str, Any]] | None) -> dict[str, str]:
+    lookup: dict[str, str] = {}
+    for field in fields or []:
+        if not isinstance(field, dict):
+            continue
+        label = _normalize_comparison_text(field.get("label"))
+        value = _coerce_str(field.get("value"))
+        if label and value and label not in lookup:
+            lookup[label] = value
+    return lookup
+
+
+def _get_itop_field_value(field_lookup: dict[str, str], *labels: str) -> str:
+    for label in labels:
+        value = field_lookup.get(_normalize_comparison_text(label))
+        if value:
+            return value
+    return ""
+
+
+def enrich_handover_detail_for_pdf(
+    detail: dict[str, Any],
+    *,
+    session_id: str | None = None,
+    runtime_token: str | None = None,
+) -> dict[str, Any]:
+    from modules.assets.service import get_itop_asset_detail
+    from modules.auth.service import get_runtime_token as get_session_runtime_token
+
+    resolved_token = _coerce_str(runtime_token)
+    if not resolved_token and session_id:
+        resolved_token = get_session_runtime_token(session_id)
+    if not resolved_token:
+        raise HTTPException(
+            status_code=428,
+            detail={
+                "message": "No existe un token runtime disponible para recuperar las especificaciones desde iTop.",
+                "code": "TOKEN_REVALIDATION_REQUIRED",
+            },
+        )
+
+    enriched_items: list[dict[str, Any]] = []
+    for item in detail.get("items") or []:
+        asset = item.get("asset") or {}
+        asset_id = int(asset.get("id") or 0)
+        if asset_id <= 0:
+            enriched_items.append(item)
+            continue
+
+        try:
+            itop_asset_detail = get_itop_asset_detail(asset_id, resolved_token)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            asset_code = _coerce_str(asset.get("code")) or _coerce_str(asset.get("name")) or str(asset_id)
+            raise HTTPException(
+                status_code=502,
+                detail=f"No fue posible recuperar desde iTop las especificaciones del activo '{asset_code}'.",
+            ) from exc
+
+        field_lookup = _build_itop_field_lookup(itop_asset_detail.get("fields"))
+        contact_names = ", ".join(
+            _coerce_str(contact.get("name"))
+            for contact in itop_asset_detail.get("contacts") or []
+            if _coerce_str(contact.get("name"))
+        )
+
+        enriched_asset = {
+            **asset,
+            "code": _coerce_str(itop_asset_detail.get("code")) or _coerce_str(asset.get("code")),
+            "name": _coerce_str(itop_asset_detail.get("name")) or _coerce_str(asset.get("name")),
+            "className": _coerce_str(itop_asset_detail.get("className")) or _coerce_str(asset.get("className")),
+            "brand": _get_itop_field_value(field_lookup, "Marca") or _coerce_str(asset.get("brand")),
+            "model": _get_itop_field_value(field_lookup, "Modelo") or _coerce_str(asset.get("model")),
+            "serial": (
+                _get_itop_field_value(field_lookup, "Numero de serie", "Serie")
+                or _coerce_str(asset.get("serial"))
+                or _coerce_str(asset.get("code"))
+            ),
+            "status": _coerce_str(itop_asset_detail.get("status")) or _coerce_str(asset.get("status")),
+            "assignedUser": contact_names or _coerce_str(asset.get("assignedUser")),
+        }
+
+        enriched_items.append(
+            {
+                **item,
+                "asset": enriched_asset,
+                "itopAssetDetail": itop_asset_detail,
+            }
+        )
+
+    return {
+        **detail,
+        "items": enriched_items,
+    }
+
+
 def get_handover_bootstrap(session_user: dict[str, Any], runtime_token: str) -> dict[str, Any]:
     docs_settings = get_settings_panel("docs")
     allowed_evidence_extensions = sorted(_get_allowed_evidence_extensions())
