@@ -35,6 +35,9 @@ Runs the custom React/Vite interface for the Hub layer on top of iTop.
 
 - Runs as a non-root user.
 - Keep frontend-specific environment variables in the layered `.env` files.
+- El timeout de espera para notificaciones SSE del frontend debe configurarse con `VITE_JOB_NOTIFICATION_TIMEOUT_MS` en los `.env` versionados, no como numero hardcodeado dentro de una pagina o servicio.
+- Las notificaciones UI deben pasar por el wrapper `useToast()` del proyecto; internamente puede usar `react-hot-toast`, pero los modulos deben enviar payloads claros con `title`, `description` y `tone` en vez de strings sueltos cuando el contexto lo amerite.
+- Any user-facing async action should wait on the shared SSE flow and report its terminal result with toast instead of page-level success banners or polling loops.
 - The frontend must treat auth as a server-side session concern:
   - session cookie only in the browser
   - no personal token returned to client code

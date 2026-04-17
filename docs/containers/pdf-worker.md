@@ -24,3 +24,5 @@ Generates PDFs and document outputs without loading that responsibility into the
 - Exposes an internal-only HTTP endpoint used by `backend` to convert HTML into PDF.
 - Receives trusted HTML payloads from `backend`, forwards them to `gotenberg`, and returns the rendered PDF bytes.
 - Access to the internal render endpoint is protected with `INTERNAL_API_SECRET`.
+- When a queued PDF job reaches `processing`, `completed`, or `failed`, the worker must update the shared Redis job record so the backend SSE stream can notify the originating session.
+- If notification TTL/history tuning is changed in `backend`, keep the same values available in `pdf-worker` so event publication and replay use the same ephemeral policy.

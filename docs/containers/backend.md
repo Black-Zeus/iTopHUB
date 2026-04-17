@@ -39,6 +39,12 @@ Hosts the custom application API and integration layer between the frontend, iTo
   - `hub_session_id` cookie in the browser
   - session metadata in Redis under `hub:session:{session_id}:meta`
   - runtime token cache in Redis under `hub:session:{session_id}:token`
+- SSE notifications should be served from the same FastAPI backend under `/v1/events/stream`, authenticated with the existing `hub_session_id` cookie instead of a separate realtime service.
+- Long-running job notifications are ephemeral:
+  - live fanout through Redis Pub/Sub
+  - short replay window in Redis per session with TTL for reconnect races
+  - no MariaDB persistence for notification delivery state
+- Any new backend-managed async flow that is visible to the user should terminate through this SSE contract rather than requiring periodic polling endpoints in the frontend.
 - Personal iTop tokens are stored encrypted in MariaDB and only decrypted in backend memory right before calling iTop.
 - Shared runtime lookups against iTop should be exposed under `/v1/itop/*`; business routers such as `handover` should consume that integration surface instead of publishing module-specific iTop search endpoints.
 - The `Personas` module must query `Person` directly from iTop with the session runtime token; Hub does not create or seed local person records for that module.
@@ -75,3 +81,8 @@ Hosts the custom application API and integration layer between the frontend, iTo
 - Expected backend runtime env vars for PDF orchestration:
   - `PDF_WORKER_URL`
   - `INTERNAL_API_SECRET`
+- Optional backend runtime env vars for ephemeral SSE notifications:
+  - `HUB_NOTIFICATION_TTL_SECONDS`
+  - `HUB_NOTIFICATION_HISTORY_LIMIT`
+  - `HUB_SSE_HEARTBEAT_SECONDS`
+  - `HUB_SSE_RETRY_MS`

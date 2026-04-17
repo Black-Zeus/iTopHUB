@@ -95,6 +95,14 @@ La fase activa hoy es `dev`.
 - Put database bootstrap and schema work in ordered init files.
 - Keep runtime commands user-driven and documented.
 
+## Async UX Rule
+
+- New background or asynchronous user-facing flows must use the shared SSE notification pattern instead of frontend polling.
+- The backend is responsible for exposing the runtime event through the authenticated SSE channel.
+- Workers must publish terminal job state through the shared Redis/SSE contract so the backend can fan out the result.
+- The frontend must surface completion, failure, or cancellation-result feedback through the shared toast system, not through page-specific success banners.
+- If a long-running action needs intermediate UX, the UI may show a modal or loading state while waiting, but the terminal outcome should still be communicated with toast plus any required page refresh/navigation.
+
 ## Auth Runtime Notes
 
 - Hub auth is a combined concern across MariaDB, Redis, backend, and frontend.

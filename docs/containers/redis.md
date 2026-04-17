@@ -20,6 +20,10 @@ Provides transient state and queue coordination for background processing.
 - Current session key convention:
   - `hub:session:{session_id}:meta`
   - `hub:session:{session_id}:token`
+- SSE/job notification keys should remain ephemeral and Redis-only:
+  - live delivery via Pub/Sub
+  - short per-session replay buffer with TTL for reconnect handling
+  - job state hashes kept only as temporary runtime status, never as business source of truth
 
 ## Tooling
 
