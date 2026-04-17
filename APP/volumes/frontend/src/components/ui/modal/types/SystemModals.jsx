@@ -24,6 +24,7 @@ export const renderLoadingModal = ({
   progress = 0,
   showProgress = true,
   showCancel = true,
+  cancelLabel = 'Cancelar',
   indeterminate = false,
   steps = [],
   currentStep = 0,
@@ -52,7 +53,7 @@ export const renderLoadingModal = ({
               onClick={onCancel || onClose}
               className={`${MODAL_CLASSES.button.base} ${MODAL_CLASSES.button.secondary}`}
             >
-              Cancelar
+              {cancelLabel}
             </button>
           )}
         </div>
