@@ -1,13 +1,32 @@
 import os
 import sys
+import importlib.util
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, "/app")
 
-from job_client import poll_pending_jobs, update_job_status
-from main import _render_pdf
+
+def _load_pdf_worker_render_function():
+    module_path = Path("/app/main.py")
+    spec = importlib.util.spec_from_file_location("pdf_worker_main", module_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"No fue posible cargar el modulo local desde {module_path}.")
+
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    render_fn = getattr(module, "_render_pdf", None)
+    if render_fn is None:
+        raise RuntimeError("El modulo local de pdf-worker no expone _render_pdf.")
+    return render_fn
+
+
+_render_pdf = _load_pdf_worker_render_function()
+
+sys.path.insert(0, "/app_backend")
+from infrastructure.job_manager import get_pending_job, set_job_status
 
 
 def _format_attachment_size(size_bytes: int) -> str:
@@ -138,7 +157,7 @@ JOB_HANDLERS = {
 
 
 def process_job(job_type: str) -> bool:
-    job = poll_pending_jobs(job_type)
+    job = get_pending_job(job_type)
     if not job:
         return False
 
@@ -146,15 +165,15 @@ def process_job(job_type: str) -> bool:
     handler = JOB_HANDLERS.get(job_type)
 
     if not handler:
-        update_job_status(job_id, "failed", error_code="UNKNOWN_JOB_TYPE", error_detail=f"Job type {job_type} not supported")
+        set_job_status(job_id, "failed", error_code="UNKNOWN_JOB_TYPE", error_detail=f"Job type {job_type} not supported")
         return True
 
     try:
         result = handler(job)
-        update_job_status(job_id, "completed", result=result)
+        set_job_status(job_id, "completed", result=result)
         return True
     except Exception as exc:
-        update_job_status(job_id, "failed", error_code="PROCESSING_ERROR", error_detail=str(exc))
+        set_job_status(job_id, "failed", error_code="PROCESSING_ERROR", error_detail=str(exc))
         return True
 
 
