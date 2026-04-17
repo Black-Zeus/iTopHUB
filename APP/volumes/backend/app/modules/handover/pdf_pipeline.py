@@ -722,6 +722,18 @@ def remove_generated_handover_documents(document_id: int) -> None:
             file_path.unlink(missing_ok=True)
 
 
+def remove_generated_handover_documents_by_names(document_id: int, stored_names: list[str]) -> None:
+    storage_directory = HANDOVER_DOCUMENT_ROOT / f"document_{document_id}"
+    if not storage_directory.exists():
+        return
+
+    for stored_name in stored_names:
+        safe_name = Path(_coerce_str(stored_name)).name
+        if not safe_name:
+            continue
+        (storage_directory / safe_name).unlink(missing_ok=True)
+
+
 def generate_handover_documents(document_id: int, detail: dict[str, Any]) -> list[dict[str, Any]]:
     generated_at = datetime.now().strftime("%Y-%m-%dT%H:%M")
     storage_directory = HANDOVER_DOCUMENT_ROOT / f"document_{document_id}"

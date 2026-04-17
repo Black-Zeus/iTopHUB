@@ -161,7 +161,7 @@ def handover_document_attach_evidence(
                 "name": item.name,
                 "mimeType": item.mimeType,
                 "contentBase64": item.contentBase64,
-                "observation": item.observation,
+                "documentType": item.documentType,
             }
             for item in payload.files
         ]

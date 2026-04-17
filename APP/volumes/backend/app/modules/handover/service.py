@@ -13,8 +13,10 @@ from fastapi import HTTPException
 from core.config import settings
 from infrastructure.job_manager import create_job, get_job
 from modules.handover.pdf_pipeline import (
+    build_detail_document_number,
     generate_handover_documents,
     remove_generated_handover_documents,
+    remove_generated_handover_documents_by_names,
 )
 from modules.handover.repository import (
     fetch_handover_checklist_answer_rows,
@@ -68,6 +70,11 @@ INPUT_TYPE_UI_TO_DB = {value: key for key, value in INPUT_TYPE_DB_TO_UI.items()}
 HANDOVER_EVIDENCE_ROOT = Path("/app/data/handover_evidence")
 DEFAULT_EVIDENCE_ALLOWED_EXTENSIONS = {"pdf", "doc", "docx"}
 GENERATED_DOCUMENT_KINDS = {"main", "detail"}
+MAX_HANDOVER_DOCUMENT_FILES = 2
+EVIDENCE_DOCUMENT_TYPE_TO_GENERATED_KIND = {
+    "acta": "main",
+    "detalle": "detail",
+}
 
 
 def _coerce_str(value: Any, default: str = "") -> str:
@@ -112,6 +119,43 @@ def _get_allowed_evidence_extensions() -> set[str]:
         if _coerce_str(item).lower().lstrip(".") in {"pdf", "doc", "docx", "txt"}
     }
     return allowed or set(DEFAULT_EVIDENCE_ALLOWED_EXTENSIONS)
+
+
+def _normalize_evidence_document_type(value: Any, *, allow_blank: bool = False) -> str:
+    normalized = _normalize_comparison_text(value)
+    if not normalized:
+        if allow_blank:
+            return ""
+        raise HTTPException(status_code=422, detail="Debes indicar si el adjunto corresponde a Acta o Detalle.")
+
+    if normalized in {"acta", "main", "principal"}:
+        return "acta"
+    if normalized in {"detalle", "detail"}:
+        return "detalle"
+
+    if allow_blank:
+        return ""
+    raise HTTPException(status_code=422, detail="Uno de los adjuntos no tiene un tipo de documento valido.")
+
+
+def _build_evidence_document_code(document_number: Any, document_type: str) -> str:
+    normalized_type = _normalize_evidence_document_type(document_type)
+    base_code = _coerce_str(document_number)
+    if normalized_type == "detalle":
+        return build_detail_document_number(base_code)
+    return base_code
+
+
+def _remove_evidence_attachment_files(document_id: int, stored_names: list[str]) -> None:
+    storage_directory = HANDOVER_EVIDENCE_ROOT / f"document_{document_id}"
+    if not storage_directory.exists():
+        return
+
+    for stored_name in stored_names:
+        safe_name = Path(_coerce_str(stored_name)).name
+        if not safe_name:
+            continue
+        (storage_directory / safe_name).unlink(missing_ok=True)
 
 
 def _get_asset_assignment_restriction(asset: dict[str, Any]) -> str:
@@ -627,6 +671,7 @@ def _deserialize_evidence_attachments(raw_value: Any) -> list[dict[str, Any]]:
                 "source": _coerce_str(item.get("source")),
                 "storedName": _coerce_str(item.get("storedName")),
                 "uploadedAt": _coerce_str(item.get("uploadedAt")),
+                "documentType": _normalize_evidence_document_type(item.get("documentType"), allow_blank=True),
                 "observation": _coerce_str(item.get("observation")),
             }
         )
@@ -687,6 +732,7 @@ def _normalize_evidence_attachments(payload: Any) -> str:
                 "source": _coerce_str(item.get("source")),
                 "storedName": _coerce_str(item.get("storedName")),
                 "uploadedAt": _coerce_str(item.get("uploadedAt")),
+                "documentType": _normalize_evidence_document_type(item.get("documentType"), allow_blank=True),
                 "observation": _coerce_str(item.get("observation")),
             }
         )
@@ -1225,6 +1271,11 @@ def attach_handover_document_evidence(
         raise HTTPException(status_code=422, detail="Solo se puede cargar evidencia sobre actas emitidas o confirmadas.")
     if not attachments:
         raise HTTPException(status_code=422, detail="Debes adjuntar al menos una evidencia.")
+    if len(attachments) > MAX_HANDOVER_DOCUMENT_FILES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Solo se permiten {MAX_HANDOVER_DOCUMENT_FILES} archivos por carga entre Acta y Detalle.",
+        )
 
     storage_directory = HANDOVER_EVIDENCE_ROOT / f"document_{document_id}"
     storage_directory.mkdir(parents=True, exist_ok=True)
@@ -1233,13 +1284,30 @@ def attach_handover_document_evidence(
     current_detail = get_handover_document_detail(document_id)
     now = datetime.now()
     evidence_at = now.strftime("%Y-%m-%dT%H:%M")
-    serialized_attachments = list(current_detail.get("evidenceAttachments") or [])
+    document_number = _coerce_str(current_detail.get("documentNumber"))
+    if not document_number:
+        raise HTTPException(status_code=422, detail="El acta no tiene un numero documental valido.")
+
+    next_generated_documents = list(current_detail.get("generatedDocuments") or [])
+    next_evidence_attachments = list(current_detail.get("evidenceAttachments") or [])
+    pending_files: list[dict[str, Path]] = []
+    evidence_stored_names_to_delete: list[str] = []
+    generated_stored_names_to_delete: list[str] = []
+    processed_document_types: set[str] = set()
+    allowed_extensions = _get_allowed_evidence_extensions()
 
     try:
-        for index, attachment in enumerate(attachments, start=1):
+        for attachment in attachments:
+            document_type = _normalize_evidence_document_type(attachment.get("documentType"))
+            if document_type in processed_document_types:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Solo puedes cargar un archivo por tipo de documento entre Acta y Detalle.",
+                )
+            processed_document_types.add(document_type)
+
             original_name = _sanitize_attachment_filename(attachment.get("name"))
             file_extension = Path(original_name).suffix.lower().lstrip(".")
-            allowed_extensions = _get_allowed_evidence_extensions()
             if file_extension not in allowed_extensions:
                 allowed_label = ", ".join(f".{item}" for item in sorted(allowed_extensions))
                 raise HTTPException(
@@ -1255,21 +1323,66 @@ def attach_handover_document_evidence(
                 raise HTTPException(status_code=422, detail="Una de las evidencias adjuntas no contiene datos validos.")
 
             suffix = Path(original_name).suffix
-            stored_name = f"{now.strftime('%Y%m%d%H%M%S')}_{index}_{uuid4().hex[:8]}{suffix}"
-            stored_path = storage_directory / stored_name
-            stored_path.write_bytes(bytes(content))
-            created_paths.append(stored_path)
-
-            serialized_attachments.append(
+            stored_name = f"{_build_evidence_document_code(document_number, document_type)}{suffix}"
+            temporary_path = storage_directory / f".upload_{uuid4().hex}{suffix}"
+            temporary_path.write_bytes(bytes(content))
+            created_paths.append(temporary_path)
+            pending_files.append(
                 {
-                    "name": Path(original_name).name,
+                    "temporary": temporary_path,
+                    "final": storage_directory / stored_name,
+                }
+            )
+
+            replaced_generated_documents = [
+                item for item in next_generated_documents if _coerce_str(item.get("kind")) == EVIDENCE_DOCUMENT_TYPE_TO_GENERATED_KIND[document_type]
+            ]
+            next_generated_documents = [
+                item for item in next_generated_documents if _coerce_str(item.get("kind")) != EVIDENCE_DOCUMENT_TYPE_TO_GENERATED_KIND[document_type]
+            ]
+            generated_stored_names_to_delete.extend(
+                [
+                    _coerce_str(item.get("storedName"))
+                    for item in replaced_generated_documents
+                    if _coerce_str(item.get("storedName"))
+                ]
+            )
+
+            replaced_evidence_attachments = [
+                item
+                for item in next_evidence_attachments
+                if _normalize_evidence_document_type(item.get("documentType"), allow_blank=True) == document_type
+            ]
+            next_evidence_attachments = [
+                item
+                for item in next_evidence_attachments
+                if _normalize_evidence_document_type(item.get("documentType"), allow_blank=True) != document_type
+            ]
+            evidence_stored_names_to_delete.extend(
+                [
+                    _coerce_str(item.get("storedName"))
+                    for item in replaced_evidence_attachments
+                    if _coerce_str(item.get("storedName")) and Path(_coerce_str(item.get("storedName"))).name != stored_name
+                ]
+            )
+
+            next_evidence_attachments.append(
+                {
+                    "name": stored_name,
                     "size": _format_attachment_size(len(content)),
                     "mimeType": _coerce_str(attachment.get("mimeType")) or "application/octet-stream",
                     "source": f"{settings.env_name}/handover_evidence/document_{document_id}/{stored_name}",
                     "storedName": stored_name,
                     "uploadedAt": evidence_at,
-                    "observation": _coerce_str(attachment.get("observation")),
+                    "documentType": document_type,
+                    "observation": "",
                 }
+            )
+
+        if len(next_generated_documents) + len(next_evidence_attachments) > MAX_HANDOVER_DOCUMENT_FILES:
+            raise HTTPException(
+                status_code=422,
+                detail="El acta solo puede conservar un maximo total de 2 documentos entre generados y adjuntos.",
             )
 
         document_payload = _build_document_payload_from_detail(
@@ -1278,11 +1391,17 @@ def attach_handover_document_evidence(
             status_ui="Confirmada",
             assignment_date=current_detail.get("assignmentDate") or evidence_at,
             evidence_date=evidence_at,
-            generated_documents=current_detail.get("generatedDocuments") or [],
-            evidence_attachments=serialized_attachments,
+            generated_documents=next_generated_documents,
+            evidence_attachments=next_evidence_attachments,
         )
         item_payloads = _build_item_payloads_from_detail(current_detail.get("items") or [])
         save_handover_document(document_id, document_payload, item_payloads)
+
+        for pending_file in pending_files:
+            pending_file["temporary"].replace(pending_file["final"])
+
+        remove_generated_handover_documents_by_names(document_id, generated_stored_names_to_delete)
+        _remove_evidence_attachment_files(document_id, evidence_stored_names_to_delete)
     except Exception:
         for path in created_paths:
             try:
