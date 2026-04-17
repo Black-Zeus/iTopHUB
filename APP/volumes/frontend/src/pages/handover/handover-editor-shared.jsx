@@ -3,7 +3,7 @@ import { CollapseToggleButton, Panel, PanelHeader } from "../../components/ui/ge
 import { Icon } from "../../components/ui/icon/Icon";
 import ModalManager from "../../components/ui/modal";
 import { Button } from "../../ui/Button";
-import { fetchHandoverEvidenceBlob } from "../../services/handover-service";
+import { fetchHandoverEvidenceBlob, fetchHandoverGeneratedPdfBlob } from "../../services/handover-service";
 
 export const INPUT_CLASS_NAME = "h-[50px] rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 text-sm text-[var(--text-primary)] outline-none";
 export const TEXTAREA_CLASS_NAME = "w-full rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-3 text-sm text-[var(--text-primary)] outline-none";
@@ -76,6 +76,7 @@ export function createEmptyForm(bootstrap) {
     creationDate: bootstrap?.defaults?.creationDate || bootstrap?.defaults?.generatedAt || "",
     assignmentDate: bootstrap?.defaults?.assignmentDate || "",
     evidenceDate: bootstrap?.defaults?.evidenceDate || "",
+    generatedDocuments: [],
     evidenceAttachments: bootstrap?.defaults?.evidenceAttachments || [],
     status: "En creacion",
     handoverType: "Entrega inicial",
@@ -93,6 +94,7 @@ export function createFormFromDetail(detail, bootstrap) {
     creationDate: detail.creationDate || detail.generatedAt || bootstrap?.defaults?.creationDate || "",
     assignmentDate: detail.assignmentDate || "",
     evidenceDate: detail.evidenceDate || "",
+    generatedDocuments: detail.generatedDocuments || [],
     evidenceAttachments: detail.evidenceAttachments || [],
     status: detail.status || "En creacion",
     handoverType: detail.handoverType || "Entrega inicial",
@@ -452,6 +454,87 @@ function openAttachmentPreview(attachment, documentId) {
   });
 }
 
+function GeneratedDocumentPreviewContent({ generatedDocument, documentId }) {
+  const [state, setState] = useState("loading");
+  const [blobUrl, setBlobUrl] = useState(null);
+
+  useEffect(() => {
+    let revoked = false;
+    fetchHandoverGeneratedPdfBlob(documentId, generatedDocument.kind)
+      .then(({ url }) => {
+        if (!revoked) {
+          setBlobUrl(url);
+          setState("ready");
+        } else {
+          URL.revokeObjectURL(url);
+        }
+      })
+      .catch(() => {
+        if (!revoked) {
+          setState("error");
+        }
+      });
+
+    return () => {
+      revoked = true;
+      if (blobUrl) {
+        URL.revokeObjectURL(blobUrl);
+      }
+    };
+  }, []);
+
+  const handleDownload = () => {
+    if (!blobUrl) {
+      return;
+    }
+    const anchor = document.createElement("a");
+    anchor.href = blobUrl;
+    anchor.download = generatedDocument.name || `${generatedDocument.code || generatedDocument.kind}.pdf`;
+    anchor.click();
+  };
+
+  if (state === "loading") {
+    return (
+      <div className="flex min-h-[220px] items-center justify-center text-sm text-[var(--text-muted)]">
+        Cargando PDF...
+      </div>
+    );
+  }
+
+  if (state === "error") {
+    return (
+      <div className="flex min-h-[220px] flex-col items-center justify-center gap-4 text-center">
+        <p className="text-sm text-[var(--text-secondary)]">No fue posible obtener el PDF generado.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <iframe
+        src={blobUrl}
+        title={generatedDocument.name || generatedDocument.code || "PDF generado"}
+        className="h-[60vh] w-full rounded-[16px] border border-[var(--border-color)]"
+      />
+      <div className="flex justify-end">
+        <Button variant="primary" onClick={handleDownload}>
+          <Icon name="export" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          Descargar
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function openGeneratedDocumentPreview(generatedDocument, documentId) {
+  ModalManager.custom({
+    title: generatedDocument.name || generatedDocument.code || "PDF generado",
+    size: "pdfViewer",
+    showFooter: false,
+    content: <GeneratedDocumentPreviewContent generatedDocument={generatedDocument} documentId={documentId} />,
+  });
+}
+
 function EditorSectionPanel({ eyebrow, title, helper, isCollapsed, onToggle, children, className = "" }) {
   return (
     <Panel className={`bg-[var(--bg-app)] transition-[padding,box-shadow] duration-300 ease-out ${className}`}>
@@ -538,6 +621,7 @@ export function HandoverEditorSections({
   addAdditionalReceiver,
   requestRemoveAdditionalReceiver,
   updateAdditionalReceiverRole,
+  allowEvidenceUpload = true,
   readOnly = false,
   documentId = null,
 }) {
@@ -588,53 +672,102 @@ export function HandoverEditorSections({
 
                 <div className="grid gap-4 rounded-[20px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-4">
                   <div>
-                    <p className="text-sm font-semibold text-[var(--text-primary)]">Adjuntos de evidencia</p>
-                    <p className="mt-1 text-sm text-[var(--text-secondary)]">Vista de adjuntos y metadata historica. La carga manual se gestiona desde el listado general del modulo.</p>
+                    <p className="text-sm font-semibold text-[var(--text-primary)]">Documentos generados</p>
+                    <p className="mt-1 text-sm text-[var(--text-secondary)]">PDFs emitidos y asociados a esta acta desde el pipeline documental.</p>
                   </div>
 
-                  {form.evidenceAttachments?.length ? (
+                  {form.generatedDocuments?.length ? (
                     <div className="grid gap-3 md:grid-cols-2">
-                      {form.evidenceAttachments.map((attachment, index) => {
-                        const ext = String(attachment.name || "").split(".").pop().toLowerCase();
-                        const iconName = ext === "pdf" ? "fileLines" : ext === "doc" || ext === "docx" ? "regFileLines" : "regFile";
-                        const canPreview = Boolean(attachment.storedName && documentId);
-                        return (
-                          <div key={`evidence-${index}`} className="rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-3">
-                            <div className="flex items-center gap-3">
-                              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] border border-[var(--border-color)] bg-[var(--bg-panel)]">
-                                <Icon name={iconName} size={16} className="h-4 w-4 text-[var(--text-secondary)]" aria-hidden="true" />
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <p
-                                  className="text-sm font-semibold text-[var(--text-primary)]"
-                                  title={attachment.name || `Adjunto ${index + 1}`}
-                                >
-                                  {formatAttachmentName(attachment.name || `Adjunto ${index + 1}`)}
-                                </p>
-                                <p className="mt-0.5 text-xs text-[var(--text-muted)]"> {(attachment.uploadedAt || form.evidenceDate || "Fecha de carga no registrada").replace("T", " ")}</p>
-                              </div>
-                              {canPreview ? (
-                                <button
-                                  type="button"
-                                  onClick={() => openAttachmentPreview(attachment, documentId)}
-                                  className="shrink-0 inline-flex h-8 items-center gap-1.5 rounded-[12px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 text-xs font-semibold text-[var(--text-secondary)] transition hover:text-[var(--text-primary)]"
-                                >
-                                  <Icon name="regWindowRestore" size={13} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                                  Ver
-                                </button>
+                      {form.generatedDocuments.map((generatedDocument, index) => (
+                        <div key={`generated-document-${index}`} className="rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-3">
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] border border-[var(--border-color)] bg-[var(--bg-panel)]">
+                              <Icon name="fileLines" size={16} className="h-4 w-4 text-[var(--text-secondary)]" aria-hidden="true" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p
+                                className="text-sm font-semibold text-[var(--text-primary)]"
+                                title={generatedDocument.name || generatedDocument.code || `PDF ${index + 1}`}
+                              >
+                                {formatAttachmentName(generatedDocument.name || generatedDocument.code || `PDF ${index + 1}`)}
+                              </p>
+                              <p className="mt-0.5 text-xs text-[var(--text-muted)]">
+                                {(generatedDocument.uploadedAt || form.assignmentDate || "Fecha de generacion no registrada").replace("T", " ")}
+                              </p>
+                              {generatedDocument.title ? (
+                                <p className="mt-0.5 text-xs text-[var(--text-secondary)]">{generatedDocument.title}</p>
                               ) : null}
                             </div>
-                            {attachment.observation ? (
-                              <p className="mt-2 pl-12 text-xs text-[var(--text-secondary)]">{attachment.observation}</p>
+                            {documentId ? (
+                              <button
+                                type="button"
+                                onClick={() => openGeneratedDocumentPreview(generatedDocument, documentId)}
+                                className="shrink-0 inline-flex h-8 items-center gap-1.5 rounded-[12px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 text-xs font-semibold text-[var(--text-secondary)] transition hover:text-[var(--text-primary)]"
+                              >
+                                <Icon name="regWindowRestore" size={13} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                                Ver
+                              </button>
                             ) : null}
                           </div>
-                        );
-                      })}
+                        </div>
+                      ))}
                     </div>
                   ) : (
-                    <MessageBanner>No hay adjuntos de evidencia registrados todavia.</MessageBanner>
+                    <MessageBanner>No hay PDFs generados asociados todavia.</MessageBanner>
                   )}
                 </div>
+
+                {allowEvidenceUpload ? (
+                  <div className="grid gap-4 rounded-[20px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-4">
+                    <div>
+                      <p className="text-sm font-semibold text-[var(--text-primary)]">Adjuntos de evidencia</p>
+                      <p className="mt-1 text-sm text-[var(--text-secondary)]">Vista de adjuntos y metadata historica. La carga manual se gestiona desde el listado general del modulo.</p>
+                    </div>
+
+                    {form.evidenceAttachments?.length ? (
+                      <div className="grid gap-3 md:grid-cols-2">
+                        {form.evidenceAttachments.map((attachment, index) => {
+                          const ext = String(attachment.name || "").split(".").pop().toLowerCase();
+                          const iconName = ext === "pdf" ? "fileLines" : ext === "doc" || ext === "docx" ? "regFileLines" : "regFile";
+                          const canPreview = Boolean(attachment.storedName && documentId);
+                          return (
+                            <div key={`evidence-${index}`} className="rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-3">
+                              <div className="flex items-center gap-3">
+                                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] border border-[var(--border-color)] bg-[var(--bg-panel)]">
+                                  <Icon name={iconName} size={16} className="h-4 w-4 text-[var(--text-secondary)]" aria-hidden="true" />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <p
+                                    className="text-sm font-semibold text-[var(--text-primary)]"
+                                    title={attachment.name || `Adjunto ${index + 1}`}
+                                  >
+                                    {formatAttachmentName(attachment.name || `Adjunto ${index + 1}`)}
+                                  </p>
+                                  <p className="mt-0.5 text-xs text-[var(--text-muted)]"> {(attachment.uploadedAt || form.evidenceDate || "Fecha de carga no registrada").replace("T", " ")}</p>
+                                </div>
+                                {canPreview ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => openAttachmentPreview(attachment, documentId)}
+                                    className="shrink-0 inline-flex h-8 items-center gap-1.5 rounded-[12px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 text-xs font-semibold text-[var(--text-secondary)] transition hover:text-[var(--text-primary)]"
+                                  >
+                                    <Icon name="regWindowRestore" size={13} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                                    Ver
+                                  </button>
+                                ) : null}
+                              </div>
+                              {attachment.observation ? (
+                                <p className="mt-2 pl-12 text-xs text-[var(--text-secondary)]">{attachment.observation}</p>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <MessageBanner>No hay adjuntos de evidencia registrados todavia.</MessageBanner>
+                    )}
+                  </div>
+                ) : null}
               </div>
             ) : null}
             <div className="md:col-span-2">

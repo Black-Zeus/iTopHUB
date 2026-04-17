@@ -97,6 +97,15 @@ export async function emitHandoverDocument(documentId) {
 }
 
 
+export async function getHandoverEmitJobStatus(jobId) {
+  const response = await apiRequest(`/v1/events/job/${jobId}/status`, {
+    fallbackMessage: "No fue posible consultar el estado de generacion del acta.",
+    retryOnRevalidate: true,
+  });
+  return response.item;
+}
+
+
 export async function rollbackHandoverDocument(documentId) {
   const response = await apiRequest(`/v1/handover/documents/${documentId}/rollback`, {
     method: "POST",
@@ -134,6 +143,19 @@ export async function fetchHandoverEvidenceBlob(documentId, storedName) {
   );
   if (!response.ok) {
     throw new Error("No fue posible obtener el adjunto.");
+  }
+  const blob = await response.blob();
+  return { blob, url: URL.createObjectURL(blob) };
+}
+
+
+export async function fetchHandoverGeneratedPdfBlob(documentId, documentKind) {
+  const response = await fetch(
+    `${API_BASE_URL}/v1/handover/documents/${documentId}/pdf/${encodeURIComponent(documentKind)}`,
+    { credentials: "include" }
+  );
+  if (!response.ok) {
+    throw new Error("No fue posible obtener el PDF generado.");
   }
   const blob = await response.blob();
   return { blob, url: URL.createObjectURL(blob) };

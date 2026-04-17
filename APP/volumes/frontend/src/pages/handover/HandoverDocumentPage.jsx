@@ -81,7 +81,7 @@ export function HandoverDocumentPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [form, setForm] = useState(createEmptyForm(null));
-  const isReadOnly = !isCreateMode && form.status === "Confirmada";
+  const isReadOnly = !isCreateMode && ["Confirmada", "Anulada"].includes(form.status);
   const [personSearchQuery, setPersonSearchQuery] = useState("");
   const [peopleResults, setPeopleResults] = useState([]);
   const [peopleLoading, setPeopleLoading] = useState(false);
@@ -663,6 +663,7 @@ export function HandoverDocumentPage() {
       creationDate: form.creationDate,
       assignmentDate: form.assignmentDate,
       evidenceDate: form.evidenceDate,
+      generatedDocuments: form.generatedDocuments || [],
       evidenceAttachments: form.evidenceAttachments || [],
       status: form.status,
       handoverType: form.handoverType,
@@ -773,6 +774,7 @@ export function HandoverDocumentPage() {
           addAdditionalReceiver={addAdditionalReceiver}
           requestRemoveAdditionalReceiver={requestRemoveAdditionalReceiver}
           updateAdditionalReceiverRole={updateAdditionalReceiverRole}
+          allowEvidenceUpload={Boolean(bootstrap?.actions?.allowEvidenceUpload ?? true)}
           readOnly={isReadOnly}
           documentId={isCreateMode ? null : slug}
         />

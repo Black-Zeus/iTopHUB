@@ -6,8 +6,11 @@ import { SearchFilterInput } from "../../components/ui/general/SearchFilterInput
 import { StatusChip } from "../../components/ui/general/StatusChip";
 import { Icon } from "../../components/ui/icon/Icon";
 import { Button } from "../../ui/Button";
+import { useToast } from "../../ui";
 import {
   emitHandoverDocument,
+  fetchHandoverGeneratedPdfBlob,
+  getHandoverEmitJobStatus,
   getHandoverBootstrap,
   listHandoverDocuments,
   rollbackHandoverDocument,
@@ -18,6 +21,14 @@ import { downloadRowsAsCsv } from "../../utils/export-csv";
 import { MessageBanner } from "./handover-editor-shared";
 
 const HANDOVER_FILTER_CONTROL_HEIGHT = "h-[66px]";
+const HANDOVER_JOB_POLL_INTERVAL_MS = 2000;
+const HANDOVER_JOB_POLL_TIMEOUT_MS = 120000;
+
+function sleep(ms) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
 
 function buildKpis(rows) {
   const draftCount = rows.filter((row) => row.status === "En creacion").length;
@@ -405,6 +416,7 @@ function EvidenceUploadModal({ row, willConfirmStatus, allowedExtensions, onCanc
 
 export function HandoverPage() {
   const navigate = useNavigate();
+  const { add } = useToast();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -462,12 +474,27 @@ export function HandoverPage() {
       content: (
         <div className="grid gap-5">
           <p className="text-sm text-[var(--text-secondary)]">
-            Este flujo quedara a cargo de la generacion PDF del documento. Por ahora se deja listo el modal y el cambio de estado operacional.
+            Al procesar esta acta, el backend emitira el documento y generara sus PDFs asociados mediante el pipeline documental.
           </p>
           <div className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] p-4 text-sm text-[var(--text-secondary)]">
             <p className="font-semibold text-[var(--text-primary)]">{row.code}</p>
-            <p className="mt-2">Al confirmar, el acta cambiara desde <strong>En creacion</strong> a <strong>Emitida</strong>.</p>
-            <p className="mt-2">La generacion y descarga real del PDF quedara conectada en una siguiente etapa.</p>
+            <p className="mt-2">
+              Al confirmar, el acta cambiara desde <strong>En creacion</strong> a <strong>Emitida</strong>.
+            </p>
+            <p className="mt-2">
+              En este mismo paso se generaran el acta principal y su detalle tecnico en PDF. Ambos documentos deberan ser firmados como respaldo formal del proceso y del legajo documental asociado.
+            </p>
+            <p className="mt-2">
+              {actionConfig.allowEvidenceUpload ? (
+                <>
+                  Para cerrar el flujo sera necesario cargar la evidencia firmada. Ese paso dejara el documento en estado <strong>Confirmada</strong> y dejara preparada la actualizacion final de datos en iTop.
+                </>
+              ) : (
+                <>
+                  La carga de evidencia se encuentra desactivada en la configuracion actual. El cierre operativo posterior y la actualizacion final de datos en iTop deberan seguir el flujo definido por administracion.
+                </>
+              )}
+            </p>
           </div>
           <div className="flex flex-wrap justify-between gap-3">
             <Button variant="secondary" onClick={() => ModalManager.close(modalId)}>Cancelar</Button>
@@ -475,15 +502,78 @@ export function HandoverPage() {
               variant="primary"
               onClick={async () => {
                 try {
-                  await emitHandoverDocument(row.id);
+                  const { jobId } = await emitHandoverDocument(row.id);
+                  const loadingModalId = ModalManager.loading({
+                    title: "Procesando acta",
+                    message: "Generando documentos PDF y consultando el estado del proceso...",
+                    showProgress: false,
+                  });
+
                   ModalManager.close(modalId);
-                  setNotice(`El acta ${row.code} quedo en estado Emitida.`);
-                  setError("");
-                  await loadDocuments(filters);
+
+                  const startedAt = Date.now();
+                  let latestJob = null;
+
+                  while (Date.now() - startedAt < HANDOVER_JOB_POLL_TIMEOUT_MS) {
+                    latestJob = await getHandoverEmitJobStatus(jobId);
+
+                    if (latestJob?.status === "completed") {
+                      ModalManager.close(loadingModalId);
+                      add({ message: `El acta ${row.code} quedo en estado Emitida.`, tone: "success" });
+                      await loadDocuments(filters);
+                      return;
+                    }
+
+                    if (latestJob?.status === "failed") {
+                      ModalManager.close(loadingModalId);
+                      throw new Error(latestJob?.error?.detail || "Ocurrio un error al procesar el acta.");
+                    }
+
+                    await sleep(HANDOVER_JOB_POLL_INTERVAL_MS);
+                  }
+
+                  ModalManager.close(loadingModalId);
+                  ModalManager.error({
+                    title: "Proceso en revision",
+                    message: latestJob?.status === "processing"
+                      ? "La generacion sigue en curso. Refresca el listado en unos segundos para validar el resultado."
+                      : "No se recibio confirmacion a tiempo. Refresca el listado para validar si la emision termino.",
+                  });
+                  return;
+
+                  const eventSource = new EventSource(`/api/v1/events/job/${jobId}`);
+
+                  eventSource.onmessage = (e) => {
+                    const data = JSON.parse(e.data);
+
+                    if (data.status === "completed") {
+                      eventSource.close();
+                      ModalManager.close(loadingModalId);
+                      ModalManager.close(modalId);
+                      add({ message: `El acta ${row.code} quedó en estado Emitida.`, tone: "success" });
+                      loadDocuments(filters);
+                    } else if (data.status === "failed") {
+                      eventSource.close();
+                      ModalManager.close(loadingModalId);
+                      ModalManager.error({
+                        title: "No fue posible procesar el acta",
+                        message: data.error?.detail || "Ocurrió un error al procesar el acta.",
+                      });
+                    }
+                  };
+
+                  eventSource.onerror = () => {
+                    eventSource.close();
+                    ModalManager.close(loadingModalId);
+                    ModalManager.error({
+                      title: "Error de conexión",
+                      message: "Se perdió la conexión. El proceso puede haber continuado. Recargue la página.",
+                    });
+                  };
                 } catch (processError) {
                   ModalManager.error({
                     title: "No fue posible procesar el acta",
-                    message: processError.message || "Ocurrio un error al cambiar el estado.",
+                    message: processError.message || "Ocurrio un error al iniciar el proceso.",
                   });
                 }
               }}
@@ -519,10 +609,14 @@ export function HandoverPage() {
   };
 
   const handleRollback = async (row) => {
+    const rollbackContent = actionConfig.allowEvidenceUpload
+      ? "Confirma para devolver esta acta a En creacion. La fecha de asignacion se limpiara, el documento volvera a quedar editable y los PDFs generados del acta seran eliminados de forma permanente, sin posibilidad de recuperacion. Las evidencias ya registradas se conservaran."
+      : "Confirma para devolver esta acta a En creacion. La fecha de asignacion se limpiara, el documento volvera a quedar editable y los PDFs generados del acta seran eliminados de forma permanente, sin posibilidad de recuperacion.";
+
     const confirmed = await ModalManager.confirm({
       title: "Cancelar emision",
       message: `Se revertira ${row.code} a En creacion.`,
-      content: "Confirma para devolver esta acta al estado anterior. La fecha de asignacion se limpiara y el documento volvera a quedar editable.",
+      content: rollbackContent,
       buttons: { cancel: "Cerrar", confirm: "Cancelar emision" },
     });
 
@@ -540,12 +634,31 @@ export function HandoverPage() {
     }
   };
 
-  const openPdfModal = (row) => {
-    ModalManager.info({
-      title: `PDF ${row.code}`,
-      message: "La descarga PDF real aun no esta conectada.",
-      content: "Este boton queda reservado para descargar la version PDF generada del documento cuando se integre el pipeline documental.",
+  const openPdfModal = async (row) => {
+    const loadingModalId = ModalManager.loading({
+      title: `Preparando PDF ${row.code}`,
+      message: "Obteniendo el documento principal generado para esta acta...",
+      showProgress: false,
     });
+
+    try {
+      const { url } = await fetchHandoverGeneratedPdfBlob(row.id, "main");
+      const previewWindow = window.open(url, "_blank", "noopener,noreferrer");
+      if (!previewWindow) {
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = `${row.code || "acta"}.pdf`;
+        anchor.click();
+      }
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (downloadError) {
+      ModalManager.error({
+        title: "No fue posible abrir el PDF",
+        message: downloadError.message || "El documento principal no esta disponible para esta acta.",
+      });
+    } finally {
+      ModalManager.close(loadingModalId);
+    }
   };
 
   const openEvidenceModal = (row) => {
@@ -599,6 +712,7 @@ export function HandoverPage() {
         const isDraft = row.status === "En creacion";
         const isIssued = row.status === "Emitida";
         const isConfirmed = row.status === "Confirmada";
+        const isCancelled = row.status === "Anulada";
 
         const actions = [];
 
@@ -611,7 +725,7 @@ export function HandoverPage() {
           });
         }
 
-        if (isConfirmed || isIssued) {
+        if (isConfirmed || isIssued || isCancelled) {
           actions.push({
             key: "view",
             label: "Ver",
