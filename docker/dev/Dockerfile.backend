@@ -7,15 +7,19 @@ ENV PYTHONUNBUFFERED=1
 ENV HOME=/home/appuser
 ENV PATH=/home/appuser/.local/bin:$PATH
 
+COPY docker/dev/python-service-entrypoint.sh /usr/local/bin/python-service-entrypoint.sh
+
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential curl wget \
+    && apt-get install -y --no-install-recommends build-essential curl gosu wget \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home --shell /bin/sh appuser \
+    && sed -i 's/\r$//' /usr/local/bin/python-service-entrypoint.sh \
     && pip install --no-cache-dir uvicorn watchdog \
+    && chmod +x /usr/local/bin/python-service-entrypoint.sh \
     && chown -R appuser:appuser /home/appuser /app
 
-USER appuser
-
 EXPOSE 8000
+
+ENTRYPOINT ["/usr/local/bin/python-service-entrypoint.sh"]
 
 CMD ["tail", "-f", "/dev/null"]

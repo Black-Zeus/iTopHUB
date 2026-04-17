@@ -19,6 +19,7 @@ Generates PDFs and document outputs without loading that responsibility into the
 ## Notes
 
 - Runs as a non-root user.
+- The dev image bootstraps writable bind-mounted runtime folders such as `/app/data` and `/var/log/app` as `root` during container startup, then drops back to `appuser` before launching the worker process.
 - When touching PDF features, review `gotenberg.md` too.
 - Exposes an internal-only HTTP endpoint used by `backend` to convert HTML into PDF.
 - Receives trusted HTML payloads from `backend`, forwards them to `gotenberg`, and returns the rendered PDF bytes.

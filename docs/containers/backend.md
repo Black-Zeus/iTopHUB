@@ -23,6 +23,7 @@ Hosts the custom application API and integration layer between the frontend, iTo
 ## Notes
 
 - Runs as a non-root user.
+- The dev image bootstraps writable bind-mounted runtime folders such as `/app/data` and `/var/log/app` as `root` during container startup, then drops back to `appuser` before launching the backend process.
 - Avoid coupling domain logic directly to iTop internals when the same logic can live here.
 - A minimal FastAPI bootstrap is kept in place so the container can start cleanly before the real application is implemented.
 - FastAPI bootstrap lives in `APP/volumes/backend/app/main.py`; route registration is centralized in `APP/volumes/backend/app/api/router.py`, and each module publishes its own router from `APP/volumes/backend/app/api/routes/`.
