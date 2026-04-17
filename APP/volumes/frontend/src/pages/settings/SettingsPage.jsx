@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link as LinkIcon } from "lucide-react";
 import ModalManager from "../../components/ui/modal";
+import { FilterDropdown } from "../../components/ui/general";
 import { Button } from "../../ui/Button";
 import { setPdqModuleEnabled } from "../../services/module-visibility-service";
 import { getPdqStatus } from "../../services/pdq-service";
@@ -19,6 +20,7 @@ import {
 } from "../../services/settings-service";
 
 const TABS = [
+  { id: "organization", label: "Organizacion" },
   { id: "itop", label: "Integracion iTop" },
   { id: "pdq", label: "PDQ" },
   { id: "sync", label: "Sincronizacion" },
@@ -118,6 +120,34 @@ function serializePanelConfig(config) {
   return JSON.stringify(config || {});
 }
 
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+    reader.onerror = () => reject(new Error(`No fue posible leer el archivo ${file?.name || "seleccionado"}.`));
+    reader.readAsDataURL(file);
+  });
+}
+
+function renderSingleSelection({ label, selectedOptions }) {
+  return (
+    <>
+      <span className="block text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
+        {label}
+      </span>
+      <span className="mt-1 block truncate text-sm font-semibold text-[var(--text-primary)]">
+        {selectedOptions[0]?.label || "Selecciona"}
+      </span>
+    </>
+  );
+}
+
+function getSettingsFilterOptionClassName(_, isActive) {
+  return isActive
+    ? "border-transparent bg-[var(--accent-soft)] text-[var(--accent-strong)] shadow-[0_10px_22px_rgba(81,152,194,0.14)]"
+    : "border-transparent bg-transparent text-[var(--text-secondary)] hover:border-[var(--border-color)] hover:bg-[var(--bg-app)] hover:text-[var(--text-primary)]";
+}
+
 function KPI({ eyebrow, value, status, tone = "success" }) {
   const dot = {
     success: "bg-[var(--success)]",
@@ -136,8 +166,8 @@ function KPI({ eyebrow, value, status, tone = "success" }) {
   );
 }
 
-function Field({ label, value, onChange, type = "text", rows = 0, options = null, readOnly = false }) {
-  const base = "w-full rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-3 text-sm text-[var(--text-primary)] outline-none";
+function Field({ label, value, onChange, type = "text", rows = 0, options = null, readOnly = false, inputClassName = "" }) {
+  const base = `w-full rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-3 text-sm text-[var(--text-primary)] outline-none ${inputClassName}`.trim();
   return (
     <label className={rows ? "md:col-span-2" : ""}>
       <span className="mb-2 block text-sm font-semibold text-[var(--text-secondary)]">{label}</span>
@@ -812,46 +842,346 @@ export function SettingsPage() {
           </div>
         ) : null}
 
-        {activeTab === "docs" ? (
+        {activeTab === "organization" ? (
           <div className="mt-6">
-            <div className="grid gap-4 md:grid-cols-4">
-              <Field label="Prefijo actas entrega" value={drafts.docs?.handoverPrefix || ""} onChange={(e) => updateField("docs", "handoverPrefix", e.target.value)} />
-              <Field label="Prefijo actas recepcion" value={drafts.docs?.receptionPrefix || ""} onChange={(e) => updateField("docs", "receptionPrefix", e.target.value)} />
-              <Field label="Prefijo laboratorio" value={drafts.docs?.laboratoryPrefix || ""} onChange={(e) => updateField("docs", "laboratoryPrefix", e.target.value)} />
-              <Field label="Formato numeracion" value={drafts.docs?.numberingFormat || ""} onChange={(e) => updateField("docs", "numberingFormat", e.target.value)} />
-            </div>
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
-              <Field label="Observacion por defecto" rows={4} value={drafts.docs?.defaultObservation || ""} onChange={(e) => updateField("docs", "defaultObservation", e.target.value)} />
-            </div>
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
-              <Toggle
-                label="Cargar evidencias"
-                description="Permite mostrar en el listado de actas la accion para cargar manualmente el PDF firmado o documento de respaldo final."
-                checked={Boolean(drafts.docs?.allowEvidenceUpload)}
-                onChange={(e) => updateField("docs", "allowEvidenceUpload", e.target.checked)}
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field
+                label="Nombre de la organizacion"
+                value={drafts.organization?.organizationName || ""}
+                onChange={(e) => updateField("organization", "organizationName", e.target.value)}
+              />
+              <Field
+                label="Sigla"
+                value={drafts.organization?.organizationAcronym || ""}
+                onChange={(e) => updateField("organization", "organizationAcronym", e.target.value)}
               />
             </div>
             <div className="mt-4 rounded-[20px] border border-[var(--border-color)] bg-[var(--bg-app)] p-5">
-              <p className="text-sm font-semibold text-[var(--text-primary)]">Tipos permitidos para evidencia</p>
-              <p className="mt-1 text-sm text-[var(--text-secondary)]">
-                Selecciona las extensiones admitidas para la carga manual de evidencias en documentos.
-              </p>
-              <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                {EVIDENCE_EXTENSION_OPTIONS.map((item) => (
-                  <label key={item.value} className="rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3 text-sm font-semibold text-[var(--text-secondary)]">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-[var(--text-primary)]">Logo institucional</p>
+                  <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                    Este logo se utilizara en la generacion de PDFs. Se almacena dentro de la configuracion del Hub.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  <label className="inline-flex cursor-pointer items-center gap-2 rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-2.5 text-sm font-semibold text-[var(--text-primary)]">
+                    Cargar logo
                     <input
-                      type="checkbox"
-                      checked={Boolean(drafts.docs?.evidenceAllowedExtensions?.includes(item.value))}
-                      onChange={(e) => {
-                        const current = drafts.docs?.evidenceAllowedExtensions || [];
-                        const next = e.target.checked ? [...current, item.value] : current.filter((value) => value !== item.value);
-                        updateField("docs", "evidenceAllowedExtensions", next);
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                      className="hidden"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        try {
+                          const dataUrl = await readFileAsDataUrl(file);
+                          setDrafts((current) => ({
+                            ...current,
+                            organization: {
+                              ...(current.organization || {}),
+                              organizationLogoUpload: dataUrl,
+                              organizationLogoRemoved: false,
+                              organizationLogoUrl: dataUrl,
+                            },
+                          }));
+                        } catch (uploadError) {
+                          ModalManager.error({
+                            title: "No fue posible cargar el logo",
+                            message: uploadError.message || "Ocurrio un error al leer el archivo.",
+                          });
+                        } finally {
+                          e.target.value = "";
+                        }
                       }}
-                      className="mr-3 accent-[var(--accent-strong)]"
                     />
-                    {item.label}
                   </label>
-                ))}
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={!drafts.organization?.organizationLogoUrl}
+                    onClick={() => setDrafts((current) => ({
+                      ...current,
+                      organization: {
+                        ...(current.organization || {}),
+                        organizationLogoUpload: "",
+                        organizationLogoRemoved: true,
+                        organizationLogoUrl: "",
+                        organizationLogoPath: "",
+                        organizationLogoVersion: "",
+                      },
+                    }))}
+                  >
+                    Quitar logo
+                  </Button>
+                </div>
+              </div>
+              <div className="mt-5 rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-4">
+                {drafts.organization?.organizationLogoUrl ? (
+                  <img
+                    src={drafts.organization.organizationLogoUrl}
+                    alt={drafts.organization?.organizationName || "Logo organizacion"}
+                    className="max-h-[120px] max-w-full object-contain"
+                  />
+                ) : (
+                  <div className="flex min-h-[96px] items-center justify-center text-sm text-[var(--text-muted)]">
+                    No hay logo configurado todavia.
+                  </div>
+                )}
+              </div>
+            </div>
+            <Actions
+              dirty={dirtyMap.organization}
+              saving={savingPanel === "organization"}
+              onReset={() => resetPanel("organization")}
+              onSave={() => savePanel("organization", "Organizacion")}
+            />
+          </div>
+        ) : null}
+
+        {activeTab === "docs" ? (
+          <div className="mt-6">
+            <div className="space-y-5">
+              <div className="rounded-[20px] border border-[var(--border-color)] bg-[var(--bg-app)] p-5">
+                <p className="text-sm font-semibold text-[var(--text-primary)]">Numeracion documental</p>
+                <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                  Define prefijos y formato base de folios para los distintos documentos del Hub.
+                </p>
+                <div className="mt-4 grid gap-4 md:grid-cols-4">
+                  <Field label="Prefijo actas entrega" value={drafts.docs?.handoverPrefix || ""} onChange={(e) => updateField("docs", "handoverPrefix", e.target.value)} />
+                  <Field label="Prefijo actas recepcion" value={drafts.docs?.receptionPrefix || ""} onChange={(e) => updateField("docs", "receptionPrefix", e.target.value)} />
+                  <Field label="Prefijo laboratorio" value={drafts.docs?.laboratoryPrefix || ""} onChange={(e) => updateField("docs", "laboratoryPrefix", e.target.value)} />
+                  <Field label="Formato numeracion" value={drafts.docs?.numberingFormat || ""} onChange={(e) => updateField("docs", "numberingFormat", e.target.value)} />
+                </div>
+              </div>
+
+              <div className="rounded-[20px] border border-[var(--border-color)] bg-[var(--bg-app)] p-5">
+                <p className="text-sm font-semibold text-[var(--text-primary)]">Parametrizacion PDF</p>
+                <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                  Configura estructura visual, tamano de pagina y margenes del documento generado.
+                </p>
+                <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(320px,0.9fr)_minmax(0,1.1fr)]">
+                  <div className="grid gap-4">
+                    <div className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-4">
+                      <p className="text-sm font-semibold text-[var(--text-primary)]">Formato de hoja</p>
+                      <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                        Selecciona el tamano base y define rapidamente el espacio util del documento.
+                      </p>
+                      <div className="mt-4 w-full">
+                        <FilterDropdown
+                          label="Tamano de pagina"
+                          selectedValues={drafts.docs?.pageSize ? [drafts.docs.pageSize] : ["A4"]}
+                          options={[
+                            { value: "A4", label: "A4 (210 x 297 mm)" },
+                            { value: "LETTER", label: "Letter (216 x 279 mm)" },
+                            { value: "LEGAL", label: "Legal (216 x 356 mm)" },
+                          ]}
+                          selectionMode="single"
+                          onToggleOption={(value) => updateField("docs", "pageSize", value)}
+                          onClear={() => updateField("docs", "pageSize", "A4")}
+                          title="Tamano de pagina"
+                          description="Selecciona un formato base para la hoja del PDF."
+                          iconName="sliders"
+                          renderSelection={renderSingleSelection}
+                          getOptionClassName={getSettingsFilterOptionClassName}
+                        />
+                      </div>
+                      <div className="mt-4 rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] p-4">
+                        <div className="grid grid-cols-3 items-center gap-3">
+                          <div />
+                          <div>
+                            <Field label="Superior (mm)" type="number" value={String(drafts.docs?.marginTopMm ?? 12)} onChange={(e) => updateField("docs", "marginTopMm", e.target.value)} inputClassName="text-center" />
+                          </div>
+                          <div />
+                          <div>
+                            <Field label="Izquierdo (mm)" type="number" value={String(drafts.docs?.marginLeftMm ?? 12)} onChange={(e) => updateField("docs", "marginLeftMm", e.target.value)} inputClassName="text-center" />
+                          </div>
+                          <div className="flex min-h-[176px] items-center justify-center rounded-[18px] border border-dashed border-[var(--border-strong)] bg-[linear-gradient(180deg,rgba(81,152,194,0.08),rgba(81,152,194,0.03))] px-4 text-center">
+                            <div>
+                              <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Area util</p>
+                              <p className="mt-2 text-sm font-semibold text-[var(--text-primary)]">{drafts.docs?.pageSize || "A4"}</p>
+                              <p className="mt-2 text-xs leading-5 text-[var(--text-secondary)]">
+                                El contenido del PDF se distribuira dentro de este espacio considerando los margenes configurados.
+                              </p>
+                            </div>
+                          </div>
+                          <div>
+                            <Field label="Derecho (mm)" type="number" value={String(drafts.docs?.marginRightMm ?? 12)} onChange={(e) => updateField("docs", "marginRightMm", e.target.value)} inputClassName="text-center" />
+                          </div>
+                          <div />
+                          <div>
+                            <Field label="Inferior (mm)" type="number" value={String(drafts.docs?.marginBottomMm ?? 18)} onChange={(e) => updateField("docs", "marginBottomMm", e.target.value)} inputClassName="text-center" />
+                          </div>
+                          <div />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="grid gap-4">
+                    <div className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <p className="text-sm font-semibold text-[var(--text-primary)]">Cabecera</p>
+                          <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                            Define si el documento mostrara banda superior y que datos institucionales incluira.
+                          </p>
+                        </div>
+                        <label className="inline-flex items-center gap-2 rounded-full border border-[var(--border-color)] bg-[var(--bg-app)] px-3 py-2 text-xs font-semibold text-[var(--text-primary)]">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(drafts.docs?.showHeader)}
+                            onChange={(e) => updateField("docs", "showHeader", e.target.checked)}
+                            className="accent-[var(--accent-strong)]"
+                          />
+                          Activar
+                        </label>
+                      </div>
+                      <div className={`${drafts.docs?.showHeader ? "" : "pointer-events-none opacity-50"} mt-4 grid gap-3 md:grid-cols-2`}>
+                        <Toggle
+                          label="Mostrar logo"
+                          description="Usa el logo configurado en Organizacion."
+                          checked={Boolean(drafts.docs?.headerShowLogo)}
+                          onChange={(e) => updateField("docs", "headerShowLogo", e.target.checked)}
+                        />
+                        <Toggle
+                          label="Mostrar nombre organizacional"
+                          description="Incluye el nombre de la organizacion en el encabezado."
+                          checked={Boolean(drafts.docs?.headerShowOrganizationName)}
+                          onChange={(e) => updateField("docs", "headerShowOrganizationName", e.target.checked)}
+                        />
+                      </div>
+                    </div>
+                    <div className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <p className="text-sm font-semibold text-[var(--text-primary)]">Pie de pagina</p>
+                          <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                            Controla la trazabilidad y referencias visibles al final del documento.
+                          </p>
+                        </div>
+                        <label className="inline-flex items-center gap-2 rounded-full border border-[var(--border-color)] bg-[var(--bg-app)] px-3 py-2 text-xs font-semibold text-[var(--text-primary)]">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(drafts.docs?.showFooter)}
+                            onChange={(e) => updateField("docs", "showFooter", e.target.checked)}
+                            className="accent-[var(--accent-strong)]"
+                          />
+                          Activar
+                        </label>
+                      </div>
+                      <div className={`${drafts.docs?.showFooter ? "" : "pointer-events-none opacity-50"} mt-4 grid gap-3 md:grid-cols-3`}>
+                        <Toggle
+                          label="Nombre organizacional"
+                          description="Muestra la organizacion en el pie."
+                          checked={Boolean(drafts.docs?.footerShowOrganizationName)}
+                          onChange={(e) => updateField("docs", "footerShowOrganizationName", e.target.checked)}
+                        />
+                        <Toggle
+                          label="Folio"
+                          description="Muestra el folio del legajo."
+                          checked={Boolean(drafts.docs?.footerShowFolio)}
+                          onChange={(e) => updateField("docs", "footerShowFolio", e.target.checked)}
+                        />
+                        <Toggle
+                          label="Numero de pagina"
+                          description="Muestra paginacion X / Y."
+                          checked={Boolean(drafts.docs?.footerShowPageNumber)}
+                          onChange={(e) => updateField("docs", "footerShowPageNumber", e.target.checked)}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid gap-5 xl:grid-cols-2 xl:items-stretch">
+                <div className="rounded-[20px] border border-[var(--border-color)] bg-[var(--bg-app)] p-5">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-sm font-semibold text-[var(--text-primary)]">Evidencias</p>
+                      <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                        Controla la carga manual de documentos firmados y tipos permitidos para el cierre operativo.
+                      </p>
+                    </div>
+                    <label className="inline-flex items-center gap-2 rounded-full border border-[var(--border-color)] bg-[var(--bg-app)] px-3 py-2 text-xs font-semibold text-[var(--text-primary)]">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(drafts.docs?.allowEvidenceUpload)}
+                        onChange={(e) => updateField("docs", "allowEvidenceUpload", e.target.checked)}
+                        className="accent-[var(--accent-strong)]"
+                      />
+                      Activar
+                    </label>
+                  </div>
+                  <div className={`${drafts.docs?.allowEvidenceUpload ? "" : "pointer-events-none opacity-50"} mt-4 grid gap-4`}>
+                    <div className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-4">
+                      <p className="text-sm font-semibold text-[var(--text-primary)]">Carga manual</p>
+                      <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                        Permite mostrar en el listado de actas la accion para cargar manualmente el PDF firmado o documento de respaldo final.
+                      </p>
+                    </div>
+                    <div className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-4">
+                      <p className="text-sm font-semibold text-[var(--text-primary)]">Tipos permitidos para evidencia</p>
+                      <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                        Selecciona las extensiones admitidas para la carga manual de evidencias en documentos.
+                      </p>
+                      <div className="mt-4 grid gap-3 md:grid-cols-2">
+                        {EVIDENCE_EXTENSION_OPTIONS.map((item) => (
+                          <label key={item.value} className="rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-3 text-sm font-semibold text-[var(--text-secondary)]">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(drafts.docs?.evidenceAllowedExtensions?.includes(item.value))}
+                              onChange={(e) => {
+                                const current = drafts.docs?.evidenceAllowedExtensions || [];
+                                const next = e.target.checked ? [...current, item.value] : current.filter((value) => value !== item.value);
+                                updateField("docs", "evidenceAllowedExtensions", next);
+                              }}
+                              className="mr-3 accent-[var(--accent-strong)]"
+                            />
+                            {item.label}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-[20px] border border-[var(--border-color)] bg-[var(--bg-app)] p-5">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-sm font-semibold text-[var(--text-primary)]">Requerimiento</p>
+                      <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                        Reserva la configuracion base para el futuro requerimiento asociado al proceso documental.
+                      </p>
+                    </div>
+                    <label className="inline-flex items-center gap-2 rounded-full border border-[var(--border-color)] bg-[var(--bg-app)] px-3 py-2 text-xs font-semibold text-[var(--text-primary)]">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(drafts.docs?.requirementEnabled)}
+                        onChange={(e) => updateField("docs", "requirementEnabled", e.target.checked)}
+                        className="accent-[var(--accent-strong)]"
+                      />
+                      Activar
+                    </label>
+                  </div>
+                  <div className={`${drafts.docs?.requirementEnabled ? "" : "pointer-events-none opacity-50"} mt-4 grid gap-4`}>
+                    <div className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-4">
+                      <div className="grid gap-4">
+                        <Field
+                          label="Asunto"
+                          value={drafts.docs?.requirementSubject || ""}
+                          onChange={(e) => updateField("docs", "requirementSubject", e.target.value)}
+                        />
+                        <Field
+                          label="Detalle / observacion"
+                          rows={4}
+                          value={drafts.docs?.requirementTicketTemplate || ""}
+                          onChange={(e) => updateField("docs", "requirementTicketTemplate", e.target.value)}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
             <Actions dirty={dirtyMap.docs} saving={savingPanel === "docs"} onReset={() => resetPanel("docs")} onSave={() => savePanel("docs", "Documentos")} />
@@ -892,6 +1222,12 @@ export function SettingsPage() {
                 description="Permite incluir activos con estado interno iTop Implementation, tratados como no productivos, en Assets y en los objetos CMDB visibles dentro de Personas."
                 checked={Boolean(drafts.cmdb?.showImplementationAssets)}
                 onChange={(e) => updateField("cmdb", "showImplementationAssets", e.target.checked)}
+              />
+              <Toggle
+                label="Generar ticket Requerimiento"
+                description="Reserva la opcion para crear un requerimiento asociado desde los flujos CMDB. Aun no se utiliza operativamente."
+                checked={Boolean(drafts.cmdb?.generateRequirementTicket)}
+                onChange={(e) => updateField("cmdb", "generateRequirementTicket", e.target.checked)}
               />
             </div>
             <div className="grid gap-4 md:grid-cols-2">

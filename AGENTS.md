@@ -172,6 +172,11 @@ When a new cross-project concern appears, create a dedicated place for it early 
 - If the task mentions diagnosis, repair, technical review, or queue handling for devices, read `docs/domains/laboratory.md`.
 - If the task mentions dashboards, KPIs, analytics, or exports, read `docs/domains/reporting.md`.
 
+## Operational Patterns
+
+- Frontend modal system: Use `ModalManager.loading()` with `showProgress: false` for spinner-only loading states. Close with `ModalManager.close(modalId)`.
+- Frontend API services live in `APP/volumes/frontend/src/services/`. Import directly from service files, not from barrel exports.
+
 ## Documentation Maintenance
 
 - Keep container docs short and operational.

@@ -1,15 +1,18 @@
 import smtplib
 from email.message import EmailMessage
+from pathlib import Path
 from typing import Any
 
 import requests
 from fastapi import APIRouter, Cookie, HTTPException
+from fastapi.responses import FileResponse
 
 from api.deps import build_itop_api_url, ensure_session, ensure_settings_access, model_to_dict, raise_auth_error
 from modules.auth.service import AuthenticationError
 from modules.settings.service import (
     create_settings_profile,
     create_settings_sync_task,
+    SETTINGS_ASSET_ROOT,
     list_settings_payload,
     list_settings_profiles,
     remove_settings_sync_task,
@@ -62,6 +65,28 @@ def settings_update_panel(
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Unable to update settings panel: {exc}") from exc
+
+
+@router.get("/assets/{asset_path:path}")
+def settings_asset_download(
+    asset_path: str,
+    hub_session_id: str | None = Cookie(default=None),
+) -> FileResponse:
+    session_id = ensure_session(hub_session_id)
+    try:
+        ensure_settings_access(session_id)
+    except AuthenticationError as exc:
+        raise_auth_error(exc)
+
+    safe_relative = Path(asset_path).as_posix().strip("/")
+    resolved_path = (SETTINGS_ASSET_ROOT / safe_relative).resolve()
+    root_path = SETTINGS_ASSET_ROOT.resolve()
+    if root_path not in resolved_path.parents and resolved_path != root_path:
+        raise HTTPException(status_code=404, detail="Asset no encontrado.")
+    if not resolved_path.exists() or not resolved_path.is_file():
+        raise HTTPException(status_code=404, detail="Asset no encontrado.")
+
+    return FileResponse(path=str(resolved_path), media_type="image/png")
 
 
 @router.post("/sync/tasks")

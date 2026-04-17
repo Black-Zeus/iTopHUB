@@ -47,6 +47,7 @@ Runs the custom React/Vite interface for the Hub layer on top of iTop.
 - The PDQ module exposes a MAC search workflow and device detail modal backed by the backend SQLite integration.
 - `Settings` now shows whether the PDQ SQLite file was detected in the configured shared folder.
 - `Settings` persists panel values from MariaDB through the backend API; panel saves are independent and confirmed from the UI.
+- `Settings` now includes an `Organizacion` panel used by PDF generation, where operators define organization name, acronym, and the logo rendered on generated documents.
 - The PDQ menu visibility is no longer a browser-only preference; it is loaded from backend configuration.
 - `Settings` exposes explicit validation actions for external services from the panel itself, such as SMTP test, iTop connectivity test, and PDQ database validation, so operators can confirm the current draft values before saving or applying them elsewhere.
 - In panels that expose a `Test` action, the save action should remain blocked until the current draft passes a successful validation; any subsequent edit invalidates that test requirement again.

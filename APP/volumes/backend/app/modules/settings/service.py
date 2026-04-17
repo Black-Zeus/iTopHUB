@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import base64
+import binascii
 from copy import deepcopy
+from io import BytesIO
+from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException
+from PIL import Image
 
 from infrastructure.redis_cache import cache_settings_panel, get_cached_settings_panel
 from modules.settings.repository import (
@@ -52,6 +57,11 @@ PROFILE_MODULE_OPTIONS = [
 ]
 
 PANEL_DEFAULTS: dict[str, dict[str, Any]] = {
+    "organization": {
+        "organizationName": "iTop Hub",
+        "organizationAcronym": "ITH",
+        "organizationLogo": "",
+    },
     "itop": {
         "integrationUrl": "http://itop",
         "timeoutSeconds": 30,
@@ -88,7 +98,24 @@ PANEL_DEFAULTS: dict[str, dict[str, Any]] = {
         "receptionPrefix": "REC",
         "laboratoryPrefix": "LAB",
         "numberingFormat": "AAAA-NNNN",
-        "defaultObservation": "El documento se emite como respaldo formal del movimiento registrado en CMDB.",
+        "requirementEnabled": False,
+        "requirementSubject": "Registro formal de asociacion de activo",
+        "requirementTicketTemplate": (
+            "Se deja registro formal de la asociacion del activo en el marco del proceso corporativo vigente. "
+            "Solicitamos gestionar la actualizacion correspondiente y mantener trazabilidad del requerimiento asociado."
+        ),
+        "pageSize": "A4",
+        "marginTopMm": 12,
+        "marginRightMm": 12,
+        "marginBottomMm": 18,
+        "marginLeftMm": 12,
+        "showHeader": True,
+        "headerShowLogo": True,
+        "headerShowOrganizationName": True,
+        "showFooter": True,
+        "footerShowOrganizationName": True,
+        "footerShowFolio": True,
+        "footerShowPageNumber": True,
         "allowEvidenceUpload": True,
         "evidenceAllowedExtensions": ["pdf", "doc", "docx"],
     },
@@ -96,6 +123,7 @@ PANEL_DEFAULTS: dict[str, dict[str, Any]] = {
         "enabledAssetTypes": ["Desktop (PC)", "Laptop (Laptop)"],
         "showObsoleteAssets": False,
         "showImplementationAssets": False,
+        "generateRequirementTicket": False,
         "warrantyAlertDays": 30,
         "supportNote": (
             "PDQ actua como fuente lateral de visibilidad para inventario tecnico, "
@@ -107,6 +135,9 @@ PANEL_DEFAULTS: dict[str, dict[str, Any]] = {
 ALLOWED_PANELS = set(PANEL_DEFAULTS.keys())
 ALLOWED_TASK_TYPES = {item["value"] for item in SYNC_TASK_TYPES}
 ALLOWED_COMMAND_PRESETS = {item["value"] for item in SYNC_COMMAND_PRESETS}
+SETTINGS_ASSET_ROOT = Path("/app/data/settings_assets")
+ORGANIZATION_LOGO_FILENAME = "organization_logo.png"
+ORGANIZATION_LOGO_WIDTH_PX = 120
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -146,6 +177,72 @@ def _coerce_list(value: Any, default: list[str]) -> list[str]:
     return [str(item).strip() for item in value if str(item).strip()]
 
 
+def _build_organization_logo_url(relative_path: str, version: str) -> str:
+    if not relative_path:
+        return ""
+    suffix = f"?v={version}" if version else ""
+    return f"/api/v1/settings/assets/{relative_path}{suffix}"
+
+
+def _extract_base64_payload(value: str) -> bytes:
+    text = _coerce_str(value)
+    if not text:
+        raise HTTPException(status_code=422, detail="El logo de organizacion no contiene datos validos.")
+
+    payload = text.split(",", 1)[1] if text.startswith("data:") and "," in text else text
+    try:
+        return base64.b64decode(payload, validate=True)
+    except (ValueError, binascii.Error) as exc:
+        raise HTTPException(status_code=422, detail="El logo de organizacion no tiene un formato base64 valido.") from exc
+
+
+def _save_organization_logo(encoded_image: str) -> tuple[str, str]:
+    raw_bytes = _extract_base64_payload(encoded_image)
+    try:
+        source = Image.open(BytesIO(raw_bytes))
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail="No fue posible leer el logo de organizacion.") from exc
+
+    width, height = source.size
+    if width <= 0 or height <= 0:
+        raise HTTPException(status_code=422, detail="El logo de organizacion no tiene dimensiones validas.")
+
+    target_width = ORGANIZATION_LOGO_WIDTH_PX
+    target_height = max(1, round((height * target_width) / width))
+    resize_filter = getattr(Image, "Resampling", Image).LANCZOS
+
+    has_alpha = "A" in source.getbands() or (source.mode == "P" and "transparency" in source.info)
+    converted = source.convert("RGBA" if has_alpha else "RGB")
+    resized = converted.resize((target_width, target_height), resize_filter)
+
+    output_directory = SETTINGS_ASSET_ROOT / "organization"
+    output_directory.mkdir(parents=True, exist_ok=True)
+    output_path = output_directory / ORGANIZATION_LOGO_FILENAME
+    resized.save(output_path, format="PNG")
+    version = str(int(output_path.stat().st_mtime))
+    return "organization/organization_logo.png", version
+
+
+def remove_organization_logo(relative_path: str) -> None:
+    safe_relative = Path(_coerce_str(relative_path)).as_posix().strip("/")
+    if not safe_relative:
+        return
+    file_path = SETTINGS_ASSET_ROOT / safe_relative
+    if file_path.exists() and file_path.is_file():
+        file_path.unlink(missing_ok=True)
+
+
+def read_organization_logo_data_url(relative_path: str) -> str:
+    safe_relative = Path(_coerce_str(relative_path)).as_posix().strip("/")
+    if not safe_relative:
+        return ""
+    file_path = SETTINGS_ASSET_ROOT / safe_relative
+    if not file_path.exists() or not file_path.is_file():
+        return ""
+    encoded = base64.b64encode(file_path.read_bytes()).decode("ascii")
+    return f"data:image/png;base64,{encoded}"
+
+
 def normalize_panel_config(panel_code: str, config: dict[str, Any]) -> dict[str, Any]:
     if panel_code not in ALLOWED_PANELS:
         raise HTTPException(status_code=404, detail="Panel de configuracion no encontrado.")
@@ -161,6 +258,17 @@ def normalize_panel_config(panel_code: str, config: dict[str, Any]) -> dict[str,
             "sessionTtlMinutes": max(1, _coerce_int(merged.get("sessionTtlMinutes"), 240)),
             "runtimeTokenTtlMinutes": max(1, _coerce_int(merged.get("runtimeTokenTtlMinutes"), 60)),
             "sessionWarningMinutes": max(1, _coerce_int(merged.get("sessionWarningMinutes"), 1)),
+        }
+
+    if panel_code == "organization":
+        logo_path = _coerce_str(merged.get("organizationLogoPath"))
+        logo_version = _coerce_str(merged.get("organizationLogoVersion"))
+        return {
+            "organizationName": _coerce_str(merged.get("organizationName"), "iTop Hub"),
+            "organizationAcronym": _coerce_str(merged.get("organizationAcronym"), "ITH"),
+            "organizationLogoPath": logo_path,
+            "organizationLogoVersion": logo_version,
+            "organizationLogoUrl": _build_organization_logo_url(logo_path, logo_version),
         }
 
     if panel_code == "pdq":
@@ -193,12 +301,29 @@ def normalize_panel_config(panel_code: str, config: dict[str, Any]) -> dict[str,
         }
 
     if panel_code == "docs":
+        page_size = _coerce_str(merged.get("pageSize"), "A4").upper()
+        if page_size not in {"A4", "LETTER", "LEGAL"}:
+            page_size = "A4"
         return {
             "handoverPrefix": _coerce_str(merged.get("handoverPrefix")),
             "receptionPrefix": _coerce_str(merged.get("receptionPrefix")),
             "laboratoryPrefix": _coerce_str(merged.get("laboratoryPrefix")),
             "numberingFormat": _coerce_str(merged.get("numberingFormat")),
-            "defaultObservation": _coerce_str(merged.get("defaultObservation")),
+            "requirementEnabled": _coerce_bool(merged.get("requirementEnabled"), False),
+            "requirementSubject": _coerce_str(merged.get("requirementSubject")),
+            "requirementTicketTemplate": _coerce_str(merged.get("requirementTicketTemplate")),
+            "pageSize": page_size,
+            "marginTopMm": max(0, _coerce_int(merged.get("marginTopMm"), 12)),
+            "marginRightMm": max(0, _coerce_int(merged.get("marginRightMm"), 12)),
+            "marginBottomMm": max(0, _coerce_int(merged.get("marginBottomMm"), 18)),
+            "marginLeftMm": max(0, _coerce_int(merged.get("marginLeftMm"), 12)),
+            "showHeader": _coerce_bool(merged.get("showHeader"), True),
+            "headerShowLogo": _coerce_bool(merged.get("headerShowLogo"), True),
+            "headerShowOrganizationName": _coerce_bool(merged.get("headerShowOrganizationName"), True),
+            "showFooter": _coerce_bool(merged.get("showFooter"), True),
+            "footerShowOrganizationName": _coerce_bool(merged.get("footerShowOrganizationName"), True),
+            "footerShowFolio": _coerce_bool(merged.get("footerShowFolio"), True),
+            "footerShowPageNumber": _coerce_bool(merged.get("footerShowPageNumber"), True),
             "allowEvidenceUpload": _coerce_bool(merged.get("allowEvidenceUpload"), True),
             "evidenceAllowedExtensions": [
                 item
@@ -214,6 +339,7 @@ def normalize_panel_config(panel_code: str, config: dict[str, Any]) -> dict[str,
         "enabledAssetTypes": _coerce_list(merged.get("enabledAssetTypes"), PANEL_DEFAULTS["cmdb"]["enabledAssetTypes"]),
         "showObsoleteAssets": _coerce_bool(merged.get("showObsoleteAssets"), False),
         "showImplementationAssets": _coerce_bool(merged.get("showImplementationAssets"), False),
+        "generateRequirementTicket": _coerce_bool(merged.get("generateRequirementTicket"), False),
         "warrantyAlertDays": max(1, _coerce_int(merged.get("warrantyAlertDays"), 30)),
         "supportNote": _coerce_str(merged.get("supportNote")),
     }
@@ -237,7 +363,28 @@ def list_settings_payload() -> dict[str, Any]:
 
 
 def update_settings_panel(panel_code: str, config: dict[str, Any]) -> dict[str, Any]:
-    normalized = normalize_panel_config(panel_code, config)
+    if panel_code == "organization":
+        current = get_settings_panel(panel_code)
+        next_config = {
+            "organizationName": _coerce_str(config.get("organizationName"), current.get("organizationName", "iTop Hub")),
+            "organizationAcronym": _coerce_str(config.get("organizationAcronym"), current.get("organizationAcronym", "ITH")),
+            "organizationLogoPath": _coerce_str(current.get("organizationLogoPath")),
+            "organizationLogoVersion": _coerce_str(current.get("organizationLogoVersion")),
+        }
+        if _coerce_bool(config.get("organizationLogoRemoved"), False):
+            remove_organization_logo(next_config["organizationLogoPath"])
+            next_config["organizationLogoPath"] = ""
+            next_config["organizationLogoVersion"] = ""
+        elif _coerce_str(config.get("organizationLogoUpload")):
+            old_path = next_config["organizationLogoPath"]
+            relative_path, version = _save_organization_logo(_coerce_str(config.get("organizationLogoUpload")))
+            next_config["organizationLogoPath"] = relative_path
+            next_config["organizationLogoVersion"] = version
+            if old_path and old_path != relative_path:
+                remove_organization_logo(old_path)
+        normalized = normalize_panel_config(panel_code, next_config)
+    else:
+        normalized = normalize_panel_config(panel_code, config)
     upsert_settings_panel(panel_code, normalized)
     cache_settings_panel(panel_code, normalized)
     return normalized

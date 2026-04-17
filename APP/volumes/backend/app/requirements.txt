@@ -2,5 +2,6 @@ fastapi
 uvicorn[standard]
 requests
 PyMySQL
-redis
+redis[hiredis]
 cryptography
+Pillow
