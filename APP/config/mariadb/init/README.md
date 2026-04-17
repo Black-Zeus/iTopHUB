@@ -6,7 +6,7 @@ This folder is executed in lexicographic order by the MariaDB entrypoint.
 
 - `00_bootstrap_databases.sh`: creates the app and iTop databases using environment variables.
 - `00_preamble.sql`: reserved SQL slot before the schema blocks.
-- `10_hub_app_init.sh`: applies the Hub schema and seeds explicitly to `APP_DB_NAME`.
+- `10_hub_app_init.sh`: applies every Hub `.sql` block under `app/` in lexicographic order against `APP_DB_NAME`.
 
 The SQL source files for the Hub now live under `APP/config/mariadb/init/app/`.
 

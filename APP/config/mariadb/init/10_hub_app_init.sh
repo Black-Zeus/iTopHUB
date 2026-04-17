@@ -1,22 +1,16 @@
 #!/bin/sh
 set -eu
 
-SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-APP_INIT_DIR="${SCRIPT_DIR}/app"
+APP_INIT_DIR="/docker-entrypoint-initdb.d/app"
+FOUND_SQL=0
 
-for sql_file in \
-  "${APP_INIT_DIR}/10_schema_core.sql" \
-  "${APP_INIT_DIR}/20_schema_alter.sql" \
-  "${APP_INIT_DIR}/25_schema_settings.sql" \
-  "${APP_INIT_DIR}/26_schema_checklists.sql" \
-  "${APP_INIT_DIR}/27_schema_handover.sql" \
-  "${APP_INIT_DIR}/30_schema_indexes.sql" \
-  "${APP_INIT_DIR}/40_triggers.sql" \
-  "${APP_INIT_DIR}/70_seed_core.sql" \
-  "${APP_INIT_DIR}/75_seed_settings.sql" \
-  "${APP_INIT_DIR}/76_seed_checklists.sql" \
-  "${APP_INIT_DIR}/80_seed_catalog.sql" \
-  "${APP_INIT_DIR}/90_postamble.sql"
-do
+for sql_file in "${APP_INIT_DIR}"/*.sql; do
+  [ -f "${sql_file}" ] || continue
+  FOUND_SQL=1
   mariadb -u root -p"${MARIADB_ROOT_PASSWORD}" "${APP_DB_NAME}" < "${sql_file}"
 done
+
+if [ "${FOUND_SQL}" -eq 0 ]; then
+  echo "[10_hub_app_init] no se encontraron archivos SQL en ${APP_INIT_DIR}" >&2
+  exit 1
+fi
