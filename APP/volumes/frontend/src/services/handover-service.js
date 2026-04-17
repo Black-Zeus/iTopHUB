@@ -109,11 +109,11 @@ export async function rollbackHandoverDocument(documentId) {
 
 export async function uploadHandoverEvidence(documentId, items = []) {
   const serializedFiles = await Promise.all(
-    items.map(async ({ file, observation = "" }) => ({
+    items.map(async ({ file, documentType = "" }) => ({
       name: file.name,
       mimeType: file.type || "application/octet-stream",
       contentBase64: await readFileAsBase64(file),
-      observation,
+      documentType,
     }))
   );
 

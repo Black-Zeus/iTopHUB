@@ -21,9 +21,15 @@ import {
 import { runtimeConfig } from "../../config/runtime";
 import { waitForJobNotification } from "../../services/notification-service";
 import { downloadRowsAsCsv } from "../../utils/export-csv";
+import {
+  buildHandoverDocumentLibraryEntries,
+  getHandoverDocumentTypeLabel,
+  HANDOVER_DOCUMENT_TYPE_OPTIONS,
+} from "./handover-document-library";
 import { MessageBanner } from "./handover-editor-shared";
 
 const HANDOVER_FILTER_CONTROL_HEIGHT = "h-[66px]";
+const MAX_EVIDENCE_UPLOAD_FILES = 2;
 
 function buildKpis(rows) {
   const draftCount = rows.filter((row) => row.status === "En creacion").length;
@@ -151,7 +157,7 @@ function EvidenceFileTypeIcon({ file }) {
 
 function EvidenceUploadModal({ row, willConfirmStatus, allowedExtensions, onCancel, onSubmit }) {
   const [selectedFiles, setSelectedFiles] = useState([]);
-  const [observations, setObservations] = useState({});
+  const [documentTypes, setDocumentTypes] = useState({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [acknowledged, setAcknowledged] = useState(!willConfirmStatus);
@@ -159,6 +165,7 @@ function EvidenceUploadModal({ row, willConfirmStatus, allowedExtensions, onCanc
   const normalizedAllowedExtensions = (allowedExtensions?.length ? allowedExtensions : ["pdf", "doc", "docx"]).map((item) => String(item).toLowerCase());
   const acceptValue = normalizedAllowedExtensions.map((item) => `.${item}`).join(",");
   const allowedExtensionsLabel = normalizedAllowedExtensions.map((item) => item.toUpperCase()).join(" / ");
+  const buildFileKey = (file) => `${file.name}-${file.size}-${file.lastModified}`;
 
   const appendFiles = (incomingFiles) => {
     const incomingList = Array.from(incomingFiles || []);
@@ -174,23 +181,35 @@ function EvidenceUploadModal({ row, willConfirmStatus, allowedExtensions, onCanc
       return;
     }
 
+    let limitReached = false;
     setSelectedFiles((current) => {
-      const seenKeys = new Set(current.map((file) => `${file.name}-${file.size}-${file.lastModified}`));
+      const seenKeys = new Set(current.map((file) => buildFileKey(file)));
       const merged = [...current];
       validFiles.forEach((file) => {
-        const fileKey = `${file.name}-${file.size}-${file.lastModified}`;
+        const fileKey = buildFileKey(file);
         if (!seenKeys.has(fileKey)) {
+          if (merged.length >= MAX_EVIDENCE_UPLOAD_FILES) {
+            limitReached = true;
+            return;
+          }
           merged.push(file);
           seenKeys.add(fileKey);
         }
       });
       return merged;
     });
-    setError(
-      invalidFiles.length
-        ? `Se cargaron solo los formatos autorizados. Los documentos con formato no admitido fueron omitidos. Formatos validos: ${allowedExtensionsLabel}.`
-        : ""
-    );
+
+    if (limitReached) {
+      setError(`Solo puedes preparar hasta ${MAX_EVIDENCE_UPLOAD_FILES} adjuntos por carga. Usa un archivo de tipo Acta y otro de tipo Detalle.`);
+      return;
+    }
+
+    if (invalidFiles.length) {
+      setError(`Se cargaron solo los formatos autorizados. Los documentos con formato no admitido fueron omitidos. Formatos validos: ${allowedExtensionsLabel}.`);
+      return;
+    }
+
+    setError("");
   };
 
   const handleFilesChange = (event) => {
@@ -247,24 +266,44 @@ function EvidenceUploadModal({ row, willConfirmStatus, allowedExtensions, onCanc
     }
 
     const fileKey = `${fileToRemove.name}-${fileToRemove.size}-${fileToRemove.lastModified}`;
-    setSelectedFiles((current) => current.filter((file) => `${file.name}-${file.size}-${file.lastModified}` !== fileKey));
-    setObservations((current) => {
+    setSelectedFiles((current) => current.filter((file) => buildFileKey(file) !== fileKey));
+    setDocumentTypes((current) => {
       const next = { ...current };
       delete next[fileKey];
       return next;
     });
   };
 
-  const selectedCountLabel = selectedFiles.length === 1 ? "1 adjunto preparado" : `${selectedFiles.length} adjuntos preparados`;
-  const submitDisabled = busy || selectedFiles.length === 0 || (willConfirmStatus && !acknowledged);
+  const selectedTypes = selectedFiles.map((file) => documentTypes[buildFileKey(file)] || "");
+  const selectedNonEmptyTypes = selectedTypes.filter((value) => value);
+  const hasMissingDocumentType = selectedTypes.some((value) => !value);
+  const hasRepeatedDocumentType = new Set(selectedNonEmptyTypes).size !== selectedNonEmptyTypes.length;
+  const submitDisabled = busy
+    || selectedFiles.length === 0
+    || (willConfirmStatus && !acknowledged)
+    || hasMissingDocumentType
+    || hasRepeatedDocumentType;
 
   const handleSubmit = async () => {
     if (!selectedFiles.length) {
       setError("Debes seleccionar al menos una evidencia.");
       return;
     }
+    if (selectedFiles.length > MAX_EVIDENCE_UPLOAD_FILES) {
+      setError(`Solo se admiten ${MAX_EVIDENCE_UPLOAD_FILES} archivos por carga.`);
+      return;
+    }
     if (willConfirmStatus && !acknowledged) {
       setError("Debes confirmar que la carga cambiara el estado del acta.");
+      return;
+    }
+
+    if (selectedTypes.some((value) => !value)) {
+      setError("Debes seleccionar Acta o Detalle para cada archivo preparado.");
+      return;
+    }
+    if (new Set(selectedTypes).size !== selectedTypes.length) {
+      setError("Solo puedes cargar un archivo Acta y un archivo Detalle por vez.");
       return;
     }
 
@@ -274,7 +313,7 @@ function EvidenceUploadModal({ row, willConfirmStatus, allowedExtensions, onCanc
     try {
       const items = selectedFiles.map((file) => ({
         file,
-        observation: observations[`${file.name}-${file.size}-${file.lastModified}`] || "",
+        documentType: documentTypes[buildFileKey(file)] || "",
       }));
       await onSubmit(items);
     } catch (submitError) {
@@ -311,6 +350,9 @@ function EvidenceUploadModal({ row, willConfirmStatus, allowedExtensions, onCanc
                 {dragActive ? "Suelta archivos aqui" : "Arrastra archivos aqui"}
               </span>
               <span className="mt-1 text-sm text-[var(--text-muted)]">{allowedExtensionsLabel} · click para seleccionar</span>
+              <span className="mt-3 text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+                Maximo {MAX_EVIDENCE_UPLOAD_FILES} archivos por carga
+              </span>
             </label>
           </div>
 
@@ -335,11 +377,12 @@ function EvidenceUploadModal({ row, willConfirmStatus, allowedExtensions, onCanc
           <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--border-color)] px-5 py-4">
             <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Adjuntos preparados</p>
             <span className="inline-flex rounded-full bg-[var(--accent-soft)] px-3 py-1 text-xs font-semibold text-[var(--accent-strong)]">
-              {selectedFiles.length} {selectedFiles.length === 1 ? "archivo" : "archivos"}
+              {selectedFiles.length}/{MAX_EVIDENCE_UPLOAD_FILES} {selectedFiles.length === 1 ? "archivo" : "archivos"}
             </span>
           </div>
-          <div className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto] gap-3 border-b border-[var(--border-color)] bg-[var(--bg-app)] px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+          <div className="grid shrink-0 grid-cols-[minmax(0,1fr)_10rem_auto] gap-3 border-b border-[var(--border-color)] bg-[var(--bg-app)] px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
             <span>Archivo</span>
+            <span>Tipo</span>
             <span className="text-right">Accion</span>
           </div>
           <div className="min-h-[22rem] flex-1 overflow-y-auto px-5 py-4">
@@ -368,23 +411,28 @@ function EvidenceUploadModal({ row, willConfirmStatus, allowedExtensions, onCanc
                         Quitar
                       </Button>
                     </div>
-                    <textarea
-                      rows="2"
-                      value={observations[`${file.name}-${file.size}-${file.lastModified}`] || ""}
+                    <select
+                      value={documentTypes[buildFileKey(file)] || ""}
                       onChange={(event) => {
-                        const fileKey = `${file.name}-${file.size}-${file.lastModified}`;
-                        setObservations((current) => ({ ...current, [fileKey]: event.target.value }));
+                        const fileKey = buildFileKey(file);
+                        setDocumentTypes((current) => ({ ...current, [fileKey]: event.target.value }));
                       }}
                       disabled={busy}
-                      placeholder="Observacion del adjunto (opcional)"
-                      className="w-full rounded-[12px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 py-2 text-xs text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)] resize-none"
-                    />
+                      className="w-full rounded-[12px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 py-2 text-xs text-[var(--text-primary)] outline-none"
+                    >
+                      <option value="">Selecciona Acta o Detalle</option>
+                      {EVIDENCE_DOCUMENT_TYPE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
                   </li>
                 ))}
               </ol>
             ) : (
               <div className="flex h-full min-h-[18rem] items-center justify-center px-5 text-center text-sm text-[var(--text-muted)]">
-                Sin adjuntos. Agrega archivos desde el panel izquierdo.
+                Sin adjuntos. Agrega hasta dos archivos y asigna su tipo antes de confirmar.
               </div>
             )}
           </div>
@@ -412,17 +460,6 @@ function EvidenceUploadModal({ row, willConfirmStatus, allowedExtensions, onCanc
 function formatDocumentTimestamp(value, fallbackLabel) {
   const normalizedValue = String(value || "").trim();
   return normalizedValue ? normalizedValue.replace("T", " ") : fallbackLabel;
-}
-
-function getAttachmentIconName(name) {
-  const extension = String(name || "").split(".").pop()?.toLowerCase();
-  if (extension === "pdf") {
-    return "fileLines";
-  }
-  if (extension === "doc" || extension === "docx") {
-    return "regFileLines";
-  }
-  return "regFile";
 }
 
 function isPdfDocument(fileName) {
@@ -479,59 +516,58 @@ async function openBlobPreview({ loadBlob, fallbackName }) {
   });
 }
 
-function DocumentLibraryModal({ row, detail, allowEvidenceUpload, onClose, onOpenGeneratedDocument, onOpenAttachment }) {
-  const generatedDocuments = detail?.generatedDocuments || [];
-  const evidenceAttachments = detail?.evidenceAttachments || [];
+function DocumentLibraryModal({ row, detail, onClose, onOpenGeneratedDocument, onOpenAttachment }) {
+  const documents = buildHandoverDocumentLibraryEntries({
+    generatedDocuments: detail?.generatedDocuments || [],
+    evidenceAttachments: detail?.evidenceAttachments || [],
+    generatedFallbackUploadedAt: detail?.assignmentDate || "",
+  });
+  const handleOpenDocument = (documentEntry) => {
+    if (documentEntry.origin === "generated") {
+      onOpenGeneratedDocument(documentEntry.payload);
+      return;
+    }
+    onOpenAttachment(documentEntry.payload);
+  };
 
   return (
     <div className="grid max-h-[78vh] gap-5 overflow-y-auto">
       <div className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-4 text-sm text-[var(--text-secondary)]">
         <p className="font-semibold text-[var(--text-primary)]">{row.code}</p>
         <p className="mt-2">
-          Revisa los documentos generados por el pipeline y los adjuntos de evidencia registrados para esta acta.
+          Revisa los documentos disponibles para esta acta.
         </p>
       </div>
 
       <div className="grid gap-4">
-        <div>
-          <p className="text-sm font-semibold text-[var(--text-primary)]">Documentos generados</p>
-          <p className="mt-1 text-sm text-[var(--text-secondary)]">PDFs emitidos desde el backend para esta acta.</p>
-        </div>
-
-        {generatedDocuments.length ? (
+        {documents.length ? (
           <div className="grid gap-3 md:grid-cols-2">
-            {generatedDocuments.map((generatedDocument, index) => (
+            {documents.map((documentEntry) => (
               <div
-                key={`generated-document-${generatedDocument.kind || index}`}
+                key={documentEntry.id}
                 className="rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-3"
               >
                 <div className="flex items-center gap-3">
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] border border-[var(--border-color)] bg-[var(--bg-panel)]">
-                    <Icon name="fileLines" size={16} className="h-4 w-4 text-[var(--text-secondary)]" aria-hidden="true" />
+                    <Icon name={documentEntry.iconName} size={16} className="h-4 w-4 text-[var(--text-secondary)]" aria-hidden="true" />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p
-                      className="truncate text-sm font-semibold text-[var(--text-primary)]"
-                      title={generatedDocument.name || generatedDocument.code || `PDF ${index + 1}`}
-                    >
-                      {generatedDocument.name || generatedDocument.code || `PDF ${index + 1}`}
+                    <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+                      {getHandoverDocumentTypeLabel(documentEntry.documentType)}
+                    </p>
+                    <p className="truncate text-sm font-semibold text-[var(--text-primary)]" title={documentEntry.name}>
+                      {documentEntry.name}
                     </p>
                     <p className="mt-0.5 text-xs text-[var(--text-muted)]">
-                      {formatDocumentTimestamp(
-                        generatedDocument.uploadedAt || detail?.assignmentDate,
-                        "Fecha de generacion no registrada"
-                      )}
+                      {formatDocumentTimestamp(documentEntry.uploadedAt, "Fecha no registrada")}
                     </p>
-                    {generatedDocument.title ? (
-                      <p className="mt-0.5 text-xs text-[var(--text-secondary)]">{generatedDocument.title}</p>
-                    ) : null}
                   </div>
                   <Button
                     size="sm"
                     variant="secondary"
                     className="shrink-0 px-3 py-1.5 text-[11px]"
-                    onClick={() => onOpenGeneratedDocument(generatedDocument)}
-                    disabled={!generatedDocument.kind}
+                    onClick={() => handleOpenDocument(documentEntry)}
+                    disabled={!documentEntry.isAvailable}
                   >
                     <Icon name="regWindowRestore" size={13} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                     Ver
@@ -541,66 +577,9 @@ function DocumentLibraryModal({ row, detail, allowEvidenceUpload, onClose, onOpe
             ))}
           </div>
         ) : (
-          <MessageBanner>No hay PDFs generados asociados todavia.</MessageBanner>
+          <MessageBanner>No hay documentos asociados todavia.</MessageBanner>
         )}
       </div>
-
-      {allowEvidenceUpload ? (
-        <div className="grid gap-4">
-          <div>
-            <p className="text-sm font-semibold text-[var(--text-primary)]">Adjuntos de evidencia</p>
-            <p className="mt-1 text-sm text-[var(--text-secondary)]">Documentos anexados manualmente al expediente del acta.</p>
-          </div>
-
-          {evidenceAttachments.length ? (
-            <div className="grid gap-3 md:grid-cols-2">
-              {evidenceAttachments.map((attachment, index) => (
-                <div
-                  key={`evidence-attachment-${attachment.storedName || index}`}
-                  className="rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-3"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] border border-[var(--border-color)] bg-[var(--bg-panel)]">
-                      <Icon
-                        name={getAttachmentIconName(attachment.name)}
-                        size={16}
-                        className="h-4 w-4 text-[var(--text-secondary)]"
-                        aria-hidden="true"
-                      />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p
-                        className="truncate text-sm font-semibold text-[var(--text-primary)]"
-                        title={attachment.name || `Adjunto ${index + 1}`}
-                      >
-                        {attachment.name || `Adjunto ${index + 1}`}
-                      </p>
-                      <p className="mt-0.5 text-xs text-[var(--text-muted)]">
-                        {formatDocumentTimestamp(attachment.uploadedAt, "Fecha de carga no registrada")}
-                      </p>
-                    </div>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      className="shrink-0 px-3 py-1.5 text-[11px]"
-                      onClick={() => onOpenAttachment(attachment)}
-                      disabled={!attachment.storedName}
-                    >
-                      <Icon name="regWindowRestore" size={13} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                      Ver
-                    </Button>
-                  </div>
-                  {attachment.observation ? (
-                    <p className="mt-2 pl-12 text-xs text-[var(--text-secondary)]">{attachment.observation}</p>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          ) : (
-            <MessageBanner>No hay adjuntos de evidencia registrados todavia.</MessageBanner>
-          )}
-        </div>
-      ) : null}
 
       <div className="flex justify-end">
         <Button variant="secondary" onClick={onClose} className="min-w-[7.5rem]">
@@ -880,7 +859,6 @@ export function HandoverPage() {
           <DocumentLibraryModal
             row={row}
             detail={detail}
-            allowEvidenceUpload={actionConfig.allowEvidenceUpload}
             onClose={handleClose}
             onOpenGeneratedDocument={handleOpenGeneratedDocument}
             onOpenAttachment={handleOpenAttachment}
