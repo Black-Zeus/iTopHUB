@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS hub_handover_documents (
     receiver_role VARCHAR(150) NULL,
     receiver_status VARCHAR(50) NULL,
     additional_receivers LONGTEXT NULL,
+    generated_documents LONGTEXT NULL,
     evidence_attachments LONGTEXT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

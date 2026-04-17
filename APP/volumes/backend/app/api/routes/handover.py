@@ -9,6 +9,7 @@ from api.deps import ensure_module_access, ensure_session, model_to_dict, raise_
 from modules.auth.service import AuthenticationError, get_runtime_token
 from modules.handover.service import (
     HANDOVER_EVIDENCE_ROOT,
+    GENERATED_DOCUMENT_KINDS,
     attach_handover_document_evidence,
     create_handover_document,
     emit_handover_document,
@@ -18,6 +19,7 @@ from modules.handover.service import (
     rollback_handover_document,
     update_handover_document,
 )
+from modules.handover.pdf_pipeline import HANDOVER_DOCUMENT_ROOT
 from schemas.handover import HandoverEvidenceUploadRequest, HandoverSaveRequest
 
 
@@ -193,4 +195,43 @@ def handover_document_evidence_download(
         path=str(file_path),
         filename=safe_name,
         media_type=media_type or "application/octet-stream",
+    )
+
+
+@router.get("/documents/{document_id}/pdf/{document_kind}")
+def handover_document_pdf_download(
+    document_id: int,
+    document_kind: str,
+    hub_session_id: str | None = Cookie(default=None),
+) -> FileResponse:
+    session_id = ensure_session(hub_session_id)
+    try:
+        ensure_module_access(session_id, "handover")
+    except AuthenticationError as exc:
+        raise_auth_error(exc)
+
+    normalized_kind = Path(document_kind).name.lower()
+    if normalized_kind not in GENERATED_DOCUMENT_KINDS:
+        raise HTTPException(status_code=404, detail="Tipo de PDF no encontrado.")
+
+    document = get_handover_document_detail(document_id)
+    metadata = next(
+        (item for item in document.get("generatedDocuments") or [] if item.get("kind") == normalized_kind),
+        None,
+    )
+    if metadata is None:
+        raise HTTPException(status_code=404, detail="PDF no generado para esta acta.")
+
+    safe_name = Path(metadata.get("storedName") or metadata.get("name") or "").name
+    if not safe_name:
+        raise HTTPException(status_code=404, detail="PDF no encontrado.")
+
+    file_path = HANDOVER_DOCUMENT_ROOT / f"document_{document_id}" / safe_name
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="PDF no encontrado.")
+
+    return FileResponse(
+        path=str(file_path),
+        filename=safe_name,
+        media_type="application/pdf",
     )

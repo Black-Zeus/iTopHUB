@@ -67,6 +67,7 @@ def fetch_handover_document_rows(
             d.receiver_role,
             d.receiver_status,
             d.additional_receivers,
+            d.generated_documents,
             d.evidence_attachments,
             COUNT(i.id) AS asset_count,
             SUBSTRING_INDEX(
@@ -99,6 +100,7 @@ def fetch_handover_document_rows(
             d.receiver_role,
             d.receiver_status,
             d.additional_receivers,
+            d.generated_documents,
             d.evidence_attachments
         ORDER BY d.generated_at DESC, d.id DESC
     """
@@ -131,6 +133,7 @@ def fetch_handover_document_row(document_id: int) -> dict[str, Any] | None:
             receiver_role,
             receiver_status,
             additional_receivers,
+            generated_documents,
             evidence_attachments,
             created_at,
             updated_at
@@ -317,9 +320,10 @@ def save_handover_document(
             receiver_role,
             receiver_status,
             additional_receivers,
+            generated_documents,
             evidence_attachments
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """
     update_document_query = """
         UPDATE hub_handover_documents
@@ -340,6 +344,7 @@ def save_handover_document(
             receiver_role = %s,
             receiver_status = %s,
             additional_receivers = %s,
+            generated_documents = %s,
             evidence_attachments = %s
         WHERE id = %s
     """
@@ -413,6 +418,7 @@ def save_handover_document(
                             document["receiver_role"],
                             document["receiver_status"],
                             document["additional_receivers"],
+                            document["generated_documents"],
                             document["evidence_attachments"],
                         ),
                     )
@@ -437,6 +443,7 @@ def save_handover_document(
                             document["receiver_role"],
                             document["receiver_status"],
                             document["additional_receivers"],
+                            document["generated_documents"],
                             document["evidence_attachments"],
                             document_id,
                         ),

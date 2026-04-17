@@ -33,6 +33,8 @@ class Settings:
         self.pdq_sqlite_file_name = os.getenv("PDQ_SQLITE_FILE_NAME", "")
         self.pdq_sqlite_file_glob = os.getenv("PDQ_SQLITE_FILE_GLOB", "*.db;*.sqlite;*.sqlite3")
         self.pdq_search_min_chars = _read_int("PDQ_SEARCH_MIN_CHARS", default=2)
+        self.pdf_worker_url = os.getenv("PDF_WORKER_URL", "http://pdf-worker:8000")
+        self.internal_api_secret = os.getenv("INTERNAL_API_SECRET", "")
 
 
 settings = Settings()

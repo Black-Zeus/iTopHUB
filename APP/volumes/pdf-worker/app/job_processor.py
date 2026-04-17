@@ -1,0 +1,194 @@
+import os
+import sys
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+sys.path.insert(0, "/app")
+
+from job_client import poll_pending_jobs, update_job_status
+from main import _render_pdf
+
+
+def _format_attachment_size(size_bytes: int) -> str:
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    if size_bytes < 1024 * 1024:
+        return f"{(size_bytes / 1024):.1f} KB"
+    return f"{(size_bytes / (1024 * 1024)):.1f} MB"
+
+
+def render_handover_pdf(html: str, footer_html: str | None = None) -> dict[str, Any]:
+    pdf_bytes = _render_pdf(html, footer_html=footer_html)
+    return {
+        "content": pdf_bytes,
+        "size": len(pdf_bytes),
+    }
+
+
+def process_handover_emit_job(job: dict[str, Any]) -> dict[str, Any]:
+    sys.path.insert(0, "/app_backend")
+
+    from modules.handover.pdf_pipeline import (
+        HANDOVER_DOCUMENT_ROOT,
+        build_detail_document_number,
+        build_handover_detail_html,
+        build_handover_main_html,
+    )
+    from modules.handover.service import (
+        get_handover_document_detail,
+        save_handover_document,
+        fetch_handover_document_row,
+        _build_document_payload_from_detail,
+        _build_item_payloads_from_detail,
+    )
+
+    document_id = int(job["payload"]["document_id"])
+    env_name = os.getenv("ENV_NAME", "dev")
+    current_detail = get_handover_document_detail(document_id)
+    assignment_at = current_detail.get("assignmentDate") or current_detail.get("assignment_at") or ""
+
+    if not assignment_at:
+        assignment_at = datetime.now().strftime("%Y-%m-%dT%H:%M")
+
+    detail_for_pdf = {
+        **current_detail,
+        "assignmentDate": assignment_at,
+        "status": "Emitida",
+    }
+
+    html_main, footer_main = build_handover_main_html(detail_for_pdf)
+    html_detail, footer_detail = build_handover_detail_html(detail_for_pdf)
+
+    pdf_main = render_handover_pdf(html_main, footer_main)
+    pdf_detail = render_handover_pdf(html_detail, footer_detail)
+
+    storage_directory = HANDOVER_DOCUMENT_ROOT / f"document_{document_id}"
+    storage_directory.mkdir(parents=True, exist_ok=True)
+    generated_at = datetime.now().strftime("%Y-%m-%dT%H:%M")
+
+    main_stored_name = f"{detail_for_pdf.get('documentNumber')}.pdf"
+    detail_document_code = build_detail_document_number(str(detail_for_pdf.get("documentNumber") or ""))
+    detail_stored_name = f"{detail_document_code}.pdf"
+
+    created_files: list[Path] = []
+    try:
+        main_path = storage_directory / main_stored_name
+        main_path.write_bytes(pdf_main["content"])
+        created_files.append(main_path)
+
+        detail_path = storage_directory / detail_stored_name
+        detail_path.write_bytes(pdf_detail["content"])
+        created_files.append(detail_path)
+
+        existing_document = fetch_handover_document_row(document_id)
+        document_payload = _build_document_payload_from_detail(
+            detail_for_pdf,
+            existing_document,
+            status_ui="Emitida",
+            assignment_date=assignment_at,
+            evidence_date=current_detail.get("evidenceDate") or "",
+            generated_documents=[
+                {
+                    "kind": "main",
+                    "title": "Acta principal",
+                    "code": detail_for_pdf.get("documentNumber"),
+                    "name": main_stored_name,
+                    "storedName": main_stored_name,
+                    "mimeType": "application/pdf",
+                    "size": _format_attachment_size(pdf_main["size"]),
+                    "source": f"{env_name}/handover_documents/document_{document_id}/{main_stored_name}",
+                    "uploadedAt": generated_at,
+                },
+                {
+                    "kind": "detail",
+                    "title": "Detalle de revision",
+                    "code": detail_document_code,
+                    "name": detail_stored_name,
+                    "storedName": detail_stored_name,
+                    "mimeType": "application/pdf",
+                    "size": _format_attachment_size(pdf_detail["size"]),
+                    "source": f"{env_name}/handover_documents/document_{document_id}/{detail_stored_name}",
+                    "uploadedAt": generated_at,
+                },
+            ],
+            evidence_attachments=current_detail.get("evidenceAttachments") or [],
+        )
+        item_payloads = _build_item_payloads_from_detail(current_detail.get("items") or [])
+
+        save_handover_document(document_id, document_payload, item_payloads)
+    except Exception:
+        for path in created_files:
+            try:
+                if path.exists():
+                    path.unlink()
+            except OSError:
+                continue
+        raise
+
+    return {
+        "document_id": document_id,
+        "status": "completed",
+    }
+
+
+JOB_HANDLERS = {
+    "handover_emit": process_handover_emit_job,
+}
+
+
+def process_job(job_type: str) -> bool:
+    job = poll_pending_jobs(job_type)
+    if not job:
+        return False
+
+    job_id = job["job_id"]
+    handler = JOB_HANDLERS.get(job_type)
+
+    if not handler:
+        update_job_status(job_id, "failed", error_code="UNKNOWN_JOB_TYPE", error_detail=f"Job type {job_type} not supported")
+        return True
+
+    try:
+        result = handler(job)
+        update_job_status(job_id, "completed", result=result)
+        return True
+    except Exception as exc:
+        update_job_status(job_id, "failed", error_code="PROCESSING_ERROR", error_detail=str(exc))
+        return True
+
+
+def run_worker(job_types: list[str], poll_interval: float = 2.0):
+    import signal
+
+    running = True
+
+    def signal_handler(signum, frame):
+        nonlocal running
+        running = False
+        print(f"[job-processor] Received signal {signum}, shutting down...", flush=True)
+
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+    print(f"[job-processor] Starting worker for job types: {job_types}", flush=True)
+
+    while running:
+        processed = False
+        for job_type in job_types:
+            if not running:
+                break
+            if process_job(job_type):
+                processed = True
+
+        if not processed:
+            import time
+            time.sleep(poll_interval)
+
+    print("[job-processor] Worker stopped", flush=True)
+
+
+if __name__ == "__main__":
+    job_types = os.getenv("JOB_TYPES", "handover_emit").split(",")
+    poll_interval = float(os.getenv("POLL_INTERVAL", "2.0"))
+    run_worker(job_types, poll_interval)

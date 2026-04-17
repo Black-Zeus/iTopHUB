@@ -11,6 +11,11 @@ from uuid import uuid4
 from fastapi import HTTPException
 
 from core.config import settings
+from infrastructure.job_manager import create_job, get_job
+from modules.handover.pdf_pipeline import (
+    generate_handover_documents,
+    remove_generated_handover_documents,
+)
 from modules.handover.repository import (
     fetch_handover_checklist_answer_rows,
     fetch_handover_document_row,
@@ -62,6 +67,7 @@ INPUT_TYPE_DB_TO_UI = {
 INPUT_TYPE_UI_TO_DB = {value: key for key, value in INPUT_TYPE_DB_TO_UI.items()}
 HANDOVER_EVIDENCE_ROOT = Path("/app/data/handover_evidence")
 DEFAULT_EVIDENCE_ALLOWED_EXTENSIONS = {"pdf", "doc", "docx"}
+GENERATED_DOCUMENT_KINDS = {"main", "detail"}
 
 
 def _coerce_str(value: Any, default: str = "") -> str:
@@ -216,7 +222,7 @@ def get_handover_bootstrap(session_user: dict[str, Any], runtime_token: str) -> 
             "evidenceDate": "",
             "evidenceAttachments": [],
             "notes": "",
-            "notesPlaceholder": docs_settings.get("defaultObservation") or "",
+            "notesPlaceholder": "",
             "prefix": docs_settings.get("handoverPrefix") or "ENT",
         },
         "actions": {
@@ -358,6 +364,7 @@ def get_handover_document_detail(document_id: int) -> dict[str, Any]:
         "creationDate": _serialize_datetime(document_row.get("creation_date") or document_row.get("generated_at")),
         "assignmentDate": _serialize_datetime(document_row.get("assignment_date")),
         "evidenceDate": _serialize_datetime(document_row.get("evidence_date")),
+        "generatedDocuments": _deserialize_generated_documents(document_row.get("generated_documents")),
         "evidenceAttachments": _deserialize_evidence_attachments(document_row.get("evidence_attachments")),
         "status": STATUS_DB_TO_UI.get(document_row["status"], document_row["status"]),
         "handoverType": TYPE_DB_TO_UI.get(document_row["handover_type"], document_row["handover_type"]),
@@ -529,6 +536,42 @@ def _deserialize_evidence_attachments(raw_value: Any) -> list[dict[str, Any]]:
     return normalized
 
 
+def _deserialize_generated_documents(raw_value: Any) -> list[dict[str, Any]]:
+    text = _coerce_str(raw_value)
+    if not text:
+        return []
+
+    try:
+        payload = json.loads(text)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return []
+
+    if not isinstance(payload, list):
+        return []
+
+    normalized: list[dict[str, Any]] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        kind = _coerce_str(item.get("kind"))
+        if kind not in GENERATED_DOCUMENT_KINDS:
+            continue
+        normalized.append(
+            {
+                "kind": kind,
+                "title": _coerce_str(item.get("title")),
+                "code": _coerce_str(item.get("code")),
+                "name": _coerce_str(item.get("name")),
+                "storedName": _coerce_str(item.get("storedName")),
+                "mimeType": _coerce_str(item.get("mimeType")),
+                "size": _coerce_str(item.get("size")),
+                "source": _coerce_str(item.get("source")),
+                "uploadedAt": _coerce_str(item.get("uploadedAt")),
+            }
+        )
+    return normalized
+
+
 def _normalize_evidence_attachments(payload: Any) -> str:
     if not payload:
         return ""
@@ -548,6 +591,39 @@ def _normalize_evidence_attachments(payload: Any) -> str:
                 "storedName": _coerce_str(item.get("storedName")),
                 "uploadedAt": _coerce_str(item.get("uploadedAt")),
                 "observation": _coerce_str(item.get("observation")),
+            }
+        )
+    return json.dumps(normalized, ensure_ascii=True)
+
+
+def _normalize_generated_documents(payload: Any) -> str:
+    if not payload:
+        return ""
+    if not isinstance(payload, list):
+        raise HTTPException(status_code=422, detail="Los documentos generados no tienen un formato valido.")
+
+    normalized: list[dict[str, Any]] = []
+    seen_kinds: set[str] = set()
+    for item in payload:
+        if not isinstance(item, dict):
+            raise HTTPException(status_code=422, detail="Los documentos generados no tienen un formato valido.")
+        kind = _coerce_str(item.get("kind"))
+        if kind not in GENERATED_DOCUMENT_KINDS:
+            raise HTTPException(status_code=422, detail="Uno de los documentos generados no es valido.")
+        if kind in seen_kinds:
+            raise HTTPException(status_code=422, detail="No se puede repetir el tipo de PDF generado.")
+        seen_kinds.add(kind)
+        normalized.append(
+            {
+                "kind": kind,
+                "title": _coerce_str(item.get("title")),
+                "code": _coerce_str(item.get("code")),
+                "name": _coerce_str(item.get("name")),
+                "storedName": _coerce_str(item.get("storedName")),
+                "mimeType": _coerce_str(item.get("mimeType")),
+                "size": _coerce_str(item.get("size")),
+                "source": _coerce_str(item.get("source")),
+                "uploadedAt": _coerce_str(item.get("uploadedAt")),
             }
         )
     return json.dumps(normalized, ensure_ascii=True)
@@ -622,6 +698,7 @@ def _build_document_payload_from_detail(
     status_ui: str,
     assignment_date: str,
     evidence_date: str,
+    generated_documents: list[dict[str, Any]],
     evidence_attachments: list[dict[str, Any]],
 ) -> dict[str, Any]:
     creation_at = _normalize_generated_at(current_detail.get("creationDate") or current_detail.get("generatedAt"))
@@ -645,6 +722,7 @@ def _build_document_payload_from_detail(
         "reason": _coerce_str(current_detail.get("reason")),
         "notes": _coerce_str(current_detail.get("notes")) or None,
         "additional_receivers": additional_receivers or None,
+        "generated_documents": _normalize_generated_documents(generated_documents) or None,
         "evidence_attachments": _normalize_evidence_attachments(evidence_attachments) or None,
         **_build_receiver_payload(current_detail.get("receiver") or {}),
     }
@@ -836,6 +914,7 @@ def _normalize_handover_payload(
     template_catalog = _build_template_catalog_by_id()
     receiver = _normalize_receiver(payload.get("receiver") or {})
     additional_receivers = _normalize_additional_receivers(payload.get("additionalReceivers") or [], receiver["receiver_person_id"])
+    generated_documents = _normalize_generated_documents(payload.get("generatedDocuments") or [])
     evidence_attachments = _normalize_evidence_attachments(payload.get("evidenceAttachments") or [])
     items = _normalize_items(payload.get("items") or [], template_catalog)
 
@@ -858,6 +937,7 @@ def _normalize_handover_payload(
         "reason": reason,
         "notes": notes or None,
         "additional_receivers": additional_receivers or None,
+        "generated_documents": generated_documents or None,
         "evidence_attachments": evidence_attachments or None,
         **receiver,
     }
@@ -900,11 +980,18 @@ def update_handover_document(
         document_number=existing_document["document_number"],
         existing_document=existing_document,
     )
+    target_status = _coerce_str(payload.get("status"))
+    if target_status == "Anulada":
+        document_payload["generated_documents"] = None
     save_handover_document(document_id, document_payload, item_payloads)
+    if target_status == "Anulada":
+        remove_generated_handover_documents(document_id)
     return get_handover_document_detail(document_id)
 
 
 def emit_handover_document(document_id: int, session_user: dict[str, Any]) -> dict[str, Any]:
+    del session_user
+
     existing_document = fetch_handover_document_row(document_id)
     if not existing_document:
         raise HTTPException(status_code=404, detail="Acta de entrega no encontrada.")
@@ -941,25 +1028,54 @@ def emit_handover_document(document_id: int, session_user: dict[str, Any]) -> di
                     detail=f"Debes completar el check '{incomplete_answer['name']}' del activo '{item['asset'].get('code') or item['asset'].get('name') or 'sin codigo'}' antes de emitir.",
                 )
 
-    assignment_at = datetime.now().strftime("%Y-%m-%dT%H:%M")
-    payload = {
-        "generatedAt": current_detail.get("generatedAt") or current_detail.get("creationDate") or assignment_at,
-        "creationDate": current_detail.get("creationDate") or current_detail.get("generatedAt") or assignment_at,
-        "assignmentDate": assignment_at,
-        "evidenceDate": current_detail.get("evidenceDate") or "",
-        "evidenceAttachments": current_detail.get("evidenceAttachments") or [],
-        "status": "Emitida",
-        "handoverType": current_detail.get("handoverType") or "Entrega inicial",
-        "reason": current_detail.get("reason") or "",
-        "notes": current_detail.get("notes") or "",
-        "receiver": current_detail.get("receiver") or {},
-        "additionalReceivers": current_detail.get("additionalReceivers") or [],
-        "items": current_detail.get("items") or [],
+    job_id = create_job(document_id, "handover_emit", {
+        "document_id": document_id,
+    })
+
+    return {
+        "jobId": job_id,
+        "status": "pending",
     }
-    return update_handover_document(document_id, payload, session_user)
+
+
+def _process_handover_emit_job(job_id: str, document_id: int) -> dict[str, Any]:
+    from core.errors import get_user_error
+
+    try:
+        current_detail = get_handover_document_detail(document_id)
+        assignment_at = datetime.now().strftime("%Y-%m-%dT%H:%M")
+        detail_for_pdf = {
+            **current_detail,
+            "assignmentDate": assignment_at,
+            "status": "Emitida",
+        }
+        generated_documents = generate_handover_documents(document_id, detail_for_pdf)
+        existing_document = fetch_handover_document_row(document_id)
+        document_payload = _build_document_payload_from_detail(
+            detail_for_pdf,
+            existing_document,
+            status_ui="Emitida",
+            assignment_date=assignment_at,
+            evidence_date=current_detail.get("evidenceDate") or "",
+            generated_documents=generated_documents,
+            evidence_attachments=current_detail.get("evidenceAttachments") or [],
+        )
+        item_payloads = _build_item_payloads_from_detail(current_detail.get("items") or [])
+        try:
+            save_handover_document(document_id, document_payload, item_payloads)
+        except Exception:
+            remove_generated_handover_documents(document_id)
+            raise
+        return get_handover_document_detail(document_id)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=get_user_error("PDF_GENERATION_FAILED")) from exc
 
 
 def rollback_handover_document(document_id: int, session_user: dict[str, Any]) -> dict[str, Any]:
+    del session_user
+
     existing_document = fetch_handover_document_row(document_id)
     if not existing_document:
         raise HTTPException(status_code=404, detail="Acta de entrega no encontrada.")
@@ -974,6 +1090,7 @@ def rollback_handover_document(document_id: int, session_user: dict[str, Any]) -
         "creationDate": current_detail.get("creationDate") or current_detail.get("generatedAt") or "",
         "assignmentDate": "",
         "evidenceDate": current_detail.get("evidenceDate") or "",
+        "generatedDocuments": [],
         "evidenceAttachments": current_detail.get("evidenceAttachments") or [],
         "status": "En creacion",
         "handoverType": current_detail.get("handoverType") or "Entrega inicial",
@@ -983,7 +1100,9 @@ def rollback_handover_document(document_id: int, session_user: dict[str, Any]) -
         "additionalReceivers": current_detail.get("additionalReceivers") or [],
         "items": current_detail.get("items") or [],
     }
-    return update_handover_document(document_id, payload, session_user)
+    updated_document = update_handover_document(document_id, payload, {"id": existing_document["owner_user_id"], "name": existing_document["owner_name"]})
+    remove_generated_handover_documents(document_id)
+    return updated_document
 
 
 def attach_handover_document_evidence(
@@ -1055,6 +1174,7 @@ def attach_handover_document_evidence(
             status_ui="Confirmada",
             assignment_date=current_detail.get("assignmentDate") or evidence_at,
             evidence_date=evidence_at,
+            generated_documents=current_detail.get("generatedDocuments") or [],
             evidence_attachments=serialized_attachments,
         )
         item_payloads = _build_item_payloads_from_detail(current_detail.get("items") or [])

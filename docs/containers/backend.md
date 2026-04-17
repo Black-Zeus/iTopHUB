@@ -44,10 +44,14 @@ Hosts the custom application API and integration layer between the frontend, iTo
 - Runtime detail/search flows for `Personas` and `Activos` must use the iTop REST connector with the session token and must not read iTop internal MariaDB tables such as `priv_change*`.
 - Person detail responses enrich associated CIs from iTop and evaluate warranty alerts using the `cmdb.warrantyAlertDays` setting stored in MariaDB.
 - The settings module exposes backend endpoints for panel configuration and synchronization task definitions stored in MariaDB.
+- The settings module now includes `Organizacion` data used by the PDF pipeline, including organization name, acronym, and logo payload stored in panel configuration.
 - The settings module also exposes service validation endpoints used directly from the UI, including SMTP test, draft iTop connectivity validation with configurable SSL behavior, and PDQ database path validation against the current panel draft.
 - The administration checklist module now reads and writes checklist templates plus item definitions from MariaDB instead of frontend-only mock data.
 - The handover module now persists its own delivery-document records in MariaDB and reuses iTop searches only for selecting receiver and CMDB assets before emission.
+- Handover PDF files are generated through the internal `pdf-worker` service, stored temporarily under `/app/data/handover_documents`, and associated to each acta through `generated_documents` metadata in MariaDB.
+- Handover PDFs consume organization and document-layout settings from MariaDB, including logo, page size, margins, folio traceability, and footer page numbering.
 - Manual handover evidence uploads are stored temporarily under `/app/data/handover_evidence` inside the backend data mount, while document metadata continues to live in MariaDB.
+- Rolling back a handover from `Emitida` to `En creacion` removes the generated PDF files and clears `generated_documents`, but preserves `evidence_attachments`; evidence lifecycle is managed separately from PDF regeneration.
 - Expected runtime env vars for connector bootstrap:
   - `ITOP_URL`
   - `ITOP_REST_USER`
@@ -67,3 +71,6 @@ Hosts the custom application API and integration layer between the frontend, iTo
   - `HUB_SESSION_TTL_SECONDS`
   - `HUB_RUNTIME_TOKEN_TTL_SECONDS`
   - `HUB_SESSION_WARNING_SECONDS`
+- Expected backend runtime env vars for PDF orchestration:
+  - `PDF_WORKER_URL`
+  - `INTERNAL_API_SECRET`

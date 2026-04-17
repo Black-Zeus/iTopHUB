@@ -20,4 +20,6 @@ Generates PDFs and document outputs without loading that responsibility into the
 
 - Runs as a non-root user.
 - When touching PDF features, review `gotenberg.md` too.
-- The current code is a bootstrap process that prepares the output directory and keeps the container alive with visible heartbeats.
+- Exposes an internal-only HTTP endpoint used by `backend` to convert HTML into PDF.
+- Receives trusted HTML payloads from `backend`, forwards them to `gotenberg`, and returns the rendered PDF bytes.
+- Access to the internal render endpoint is protected with `INTERNAL_API_SECRET`.

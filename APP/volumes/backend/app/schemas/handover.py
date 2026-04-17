@@ -8,6 +8,7 @@ class HandoverSaveRequest(BaseModel):
     creationDate: str = ""
     assignmentDate: str = ""
     evidenceDate: str = ""
+    generatedDocuments: list[dict[str, Any]] = Field(default_factory=list)
     evidenceAttachments: list[dict[str, Any]] = Field(default_factory=list)
     status: str = "En creacion"
     handoverType: str = "Entrega inicial"

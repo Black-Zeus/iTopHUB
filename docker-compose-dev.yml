@@ -119,6 +119,7 @@ services:
       SMTP_PORT: ${SMTP_PORT}
       SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL}
       PDF_WORKER_QUEUE: ${PDF_WORKER_QUEUE}
+      PDF_WORKER_URL: ${PDF_WORKER_URL}
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
       JWT_SECRET: ${JWT_SECRET}
       PDQ_ENABLED: ${PDQ_ENABLED}
@@ -218,12 +219,23 @@ services:
       PDF_STORAGE_DIR: /app/output
       PDF_WORKER_HEARTBEAT_SECONDS: ${PDF_WORKER_HEARTBEAT_SECONDS}
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
+      JOB_TYPES: ${PDF_WORKER_JOB_TYPES:-handover_emit}
+      POLL_INTERVAL: ${PDF_WORKER_POLL_INTERVAL:-2.0}
+      APP_DB_HOST: mariadb
+      APP_DB_PORT: 3306
+      APP_DB_USER: ${MARIADB_USER}
+      APP_DB_PASSWORD: ${MARIADB_PASSWORD}
+      APP_DB_NAME: ${APP_DB_NAME}
     volumes:
       - ${VOLUMES_ROOT}/pdf-worker/app:/app
+      - ${DATA_ROOT}/backend_data:/app/data
       - ${LOGS_ROOT}/pdf-worker:/var/log/app
+      - ${VOLUMES_ROOT}/backend/app:/app_backend:ro
     command: >
       sh -c "if [ -f requirements.txt ]; then pip install --user --no-cache-dir -r requirements.txt; fi &&
-      if [ -f main.py ]; then watchmedo auto-restart --patterns='*.py;*.html' --recursive -- python main.py;
+      if [ -f main.py ] && [ -f job_processor.py ]; then python main.py & exec python job_processor.py;
+      elif [ -f job_processor.py ]; then python job_processor.py;
+      elif [ -f main.py ]; then watchmedo auto-restart --patterns='*.py;*.html' --recursive -- python main.py;
       else tail -f /dev/null; fi"
     depends_on:
       redis:
