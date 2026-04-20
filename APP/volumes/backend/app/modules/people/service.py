@@ -272,7 +272,13 @@ def _matches_person_status(item, status: str) -> bool:
     return str(item.get("status") or "").strip().lower() == status
 
 
-def search_itop_people(query: str, runtime_token: str, status: str = "", limit: int = 50) -> list[dict[str, str | int]]:
+def search_itop_people(
+    query: str,
+    runtime_token: str,
+    status: str = "",
+    org_id: int | None = None,
+    limit: int = 50,
+) -> list[dict[str, str | int]]:
     normalized_query = query.strip()
     normalized_status = status.strip().lower()
     if not normalized_query and not normalized_status:
@@ -298,6 +304,8 @@ def search_itop_people(query: str, runtime_token: str, status: str = "", limit: 
         conditions.extend(_build_query_conditions(normalized_query))
     if normalized_status:
         conditions.append(f"status = '{normalized_status}'")
+    if org_id:
+        conditions.append(f"org_id = {org_id}")
 
     oql = "SELECT Person"
     if conditions:
@@ -316,7 +324,7 @@ def search_itop_people(query: str, runtime_token: str, status: str = "", limit: 
             # than expected. We fetch the visible people set and filter in backend memory.
             items = [
                 item
-                for item in connector.oql("SELECT Person", output_fields=output_fields)
+                for item in connector.list_persons(org_id=org_id, output_fields=output_fields)
                 if _matches_person_query(item, normalized_query) and _matches_person_status(item, normalized_status)
             ]
     except ConnectionError as exc:

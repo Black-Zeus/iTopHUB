@@ -2,10 +2,12 @@ from typing import Any
 
 from fastapi import APIRouter, Cookie, HTTPException
 
-from api.deps import ensure_any_module_access, ensure_session, raise_auth_error
+from api.deps import ensure_any_module_access, ensure_session, ensure_settings_access, raise_auth_error
 from modules.assets.service import get_itop_asset_detail, list_itop_asset_catalog, search_itop_assets
 from modules.auth.service import AuthenticationError, get_runtime_token
 from modules.people.service import get_itop_person_detail, search_itop_people
+from modules.settings.itop_catalog_service import get_requirement_itop_catalog
+from modules.teams.service import search_itop_team_people, search_itop_teams
 from modules.users.service import search_itop_users
 
 
@@ -16,6 +18,7 @@ router = APIRouter(prefix="/v1/itop", tags=["itop"])
 def itop_people_search(
     q: str = "",
     status: str = "",
+    org_id: int | None = None,
     hub_session_id: str | None = Cookie(default=None),
 ) -> dict[str, Any]:
     session_id = ensure_session(hub_session_id)
@@ -23,7 +26,7 @@ def itop_people_search(
         session_user = ensure_any_module_access(session_id, ("people", "handover"))
         runtime_token = get_runtime_token(session_id)
         return {
-            "items": search_itop_people(q, runtime_token, status=status),
+            "items": search_itop_people(q, runtime_token, status=status, org_id=org_id),
             "sessionUser": session_user["username"],
         }
     except AuthenticationError as exc:
@@ -123,3 +126,62 @@ def itop_users_search(q: str = "", hub_session_id: str | None = Cookie(default=N
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Unable to search iTop users: {exc}") from exc
+
+
+@router.get("/settings/requirement-catalog")
+def itop_requirement_catalog(hub_session_id: str | None = Cookie(default=None)) -> dict[str, Any]:
+    session_id = ensure_session(hub_session_id)
+    try:
+        ensure_settings_access(session_id)
+        runtime_token = get_runtime_token(session_id)
+        return get_requirement_itop_catalog(runtime_token)
+    except AuthenticationError as exc:
+        raise_auth_error(exc)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Unable to load iTop requirement catalog: {exc}") from exc
+
+
+@router.get("/teams/search")
+def itop_teams_search(
+    q: str = "",
+    org_id: int | None = None,
+    hub_session_id: str | None = Cookie(default=None),
+) -> dict[str, Any]:
+    session_id = ensure_session(hub_session_id)
+    try:
+        ensure_settings_access(session_id)
+        runtime_token = get_runtime_token(session_id)
+        return {"items": search_itop_teams(q, runtime_token, org_id=org_id)}
+    except AuthenticationError as exc:
+        raise_auth_error(exc)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Unable to search iTop teams: {exc}") from exc
+
+
+@router.get("/teams/{team_id}/people/search")
+def itop_team_people_search(
+    team_id: int,
+    q: str = "",
+    hub_session_id: str | None = Cookie(default=None),
+) -> dict[str, Any]:
+    session_id = ensure_session(hub_session_id)
+    try:
+        ensure_settings_access(session_id)
+        runtime_token = get_runtime_token(session_id)
+        return {"items": search_itop_team_people(team_id, q, runtime_token)}
+    except AuthenticationError as exc:
+        raise_auth_error(exc)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Unable to search iTop team people: {exc}") from exc
