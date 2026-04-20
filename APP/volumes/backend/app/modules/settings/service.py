@@ -61,6 +61,8 @@ PANEL_DEFAULTS: dict[str, dict[str, Any]] = {
         "organizationName": "iTop Hub",
         "organizationAcronym": "ITH",
         "organizationLogo": "",
+        "itopOrganizationId": "",
+        "itopOrganizationName": "",
     },
     "itop": {
         "integrationUrl": "http://itop",
@@ -99,6 +101,17 @@ PANEL_DEFAULTS: dict[str, dict[str, Any]] = {
         "laboratoryPrefix": "LAB",
         "numberingFormat": "AAAA-NNNN",
         "requirementEnabled": False,
+        "requirementTicketClass": "UserRequest",
+        "requirementInitialStatus": "created",
+        "requirementCallerId": "",
+        "requirementTeamId": "",
+        "requirementAgentId": "",
+        "requirementServiceId": "",
+        "requirementServiceSubcategoryId": "",
+        "requirementOrigin": "",
+        "requirementImpact": "",
+        "requirementUrgency": "",
+        "requirementPriority": "",
         "requirementSubject": "Registro formal de asociacion de activo",
         "requirementTicketTemplate": (
             "Se deja registro formal de la asociacion del activo en el marco del proceso corporativo vigente. "
@@ -123,7 +136,6 @@ PANEL_DEFAULTS: dict[str, dict[str, Any]] = {
         "enabledAssetTypes": ["Desktop (PC)", "Laptop (Laptop)"],
         "showObsoleteAssets": False,
         "showImplementationAssets": False,
-        "generateRequirementTicket": False,
         "warrantyAlertDays": 30,
         "supportNote": (
             "PDQ actua como fuente lateral de visibilidad para inventario tecnico, "
@@ -266,6 +278,8 @@ def normalize_panel_config(panel_code: str, config: dict[str, Any]) -> dict[str,
         return {
             "organizationName": _coerce_str(merged.get("organizationName"), "iTop Hub"),
             "organizationAcronym": _coerce_str(merged.get("organizationAcronym"), "ITH"),
+            "itopOrganizationId": _coerce_str(merged.get("itopOrganizationId")),
+            "itopOrganizationName": _coerce_str(merged.get("itopOrganizationName")),
             "organizationLogoPath": logo_path,
             "organizationLogoVersion": logo_version,
             "organizationLogoUrl": _build_organization_logo_url(logo_path, logo_version),
@@ -304,12 +318,29 @@ def normalize_panel_config(panel_code: str, config: dict[str, Any]) -> dict[str,
         page_size = _coerce_str(merged.get("pageSize"), "A4").upper()
         if page_size not in {"A4", "LETTER", "LEGAL"}:
             page_size = "A4"
+        requirement_ticket_class = _coerce_str(merged.get("requirementTicketClass"), "UserRequest")
+        if requirement_ticket_class not in {"UserRequest", "Incident", "NormalChange"}:
+            requirement_ticket_class = "UserRequest"
+        requirement_initial_status = _coerce_str(merged.get("requirementInitialStatus"), "created").lower()
+        if requirement_initial_status not in {"created"}:
+            requirement_initial_status = "created"
         return {
             "handoverPrefix": _coerce_str(merged.get("handoverPrefix")),
             "receptionPrefix": _coerce_str(merged.get("receptionPrefix")),
             "laboratoryPrefix": _coerce_str(merged.get("laboratoryPrefix")),
             "numberingFormat": _coerce_str(merged.get("numberingFormat")),
             "requirementEnabled": _coerce_bool(merged.get("requirementEnabled"), False),
+            "requirementTicketClass": requirement_ticket_class,
+            "requirementInitialStatus": requirement_initial_status,
+            "requirementCallerId": _coerce_str(merged.get("requirementCallerId")),
+            "requirementTeamId": _coerce_str(merged.get("requirementTeamId")),
+            "requirementAgentId": _coerce_str(merged.get("requirementAgentId")),
+            "requirementServiceId": _coerce_str(merged.get("requirementServiceId")),
+            "requirementServiceSubcategoryId": _coerce_str(merged.get("requirementServiceSubcategoryId")),
+            "requirementOrigin": _coerce_str(merged.get("requirementOrigin")),
+            "requirementImpact": _coerce_str(merged.get("requirementImpact")),
+            "requirementUrgency": _coerce_str(merged.get("requirementUrgency")),
+            "requirementPriority": _coerce_str(merged.get("requirementPriority")),
             "requirementSubject": _coerce_str(merged.get("requirementSubject")),
             "requirementTicketTemplate": _coerce_str(merged.get("requirementTicketTemplate")),
             "pageSize": page_size,
@@ -339,7 +370,6 @@ def normalize_panel_config(panel_code: str, config: dict[str, Any]) -> dict[str,
         "enabledAssetTypes": _coerce_list(merged.get("enabledAssetTypes"), PANEL_DEFAULTS["cmdb"]["enabledAssetTypes"]),
         "showObsoleteAssets": _coerce_bool(merged.get("showObsoleteAssets"), False),
         "showImplementationAssets": _coerce_bool(merged.get("showImplementationAssets"), False),
-        "generateRequirementTicket": _coerce_bool(merged.get("generateRequirementTicket"), False),
         "warrantyAlertDays": max(1, _coerce_int(merged.get("warrantyAlertDays"), 30)),
         "supportNote": _coerce_str(merged.get("supportNote")),
     }
@@ -368,6 +398,8 @@ def update_settings_panel(panel_code: str, config: dict[str, Any]) -> dict[str, 
         next_config = {
             "organizationName": _coerce_str(config.get("organizationName"), current.get("organizationName", "iTop Hub")),
             "organizationAcronym": _coerce_str(config.get("organizationAcronym"), current.get("organizationAcronym", "ITH")),
+            "itopOrganizationId": _coerce_str(config.get("itopOrganizationId"), current.get("itopOrganizationId", "")),
+            "itopOrganizationName": _coerce_str(config.get("itopOrganizationName"), current.get("itopOrganizationName", "")),
             "organizationLogoPath": _coerce_str(current.get("organizationLogoPath")),
             "organizationLogoVersion": _coerce_str(current.get("organizationLogoVersion")),
         }
