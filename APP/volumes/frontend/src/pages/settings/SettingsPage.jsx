@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link as LinkIcon } from "lucide-react";
+import { CircleAlert, FileText, FolderTree, Link as LinkIcon, UserRound } from "lucide-react";
 import ModalManager from "../../components/ui/modal";
 import { FilterDropdown } from "../../components/ui/general";
 import { Button } from "../../ui/Button";
 import { setPdqModuleEnabled } from "../../services/module-visibility-service";
 import { getPdqStatus } from "../../services/pdq-service";
+import { getItopPersonDetail, getItopRequirementCatalog, searchItopPeople, searchItopTeamPeople, searchItopTeams } from "../../services/itop-service";
 import {
   createSettingsProfile,
   createSyncTask,
@@ -26,6 +27,7 @@ const TABS = [
   { id: "sync", label: "Sincronizacion" },
   { id: "mail", label: "Correo" },
   { id: "docs", label: "Documentos" },
+  { id: "requirement", label: "Ticket requerimiento" },
   { id: "cmdb", label: "CMDB" },
   { id: "profiles", label: "Perfiles" },
 ];
@@ -44,6 +46,12 @@ const EVIDENCE_EXTENSION_OPTIONS = [
   { value: "doc", label: "DOC" },
   { value: "docx", label: "DOCX" },
   { value: "txt", label: "TXT" },
+];
+
+const REQUIREMENT_TICKET_CLASS_OPTIONS = [
+  { value: "UserRequest", label: "Requerimiento (UserRequest)" },
+  { value: "Incident", label: "Incidente (Incident)" },
+  { value: "NormalChange", label: "Cambio normal (NormalChange)" },
 ];
 
 const EMPTY_TASK = {
@@ -148,6 +156,40 @@ function getSettingsFilterOptionClassName(_, isActive) {
     : "border-transparent bg-transparent text-[var(--text-secondary)] hover:border-[var(--border-color)] hover:bg-[var(--bg-app)] hover:text-[var(--text-primary)]";
 }
 
+function buildSelectOptions(items = [], placeholder = "Selecciona", currentValue = "", currentLabel = "") {
+  const normalized = Array.isArray(items)
+    ? items
+        .filter((item) => item && item.value !== undefined && item.value !== null && `${item.label || ""}`.trim())
+        .map((item) => ({ value: `${item.value}`.trim(), label: `${item.label}`.trim() }))
+    : [];
+
+  const next = [...normalized];
+  const current = `${currentValue || ""}`.trim();
+  if (current && !next.some((item) => item.value === current)) {
+    next.unshift({ value: current, label: `${currentLabel || current}`.trim() || current });
+  }
+
+  return [{ value: "", label: placeholder }, ...next];
+}
+
+function mapItopPersonToSelection(item) {
+  if (!item) return null;
+  return {
+    id: Number(item.id),
+    code: item.code || "",
+    name: item.person || item.name || "",
+    email: item.asset || item.email || "",
+    phone: item.phone || "",
+    role: item.role || "",
+    status: item.status || "",
+  };
+}
+
+function isActiveItopStatus(value) {
+  const normalized = `${value || ""}`.trim().toLowerCase();
+  return ["", "activo", "active", "produccion", "production", "enabled"].includes(normalized);
+}
+
 function KPI({ eyebrow, value, status, tone = "success" }) {
   const dot = {
     success: "bg-[var(--success)]",
@@ -166,23 +208,61 @@ function KPI({ eyebrow, value, status, tone = "success" }) {
   );
 }
 
-function Field({ label, value, onChange, type = "text", rows = 0, options = null, readOnly = false, inputClassName = "" }) {
+function Field({ label, value, onChange, type = "text", rows = 0, options = null, readOnly = false, disabled = false, inputClassName = "" }) {
   const base = `w-full rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-3 text-sm text-[var(--text-primary)] outline-none ${inputClassName}`.trim();
   return (
     <label className={rows ? "md:col-span-2" : ""}>
       <span className="mb-2 block text-sm font-semibold text-[var(--text-secondary)]">{label}</span>
       {options ? (
-        <select value={value} onChange={onChange} className={base}>
+        <select value={value} onChange={onChange} disabled={disabled} className={base}>
           {options.map((option) => (
             <option key={option.value} value={option.value}>{option.label}</option>
           ))}
         </select>
       ) : rows ? (
-        <textarea rows={rows} value={value} onChange={onChange} readOnly={readOnly} className={base} />
+        <textarea rows={rows} value={value} onChange={onChange} readOnly={readOnly} disabled={disabled} className={base} />
       ) : (
-        <input type={type} value={value} onChange={onChange} readOnly={readOnly} className={base} />
+        <input type={type} value={value} onChange={onChange} readOnly={readOnly} disabled={disabled} className={base} />
       )}
     </label>
+  );
+}
+
+function SearchResultItem({ title, subtitle = "", helper = "", actionLabel = "Seleccionar", onSelect }) {
+  return (
+    <div className="rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-[var(--text-primary)]">{title}</p>
+          {subtitle ? <p className="mt-1 text-sm text-[var(--text-secondary)]">{subtitle}</p> : null}
+          {helper ? <p className="mt-1 text-xs text-[var(--text-muted)]">{helper}</p> : null}
+        </div>
+        <Button type="button" size="sm" variant="secondary" onClick={onSelect}>
+          {actionLabel}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function SelectedPersonCard({ title, person, onClear }) {
+  if (!person) return null;
+  return (
+    <div className="rounded-[16px] border border-[rgba(99,177,255,0.38)] bg-[rgba(99,177,255,0.08)] px-4 py-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-[0.68rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">{title}</p>
+          <p className="mt-2 truncate text-sm font-semibold text-[var(--text-primary)]">{person.name}</p>
+          <p className="mt-1 text-sm text-[var(--text-secondary)]">{`${person.code || "Sin codigo"}${person.email ? ` / ${person.email}` : ""}`}</p>
+          <p className="mt-1 text-xs text-[var(--text-muted)]">{[person.role, person.status].filter(Boolean).join(" / ")}</p>
+        </div>
+        {onClear ? (
+          <Button type="button" size="sm" variant="secondary" onClick={onClear}>
+            Quitar
+          </Button>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
@@ -306,6 +386,27 @@ export function SettingsPage() {
     details: false,
     permissions: true,
   });
+  const [requirementCatalog, setRequirementCatalog] = useState({
+    organizations: [],
+    origins: [],
+    services: [],
+    serviceSubcategories: [],
+    teams: [],
+    impacts: [],
+    urgencies: [],
+    priorities: [],
+  });
+  const [loadingRequirementCatalog, setLoadingRequirementCatalog] = useState(false);
+  const [requirementCatalogLoaded, setRequirementCatalogLoaded] = useState(false);
+  const [requirementCatalogError, setRequirementCatalogError] = useState("");
+  const [requirementCallerQuery, setRequirementCallerQuery] = useState("");
+  const [requirementCallerLoading, setRequirementCallerLoading] = useState(false);
+  const [requirementCallerResults, setRequirementCallerResults] = useState([]);
+  const [requirementSelectedCaller, setRequirementSelectedCaller] = useState(null);
+  const [loadingRequirementTeams, setLoadingRequirementTeams] = useState(false);
+  const [requirementAnalystCatalog, setRequirementAnalystCatalog] = useState([]);
+  const [loadingRequirementAnalysts, setLoadingRequirementAnalysts] = useState(false);
+  const [requirementSelectedAnalyst, setRequirementSelectedAnalyst] = useState(null);
 
   const dirtyMap = useMemo(
     () => TABS.reduce((acc, tab) => ({ ...acc, [tab.id]: JSON.stringify(drafts[tab.id] || {}) !== JSON.stringify(panels[tab.id] || {}) }), {}),
@@ -315,6 +416,126 @@ export function SettingsPage() {
   const canSaveItop = !dirtyMap.itop || validatedPanelSignatures.itop === serializePanelConfig(drafts.itop);
   const canSavePdq = !dirtyMap.pdq || validatedPanelSignatures.pdq === serializePanelConfig(drafts.pdq);
   const canSaveMail = !dirtyMap.mail || validatedPanelSignatures.mail === serializePanelConfig(drafts.mail);
+  const resolvedRequirementOrganizationId = useMemo(() => {
+    const draftId = `${drafts.organization?.itopOrganizationId || ""}`.trim();
+    if (draftId) return draftId;
+    const draftName = `${drafts.organization?.itopOrganizationName || ""}`.trim();
+    if (!draftName) return "";
+    const match = requirementCatalog.organizations.find((item) => `${item.label || ""}`.trim() === draftName);
+    return match ? `${match.value}`.trim() : "";
+  }, [drafts.organization?.itopOrganizationId, drafts.organization?.itopOrganizationName, requirementCatalog.organizations]);
+  const requirementOrganizationOptions = useMemo(
+    () => buildSelectOptions(
+      requirementCatalog.organizations,
+      loadingRequirementCatalog ? "Cargando organizaciones..." : "Selecciona organizacion",
+      resolvedRequirementOrganizationId,
+      drafts.organization?.itopOrganizationName || ""
+    ),
+    [drafts.organization?.itopOrganizationName, loadingRequirementCatalog, requirementCatalog.organizations, resolvedRequirementOrganizationId]
+  );
+  const requirementOriginOptions = useMemo(
+    () => buildSelectOptions(
+      requirementCatalog.origins,
+      loadingRequirementCatalog ? "Cargando origenes..." : "Selecciona origen",
+      drafts.docs?.requirementOrigin || "",
+      drafts.docs?.requirementOrigin || ""
+    ),
+    [drafts.docs?.requirementOrigin, loadingRequirementCatalog, requirementCatalog.origins]
+  );
+  const requirementServiceOptions = useMemo(
+    () => buildSelectOptions(
+      requirementCatalog.services,
+      loadingRequirementCatalog ? "Cargando categorias..." : "Selecciona categoria",
+      drafts.docs?.requirementServiceId || "",
+      drafts.docs?.requirementServiceId || ""
+    ),
+    [drafts.docs?.requirementServiceId, loadingRequirementCatalog, requirementCatalog.services]
+  );
+  const requirementFilteredSubcategoryCatalog = useMemo(() => {
+    const selectedServiceId = `${drafts.docs?.requirementServiceId || ""}`.trim();
+    if (!selectedServiceId) return [];
+    return requirementCatalog.serviceSubcategories.filter((item) => `${item.serviceId || ""}`.trim() === selectedServiceId);
+  }, [drafts.docs?.requirementServiceId, requirementCatalog.serviceSubcategories]);
+  const requirementSubcategoryOptions = useMemo(
+    () => buildSelectOptions(
+      requirementFilteredSubcategoryCatalog,
+      loadingRequirementCatalog
+        ? "Cargando subcategorias..."
+        : drafts.docs?.requirementServiceId
+          ? "Selecciona subcategoria"
+          : "Selecciona categoria primero",
+      drafts.docs?.requirementServiceSubcategoryId || "",
+      drafts.docs?.requirementServiceSubcategoryId || ""
+    ),
+    [drafts.docs?.requirementServiceId, drafts.docs?.requirementServiceSubcategoryId, loadingRequirementCatalog, requirementFilteredSubcategoryCatalog]
+  );
+  const requirementFilteredTeamCatalog = useMemo(() => {
+    const selectedOrganizationId = `${resolvedRequirementOrganizationId || ""}`.trim();
+    if (!selectedOrganizationId) return [];
+    return requirementCatalog.teams.filter((item) => `${item.organizationId || ""}`.trim() === selectedOrganizationId);
+  }, [requirementCatalog.teams, resolvedRequirementOrganizationId]);
+  const requirementTeamOptions = useMemo(
+    () => buildSelectOptions(
+      requirementFilteredTeamCatalog,
+      !resolvedRequirementOrganizationId
+        ? "Selecciona organizacion primero"
+        : loadingRequirementTeams
+          ? "Cargando equipos..."
+          : "Selecciona grupo",
+      drafts.docs?.requirementTeamId || "",
+      requirementFilteredTeamCatalog.find((item) => `${item.value}`.trim() === `${drafts.docs?.requirementTeamId || ""}`.trim())?.label || drafts.docs?.requirementTeamId || ""
+    ),
+    [drafts.docs?.requirementTeamId, loadingRequirementTeams, requirementFilteredTeamCatalog, resolvedRequirementOrganizationId]
+  );
+  const requirementImpactOptions = useMemo(
+    () => buildSelectOptions(
+      requirementCatalog.impacts,
+      loadingRequirementCatalog ? "Cargando impactos..." : "Selecciona impacto",
+      drafts.docs?.requirementImpact || "",
+      drafts.docs?.requirementImpact || ""
+    ),
+    [drafts.docs?.requirementImpact, loadingRequirementCatalog, requirementCatalog.impacts]
+  );
+  const requirementUrgencyOptions = useMemo(
+    () => buildSelectOptions(
+      requirementCatalog.urgencies,
+      loadingRequirementCatalog ? "Cargando urgencias..." : "Selecciona urgencia",
+      drafts.docs?.requirementUrgency || "",
+      drafts.docs?.requirementUrgency || ""
+    ),
+    [drafts.docs?.requirementUrgency, loadingRequirementCatalog, requirementCatalog.urgencies]
+  );
+  const requirementPriorityOptions = useMemo(
+    () => buildSelectOptions(
+      requirementCatalog.priorities,
+      loadingRequirementCatalog ? "Cargando prioridades..." : "Selecciona prioridad",
+      drafts.docs?.requirementPriority || "",
+      drafts.docs?.requirementPriority || ""
+    ),
+    [drafts.docs?.requirementPriority, loadingRequirementCatalog, requirementCatalog.priorities]
+  );
+  const requirementAnalystOptions = useMemo(
+    () => buildSelectOptions(
+      requirementAnalystCatalog.map((person) => ({
+        value: `${person.id}`,
+        label: person.name,
+      })),
+      !drafts.docs?.requirementTeamId
+        ? "Selecciona grupo primero"
+        : loadingRequirementAnalysts
+          ? "Cargando analistas..."
+          : "Selecciona analista",
+      drafts.docs?.requirementAgentId || "",
+      requirementSelectedAnalyst?.name || drafts.docs?.requirementAgentId || ""
+    ),
+    [
+      drafts.docs?.requirementAgentId,
+      drafts.docs?.requirementTeamId,
+      loadingRequirementAnalysts,
+      requirementAnalystCatalog,
+      requirementSelectedAnalyst?.name,
+    ]
+  );
 
   const updateField = (panelId, field, value) => {
     setDrafts((current) => ({ ...current, [panelId]: { ...(current[panelId] || {}), [field]: value } }));
@@ -379,6 +600,339 @@ export function SettingsPage() {
     loadAll();
   }, []);
 
+  useEffect(() => {
+    if (activeTab !== "requirement" || requirementCatalogLoaded) return;
+
+    let cancelled = false;
+    setLoadingRequirementCatalog(true);
+    setRequirementCatalogError("");
+
+    getItopRequirementCatalog()
+      .then((payload) => {
+        if (cancelled) return;
+        setRequirementCatalog({
+          organizations: payload?.organizations || [],
+          origins: payload?.origins || [],
+          services: payload?.services || [],
+          serviceSubcategories: payload?.serviceSubcategories || [],
+          teams: payload?.teams || [],
+          impacts: payload?.impacts || [],
+          urgencies: payload?.urgencies || [],
+          priorities: payload?.priorities || [],
+        });
+        setRequirementCatalogLoaded(true);
+      })
+      .catch((catalogError) => {
+        if (cancelled) return;
+        setRequirementCatalogError(catalogError.message || "No fue posible cargar los catalogos de iTop.");
+        setRequirementCatalogLoaded(true);
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setLoadingRequirementCatalog(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, requirementCatalogLoaded]);
+
+  useEffect(() => {
+    if (!requirementCatalog.organizations.length) return;
+    if (`${drafts.organization?.itopOrganizationId || ""}`.trim()) return;
+    const draftName = `${drafts.organization?.itopOrganizationName || ""}`.trim();
+    if (!draftName) return;
+    const match = requirementCatalog.organizations.find((item) => `${item.label || ""}`.trim() === draftName);
+    if (match) {
+      updateField("organization", "itopOrganizationId", `${match.value}`.trim());
+    }
+  }, [drafts.organization?.itopOrganizationId, drafts.organization?.itopOrganizationName, requirementCatalog.organizations]);
+
+  useEffect(() => {
+    const currentOrganizationId = `${drafts.organization?.itopOrganizationId || ""}`.trim();
+    const currentOrganizationName = `${drafts.organization?.itopOrganizationName || ""}`.trim();
+    if (!currentOrganizationId && !currentOrganizationName) return;
+    if (!requirementCatalog.organizations.length) return;
+
+    const matchedById = currentOrganizationId
+      ? requirementCatalog.organizations.find((item) => `${item.value}`.trim() === currentOrganizationId)
+      : null;
+    const matchedByName = currentOrganizationName
+      ? requirementCatalog.organizations.find((item) => `${item.label || ""}`.trim() === currentOrganizationName)
+      : null;
+
+    if (matchedById || matchedByName) return;
+
+    updateField("organization", "itopOrganizationId", "");
+    updateField("organization", "itopOrganizationName", "");
+  }, [drafts.organization?.itopOrganizationId, drafts.organization?.itopOrganizationName, requirementCatalog.organizations]);
+
+  useEffect(() => {
+    const currentServiceId = `${drafts.docs?.requirementServiceId || ""}`.trim();
+    if (!currentServiceId || !requirementCatalog.services.length) return;
+    if (requirementCatalog.services.some((item) => `${item.value}`.trim() === currentServiceId)) return;
+    const match = requirementCatalog.services.find((item) => `${item.label || ""}`.trim() === currentServiceId);
+    if (match) {
+      updateField("docs", "requirementServiceId", `${match.value}`.trim());
+    }
+  }, [drafts.docs?.requirementServiceId, requirementCatalog.services]);
+
+  useEffect(() => {
+    const currentSubcategoryId = `${drafts.docs?.requirementServiceSubcategoryId || ""}`.trim();
+    if (!currentSubcategoryId || !requirementCatalog.serviceSubcategories.length) return;
+    if (requirementCatalog.serviceSubcategories.some((item) => `${item.value}`.trim() === currentSubcategoryId)) return;
+    const match = requirementCatalog.serviceSubcategories.find((item) => `${item.label || ""}`.trim() === currentSubcategoryId);
+    if (match) {
+      updateField("docs", "requirementServiceSubcategoryId", `${match.value}`.trim());
+    }
+  }, [drafts.docs?.requirementServiceSubcategoryId, requirementCatalog.serviceSubcategories]);
+
+  useEffect(() => {
+    const currentSubcategoryId = `${drafts.docs?.requirementServiceSubcategoryId || ""}`.trim();
+    if (!currentSubcategoryId) return;
+    if (requirementFilteredSubcategoryCatalog.some((item) => `${item.value}`.trim() === currentSubcategoryId)) return;
+    updateField("docs", "requirementServiceSubcategoryId", "");
+  }, [drafts.docs?.requirementServiceSubcategoryId, requirementFilteredSubcategoryCatalog]);
+
+  useEffect(() => {
+    const currentTeamId = `${drafts.docs?.requirementTeamId || ""}`.trim();
+    if (!currentTeamId) {
+      setRequirementAnalystCatalog([]);
+      setRequirementSelectedAnalyst(null);
+      if (`${drafts.docs?.requirementAgentId || ""}`.trim()) {
+        updateField("docs", "requirementAgentId", "");
+      }
+      return;
+    }
+    if (requirementFilteredTeamCatalog.some((item) => `${item.value}`.trim() === currentTeamId)) return;
+    updateField("docs", "requirementTeamId", "");
+    updateField("docs", "requirementAgentId", "");
+    setRequirementAnalystCatalog([]);
+    setRequirementSelectedAnalyst(null);
+  }, [drafts.docs?.requirementTeamId, drafts.docs?.requirementAgentId, requirementFilteredTeamCatalog]);
+
+  useEffect(() => {
+    const organizationId = `${resolvedRequirementOrganizationId || ""}`.trim();
+    if (activeTab !== "requirement") return undefined;
+    if (!organizationId) {
+      setRequirementCatalog((current) => ({ ...current, teams: [] }));
+      setLoadingRequirementTeams(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+    setLoadingRequirementTeams(true);
+
+    searchItopTeams({ organizationId })
+      .then((items) => {
+        if (!cancelled) {
+          setRequirementCatalog((current) => ({
+            ...current,
+            teams: (items || []).map((item) => ({
+              value: `${item.id || ""}`.trim(),
+              label: `${item.name || ""}`.trim(),
+              organizationId: `${item.organizationId || ""}`.trim(),
+              organizationName: `${item.organizationName || ""}`.trim(),
+              email: `${item.email || ""}`.trim(),
+              phone: `${item.phone || ""}`.trim(),
+              role: `${item.role || ""}`.trim(),
+              status: `${item.status || ""}`.trim(),
+            })),
+          }));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setRequirementCatalog((current) => ({ ...current, teams: [] }));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoadingRequirementTeams(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, resolvedRequirementOrganizationId]);
+
+  useEffect(() => {
+    const personId = Number(drafts.docs?.requirementCallerId || 0);
+    if (!personId) {
+      setRequirementSelectedCaller(null);
+      return;
+    }
+    if (requirementSelectedCaller?.id === personId) return;
+
+    let cancelled = false;
+    getItopPersonDetail(personId)
+      .then((item) => {
+        const selection = mapItopPersonToSelection(item);
+        if (!cancelled && !isActiveItopStatus(selection?.status)) {
+          updateField("docs", "requirementCallerId", "");
+          setRequirementSelectedCaller(null);
+          return;
+        }
+        if (!cancelled) {
+          setRequirementSelectedCaller(selection);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setRequirementSelectedCaller(null);
+          updateField("docs", "requirementCallerId", "");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [drafts.docs?.requirementCallerId, requirementSelectedCaller?.id]);
+
+  useEffect(() => {
+    const personId = Number(drafts.docs?.requirementAgentId || 0);
+    if (!personId) {
+      setRequirementSelectedAnalyst(null);
+      return;
+    }
+    if (requirementSelectedAnalyst?.id === personId) return;
+
+    let cancelled = false;
+    getItopPersonDetail(personId)
+      .then((item) => {
+        if (!cancelled) {
+          setRequirementSelectedAnalyst(mapItopPersonToSelection(item));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setRequirementSelectedAnalyst(null);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [drafts.docs?.requirementAgentId, requirementSelectedAnalyst?.id]);
+
+  useEffect(() => {
+    const teamId = `${drafts.docs?.requirementTeamId || ""}`.trim();
+    if (activeTab !== "requirement") return undefined;
+    if (!teamId) {
+      setRequirementAnalystCatalog([]);
+      setLoadingRequirementAnalysts(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+    setLoadingRequirementAnalysts(true);
+
+    searchItopTeamPeople({ teamId, query: "" })
+      .then((items) => {
+        if (cancelled) return;
+        const nextItems = items.map(mapItopPersonToSelection).sort((a, b) => a.name.localeCompare(b.name, "es"));
+        setRequirementAnalystCatalog(nextItems);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setRequirementAnalystCatalog([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoadingRequirementAnalysts(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, drafts.docs?.requirementTeamId]);
+
+  useEffect(() => {
+    const analystId = `${drafts.docs?.requirementAgentId || ""}`.trim();
+    if (!analystId || loadingRequirementAnalysts || !drafts.docs?.requirementTeamId) return;
+    if (requirementAnalystCatalog.some((person) => `${person.id}` === analystId)) return;
+    updateField("docs", "requirementAgentId", "");
+    setRequirementSelectedAnalyst(null);
+  }, [
+    drafts.docs?.requirementAgentId,
+    drafts.docs?.requirementTeamId,
+    loadingRequirementAnalysts,
+    requirementAnalystCatalog,
+  ]);
+
+  useEffect(() => {
+    const normalizedQuery = requirementCallerQuery.trim();
+    if (activeTab !== "requirement") return undefined;
+    if (!resolvedRequirementOrganizationId) {
+      setRequirementCallerResults([]);
+      setRequirementCallerLoading(false);
+      return undefined;
+    }
+    if (!normalizedQuery) {
+      setRequirementCallerResults([]);
+      setRequirementCallerLoading(false);
+      return undefined;
+    }
+    if (normalizedQuery.length < 2) {
+      setRequirementCallerResults([]);
+      setRequirementCallerLoading(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+    setRequirementCallerLoading(true);
+    const timer = window.setTimeout(async () => {
+      try {
+        const items = await searchItopPeople({
+          query: normalizedQuery,
+          status: "active",
+          organizationId: resolvedRequirementOrganizationId,
+        });
+        if (!cancelled) {
+          setRequirementCallerResults(items.map(mapItopPersonToSelection));
+        }
+      } catch {
+        if (!cancelled) {
+          setRequirementCallerResults([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setRequirementCallerLoading(false);
+        }
+      }
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [activeTab, requirementCallerQuery, resolvedRequirementOrganizationId]);
+
+  const persistPanel = async (panelId) => {
+    const response = await updateSettingsPanel(panelId, drafts[panelId] || {});
+    const nextPdqStatus = panelId === "pdq" ? await getPdqStatus() : null;
+    const nextConfig = panelId === "pdq"
+      ? {
+          ...response.config,
+          databaseFilePath: resolvePdqDatabasePath(response.config?.databaseFilePath, nextPdqStatus),
+        }
+      : response.config;
+    setDrafts((current) => ({ ...current, [panelId]: nextConfig }));
+    setPanels((current) => ({ ...current, [panelId]: nextConfig }));
+    if (nextPdqStatus) {
+      setPdqStatus(nextPdqStatus);
+    }
+    if (panelId === "pdq") setPdqModuleEnabled(nextConfig.moduleEnabled !== false);
+    if (panelId === "itop" || panelId === "pdq" || panelId === "mail") {
+      setValidatedPanelSignatures((current) => ({
+        ...current,
+        [panelId]: serializePanelConfig(nextConfig),
+      }));
+    }
+    return nextConfig;
+  };
+
   const savePanel = async (panelId, label) => {
     const confirmed = await ModalManager.confirm({
       title: `Guardar ${label}`,
@@ -389,27 +943,33 @@ export function SettingsPage() {
     if (!confirmed) return;
     setSavingPanel(panelId);
     try {
-      const response = await updateSettingsPanel(panelId, drafts[panelId] || {});
-      const nextPdqStatus = panelId === "pdq" ? await getPdqStatus() : null;
-      const nextConfig = panelId === "pdq"
-        ? {
-            ...response.config,
-            databaseFilePath: resolvePdqDatabasePath(response.config?.databaseFilePath, nextPdqStatus),
-          }
-        : response.config;
-      setDrafts((current) => ({ ...current, [panelId]: nextConfig }));
-      setPanels((current) => ({ ...current, [panelId]: nextConfig }));
-      if (nextPdqStatus) {
-        setPdqStatus(nextPdqStatus);
-      }
-      if (panelId === "pdq") setPdqModuleEnabled(nextConfig.moduleEnabled !== false);
-      if (panelId === "itop" || panelId === "pdq" || panelId === "mail") {
-        setValidatedPanelSignatures((current) => ({
-          ...current,
-          [panelId]: serializePanelConfig(nextConfig),
-        }));
-      }
+      await persistPanel(panelId);
       ModalManager.success({ title: "Configuracion actualizada", message: `El panel ${label} fue guardado correctamente.` });
+    } catch (saveError) {
+      ModalManager.error({ title: "No fue posible guardar", message: saveError.message || "Ocurrio un error al guardar." });
+    } finally {
+      setSavingPanel("");
+    }
+  };
+
+  const resetRequirementPanel = () => {
+    resetPanel("docs");
+    resetPanel("organization");
+  };
+
+  const saveRequirementPanel = async () => {
+    const confirmed = await ModalManager.confirm({
+      title: "Guardar Ticket de requerimiento",
+      message: "Se aplicaran los cambios del ticket de requerimiento y su contexto organizacional.",
+      content: "Confirma para persistir esta configuracion en la base de datos del Hub.",
+      buttons: { cancel: "Cancelar", confirm: "Guardar" },
+    });
+    if (!confirmed) return;
+    setSavingPanel("requirement");
+    try {
+      await persistPanel("organization");
+      await persistPanel("docs");
+      ModalManager.success({ title: "Configuracion actualizada", message: "El panel Ticket de requerimiento fue guardado correctamente." });
     } catch (saveError) {
       ModalManager.error({ title: "No fue posible guardar", message: saveError.message || "Ocurrio un error al guardar." });
     } finally {
@@ -844,90 +1404,107 @@ export function SettingsPage() {
 
         {activeTab === "organization" ? (
           <div className="mt-6">
-            <div className="grid gap-4 md:grid-cols-2">
-              <Field
-                label="Nombre de la organizacion"
-                value={drafts.organization?.organizationName || ""}
-                onChange={(e) => updateField("organization", "organizationName", e.target.value)}
-              />
-              <Field
-                label="Sigla"
-                value={drafts.organization?.organizationAcronym || ""}
-                onChange={(e) => updateField("organization", "organizationAcronym", e.target.value)}
-              />
-            </div>
-            <div className="mt-4 rounded-[20px] border border-[var(--border-color)] bg-[var(--bg-app)] p-5">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div>
-                  <p className="text-sm font-semibold text-[var(--text-primary)]">Logo institucional</p>
-                  <p className="mt-1 text-sm text-[var(--text-secondary)]">
-                    Este logo se utilizara en la generacion de PDFs. Se almacena dentro de la configuracion del Hub.
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-3">
-                  <label className="inline-flex cursor-pointer items-center gap-2 rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-2.5 text-sm font-semibold text-[var(--text-primary)]">
-                    Cargar logo
-                    <input
-                      type="file"
-                      accept="image/png,image/jpeg,image/webp,image/svg+xml"
-                      className="hidden"
-                      onChange={async (e) => {
-                        const file = e.target.files?.[0];
-                        if (!file) return;
-                        try {
-                          const dataUrl = await readFileAsDataUrl(file);
-                          setDrafts((current) => ({
-                            ...current,
-                            organization: {
-                              ...(current.organization || {}),
-                              organizationLogoUpload: dataUrl,
-                              organizationLogoRemoved: false,
-                              organizationLogoUrl: dataUrl,
-                            },
-                          }));
-                        } catch (uploadError) {
-                          ModalManager.error({
-                            title: "No fue posible cargar el logo",
-                            message: uploadError.message || "Ocurrio un error al leer el archivo.",
-                          });
-                        } finally {
-                          e.target.value = "";
-                        }
-                      }}
-                    />
-                  </label>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    disabled={!drafts.organization?.organizationLogoUrl}
-                    onClick={() => setDrafts((current) => ({
-                      ...current,
-                      organization: {
-                        ...(current.organization || {}),
-                        organizationLogoUpload: "",
-                        organizationLogoRemoved: true,
-                        organizationLogoUrl: "",
-                        organizationLogoPath: "",
-                        organizationLogoVersion: "",
-                      },
-                    }))}
-                  >
-                    Quitar logo
-                  </Button>
+            <div className="grid gap-5 xl:grid-cols-2 xl:items-stretch">
+              <div className="flex h-full flex-col rounded-[22px] border border-[var(--border-color)] bg-[var(--bg-app)] p-5 shadow-[var(--shadow-subtle)]">
+                <p className="text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Identidad base</p>
+                <p className="mt-2 text-base font-semibold text-[var(--text-primary)]">Datos institucionales</p>
+                <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                  Configura el nombre visible del Hub y la sigla corta utilizada en referencias internas.
+                </p>
+                <div className="mt-5 grid gap-4 md:grid-cols-[minmax(0,1.5fr)_220px]">
+                  <Field
+                    label="Nombre de la organizacion"
+                    value={drafts.organization?.organizationName || ""}
+                    onChange={(e) => updateField("organization", "organizationName", e.target.value)}
+                  />
+                  <Field
+                    label="Sigla"
+                    value={drafts.organization?.organizationAcronym || ""}
+                    onChange={(e) => updateField("organization", "organizationAcronym", e.target.value)}
+                  />
                 </div>
               </div>
-              <div className="mt-5 rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-4">
-                {drafts.organization?.organizationLogoUrl ? (
-                  <img
-                    src={drafts.organization.organizationLogoUrl}
-                    alt={drafts.organization?.organizationName || "Logo organizacion"}
-                    className="max-h-[120px] max-w-full object-contain"
-                  />
-                ) : (
-                  <div className="flex min-h-[96px] items-center justify-center text-sm text-[var(--text-muted)]">
-                    No hay logo configurado todavia.
+
+              <div className="flex h-full flex-col rounded-[22px] border border-[var(--border-color)] bg-[var(--bg-app)] p-5 shadow-[var(--shadow-subtle)]">
+                <div className="flex h-full flex-col">
+                  <div>
+                    <div>
+                      <p className="text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Identidad visual</p>
+                      <p className="mt-2 text-base font-semibold text-[var(--text-primary)]">Logo institucional</p>
+                      <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                        Este logo se utilizara en la generacion de PDFs y se almacena dentro de la configuracion del Hub.
+                      </p>
+                    </div>
+                    <div className="mt-4 flex flex-wrap gap-3">
+                      <label className="inline-flex cursor-pointer items-center gap-2 rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-2.5 text-sm font-semibold text-[var(--text-primary)]">
+                        Cargar logo
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                          className="hidden"
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            try {
+                              const dataUrl = await readFileAsDataUrl(file);
+                              setDrafts((current) => ({
+                                ...current,
+                                organization: {
+                                  ...(current.organization || {}),
+                                  organizationLogoUpload: dataUrl,
+                                  organizationLogoRemoved: false,
+                                  organizationLogoUrl: dataUrl,
+                                },
+                              }));
+                            } catch (uploadError) {
+                              ModalManager.error({
+                                title: "No fue posible cargar el logo",
+                                message: uploadError.message || "Ocurrio un error al leer el archivo.",
+                              });
+                            } finally {
+                              e.target.value = "";
+                            }
+                          }}
+                        />
+                      </label>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        disabled={!drafts.organization?.organizationLogoUrl}
+                        onClick={() => setDrafts((current) => ({
+                          ...current,
+                          organization: {
+                            ...(current.organization || {}),
+                            organizationLogoUpload: "",
+                            organizationLogoRemoved: true,
+                            organizationLogoUrl: "",
+                            organizationLogoPath: "",
+                            organizationLogoVersion: "",
+                          },
+                        }))}
+                      >
+                        Quitar logo
+                      </Button>
+                    </div>
                   </div>
-                )}
+
+                  <div className="mt-5 flex min-h-[240px] flex-1 items-center justify-center rounded-[20px] border border-[var(--border-color)] bg-[linear-gradient(180deg,rgba(81,152,194,0.08),rgba(81,152,194,0.03))] p-5">
+                    {drafts.organization?.organizationLogoUrl ? (
+                      <img
+                        src={drafts.organization.organizationLogoUrl}
+                        alt={drafts.organization?.organizationName || "Logo organizacion"}
+                        className="max-h-[140px] max-w-full object-contain drop-shadow-[0_18px_32px_rgba(0,0,0,0.18)]"
+                      />
+                    ) : (
+                      <div className="max-w-[260px] text-center">
+                        <p className="text-sm font-semibold text-[var(--text-primary)]">Aun no hay logo institucional</p>
+                        <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
+                          Cuando cargues uno, esta vista te mostrara la referencia visual que se utilizara en los PDFs del Hub.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
             <Actions
@@ -942,16 +1519,63 @@ export function SettingsPage() {
         {activeTab === "docs" ? (
           <div className="mt-6">
             <div className="space-y-5">
-              <div className="rounded-[20px] border border-[var(--border-color)] bg-[var(--bg-app)] p-5">
-                <p className="text-sm font-semibold text-[var(--text-primary)]">Numeracion documental</p>
-                <p className="mt-1 text-sm text-[var(--text-secondary)]">
-                  Define prefijos y formato base de folios para los distintos documentos del Hub.
-                </p>
-                <div className="mt-4 grid gap-4 md:grid-cols-4">
-                  <Field label="Prefijo actas entrega" value={drafts.docs?.handoverPrefix || ""} onChange={(e) => updateField("docs", "handoverPrefix", e.target.value)} />
-                  <Field label="Prefijo actas recepcion" value={drafts.docs?.receptionPrefix || ""} onChange={(e) => updateField("docs", "receptionPrefix", e.target.value)} />
-                  <Field label="Prefijo laboratorio" value={drafts.docs?.laboratoryPrefix || ""} onChange={(e) => updateField("docs", "laboratoryPrefix", e.target.value)} />
-                  <Field label="Formato numeracion" value={drafts.docs?.numberingFormat || ""} onChange={(e) => updateField("docs", "numberingFormat", e.target.value)} />
+              <div className="grid gap-5 xl:grid-cols-4 xl:items-stretch">
+                <div className="rounded-[20px] border border-[var(--border-color)] bg-[var(--bg-app)] p-5 xl:col-span-2">
+                  <p className="text-sm font-semibold text-[var(--text-primary)]">Numeracion documental</p>
+                  <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                    Define prefijos y formato base de folios para los distintos documentos del Hub.
+                  </p>
+                  <div className="mt-4 grid gap-4 md:grid-cols-2">
+                    <Field label="Prefijo actas entrega" value={drafts.docs?.handoverPrefix || ""} onChange={(e) => updateField("docs", "handoverPrefix", e.target.value)} />
+                    <Field label="Prefijo actas recepcion" value={drafts.docs?.receptionPrefix || ""} onChange={(e) => updateField("docs", "receptionPrefix", e.target.value)} />
+                    <Field label="Prefijo laboratorio" value={drafts.docs?.laboratoryPrefix || ""} onChange={(e) => updateField("docs", "laboratoryPrefix", e.target.value)} />
+                    <Field label="Formato numeracion" value={drafts.docs?.numberingFormat || ""} onChange={(e) => updateField("docs", "numberingFormat", e.target.value)} />
+                  </div>
+                </div>
+
+                <div className="rounded-[20px] border border-[var(--border-color)] bg-[var(--bg-app)] p-5 xl:col-span-2">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-sm font-semibold text-[var(--text-primary)]">Evidencias</p>
+                      <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                        Controla la carga de documentos firmados y los tipos permitidos para el cierre operativo.
+                      </p>
+                    </div>
+                    <label className="inline-flex items-center gap-2 rounded-full border border-[var(--border-color)] bg-[var(--bg-app)] px-3 py-2 text-xs font-semibold text-[var(--text-primary)]">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(drafts.docs?.allowEvidenceUpload)}
+                        onChange={(e) => updateField("docs", "allowEvidenceUpload", e.target.checked)}
+                        className="accent-[var(--accent-strong)]"
+                      />
+                      Activar
+                    </label>
+                  </div>
+                  <div className={`${drafts.docs?.allowEvidenceUpload ? "" : "pointer-events-none opacity-50"} mt-4 grid gap-4`}>
+                    <div>
+                      <p className="text-sm font-semibold text-[var(--text-primary)]">Tipos permitidos para evidencia</p>
+                      <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                        Selecciona las extensiones admitidas para la carga manual de evidencias en documentos.
+                      </p>
+                      <div className="mt-4 grid gap-3 md:grid-cols-2">
+                        {EVIDENCE_EXTENSION_OPTIONS.map((item) => (
+                          <label key={item.value} className="rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-3 text-sm font-semibold text-[var(--text-secondary)]">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(drafts.docs?.evidenceAllowedExtensions?.includes(item.value))}
+                              onChange={(e) => {
+                                const current = drafts.docs?.evidenceAllowedExtensions || [];
+                                const next = e.target.checked ? [...current, item.value] : current.filter((value) => value !== item.value);
+                                updateField("docs", "evidenceAllowedExtensions", next);
+                              }}
+                              className="mr-3 accent-[var(--accent-strong)]"
+                            />
+                            {item.label}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -1093,98 +1717,299 @@ export function SettingsPage() {
                   </div>
                 </div>
               </div>
+            </div>
+            <Actions dirty={dirtyMap.docs} saving={savingPanel === "docs"} onReset={() => resetPanel("docs")} onSave={() => savePanel("docs", "Documentos")} />
+          </div>
+        ) : null}
 
-              <div className="grid gap-5 xl:grid-cols-2 xl:items-stretch">
-                <div className="rounded-[20px] border border-[var(--border-color)] bg-[var(--bg-app)] p-5">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <p className="text-sm font-semibold text-[var(--text-primary)]">Evidencias</p>
-                      <p className="mt-1 text-sm text-[var(--text-secondary)]">
-                        Controla la carga manual de documentos firmados y tipos permitidos para el cierre operativo.
-                      </p>
-                    </div>
-                    <label className="inline-flex items-center gap-2 rounded-full border border-[var(--border-color)] bg-[var(--bg-app)] px-3 py-2 text-xs font-semibold text-[var(--text-primary)]">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(drafts.docs?.allowEvidenceUpload)}
-                        onChange={(e) => updateField("docs", "allowEvidenceUpload", e.target.checked)}
-                        className="accent-[var(--accent-strong)]"
-                      />
-                      Activar
-                    </label>
+        {activeTab === "requirement" ? (
+          <div className="mt-6">
+            <div className="rounded-[20px] border border-[var(--border-color)] bg-[var(--bg-app)] p-5">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm font-semibold text-[var(--text-primary)]">Ticket de requerimiento</p>
+                  <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                    Parametriza el ticket iTop que se utilizara cuando el proceso de acta requiera crear un requerimiento.
+                  </p>
+                </div>
+                <label className="inline-flex items-center gap-2 rounded-full border border-[var(--border-color)] bg-[var(--bg-app)] px-3 py-2 text-xs font-semibold text-[var(--text-primary)]">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(drafts.docs?.requirementEnabled)}
+                    onChange={(e) => updateField("docs", "requirementEnabled", e.target.checked)}
+                    className="accent-[var(--accent-strong)]"
+                  />
+                  Activar
+                </label>
+              </div>
+              <div className={`${drafts.docs?.requirementEnabled ? "" : "pointer-events-none opacity-50"} mt-4 grid gap-4 xl:grid-cols-2`}>
+                {loadingRequirementCatalog ? (
+                  <div className="rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3 text-sm text-[var(--text-secondary)] xl:col-span-2">
+                    Cargando catalogos de iTop para el ticket de requerimiento...
                   </div>
-                  <div className={`${drafts.docs?.allowEvidenceUpload ? "" : "pointer-events-none opacity-50"} mt-4 grid gap-4`}>
-                    <div className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-4">
-                      <p className="text-sm font-semibold text-[var(--text-primary)]">Carga manual</p>
-                      <p className="mt-1 text-sm text-[var(--text-secondary)]">
-                        Permite mostrar en el listado de actas la accion para cargar manualmente el PDF firmado o documento de respaldo final.
+                ) : null}
+                {requirementCatalogError ? (
+                  <div className="rounded-[16px] border border-[rgba(214,106,106,0.22)] bg-[rgba(214,106,106,0.08)] px-4 py-3 text-sm text-[var(--text-secondary)] xl:col-span-2">
+                    {requirementCatalogError}
+                  </div>
+                ) : null}
+                <div className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] p-4">
+                  <div className="flex items-start gap-3">
+                    <div className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-[14px] border border-[rgba(81,152,194,0.22)] bg-[var(--accent-soft)] text-[var(--accent-strong)]">
+                      <LinkIcon className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <p className="text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Organizacion y clase</p>
+                      <p className="mt-2 text-sm text-[var(--text-secondary)]">
+                        Base estructural del requerimiento que se enviara a iTop.
                       </p>
                     </div>
-                    <div className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-4">
-                      <p className="text-sm font-semibold text-[var(--text-primary)]">Tipos permitidos para evidencia</p>
-                      <p className="mt-1 text-sm text-[var(--text-secondary)]">
-                        Selecciona las extensiones admitidas para la carga manual de evidencias en documentos.
+                  </div>
+                  <div className="mt-4 grid gap-4">
+                    <Field
+                      label="Nombre organizacion iTop"
+                      value={resolvedRequirementOrganizationId}
+                      onChange={(e) => {
+                        const selectedId = e.target.value;
+                        const selectedOrganization = requirementCatalog.organizations.find((item) => `${item.value}`.trim() === selectedId);
+                        updateField("organization", "itopOrganizationId", selectedId);
+                        updateField("organization", "itopOrganizationName", selectedOrganization?.label || "");
+                      }}
+                      options={requirementOrganizationOptions}
+                    />
+                    <Field
+                      label="Clase de ticket"
+                      value={drafts.docs?.requirementTicketClass || "UserRequest"}
+                      onChange={(e) => updateField("docs", "requirementTicketClass", e.target.value)}
+                      options={REQUIREMENT_TICKET_CLASS_OPTIONS}
+                    />
+                  </div>
+                </div>
+
+                <div className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] p-4">
+                  <div className="flex items-start gap-3">
+                    <div className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-[14px] border border-[rgba(81,152,194,0.22)] bg-[var(--accent-soft)] text-[var(--accent-strong)]">
+                      <UserRound className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <p className="text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Informacion del solicitante</p>
+                      <p className="mt-2 text-sm text-[var(--text-secondary)]">
+                        Identifica al solicitante y el equipo operativo que recibira el ticket. Los identificadores tecnicos se manejaran de forma interna.
                       </p>
-                      <div className="mt-4 grid gap-3 md:grid-cols-2">
-                        {EVIDENCE_EXTENSION_OPTIONS.map((item) => (
-                          <label key={item.value} className="rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-3 text-sm font-semibold text-[var(--text-secondary)]">
-                            <input
-                              type="checkbox"
-                              checked={Boolean(drafts.docs?.evidenceAllowedExtensions?.includes(item.value))}
-                              onChange={(e) => {
-                                const current = drafts.docs?.evidenceAllowedExtensions || [];
-                                const next = e.target.checked ? [...current, item.value] : current.filter((value) => value !== item.value);
-                                updateField("docs", "evidenceAllowedExtensions", next);
+                    </div>
+                  </div>
+                  <div className="mt-4 grid gap-4">
+                    <div className="relative">
+                      <Field
+                        label="Solicitante"
+                        value={requirementCallerQuery}
+                        onChange={(e) => setRequirementCallerQuery(e.target.value)}
+                        inputClassName={!requirementSelectedCaller ? "" : "opacity-60"}
+                        disabled={!resolvedRequirementOrganizationId}
+                      />
+                      {!resolvedRequirementOrganizationId ? (
+                        <div className="mt-2 rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3 text-sm text-[var(--text-secondary)]">
+                          Selecciona una organizacion activa antes de buscar solicitantes.
+                        </div>
+                      ) : null}
+                      {requirementSelectedCaller ? (
+                        <div className="mt-3">
+                          <SelectedPersonCard
+                            title="Persona seleccionada"
+                            person={requirementSelectedCaller}
+                            onClear={() => {
+                              updateField("docs", "requirementCallerId", "");
+                              setRequirementSelectedCaller(null);
+                              setRequirementCallerQuery("");
+                              setRequirementCallerResults([]);
+                            }}
+                          />
+                        </div>
+                      ) : null}
+                      {!requirementSelectedCaller && requirementCallerQuery.trim().length > 0 && requirementCallerQuery.trim().length < 2 ? (
+                        <div className="mt-2 rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3 text-sm text-[var(--text-secondary)]">
+                          Ingresa al menos 2 caracteres para buscar personas en iTop.
+                        </div>
+                      ) : null}
+                      {!requirementSelectedCaller && requirementCallerLoading ? (
+                        <div className="mt-2 rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3 text-sm text-[var(--text-secondary)]">
+                          Buscando personas...
+                        </div>
+                      ) : null}
+                      {!requirementSelectedCaller && requirementCallerResults.length ? (
+                        <div className="mt-3 grid gap-3">
+                          {requirementCallerResults.map((person) => (
+                            <SearchResultItem
+                              key={`requirement-caller-${person.id}`}
+                              title={person.name}
+                              subtitle={`${person.code || "Sin codigo"}${person.email ? ` / ${person.email}` : ""}`}
+                              helper={[person.role, person.status].filter(Boolean).join(" / ")}
+                              onSelect={() => {
+                                updateField("docs", "requirementCallerId", String(person.id));
+                                setRequirementSelectedCaller(person);
+                                setRequirementCallerQuery("");
+                                setRequirementCallerResults([]);
                               }}
-                              className="mr-3 accent-[var(--accent-strong)]"
                             />
-                            {item.label}
-                          </label>
-                        ))}
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                    <Field
+                      label="Grupo"
+                      value={drafts.docs?.requirementTeamId || ""}
+                      onChange={(e) => {
+                        updateField("docs", "requirementTeamId", e.target.value);
+                        updateField("docs", "requirementAgentId", "");
+                        setRequirementSelectedAnalyst(null);
+                        setRequirementAnalystCatalog([]);
+                      }}
+                      options={requirementTeamOptions}
+                      disabled={!resolvedRequirementOrganizationId}
+                    />
+                    {!resolvedRequirementOrganizationId ? (
+                      <div className="-mt-1 rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3 text-sm text-[var(--text-secondary)]">
+                        Selecciona una organizacion activa antes de listar grupos.
                       </div>
+                    ) : null}
+                    <div>
+                      <Field
+                        label="Analista"
+                        value={drafts.docs?.requirementAgentId || ""}
+                        onChange={(e) => {
+                          const analystId = e.target.value;
+                          const selectedAnalyst = requirementAnalystCatalog.find((person) => `${person.id}` === analystId) || null;
+                          updateField("docs", "requirementAgentId", analystId);
+                          setRequirementSelectedAnalyst(selectedAnalyst);
+                        }}
+                        options={requirementAnalystOptions}
+                        disabled={!drafts.docs?.requirementTeamId || loadingRequirementAnalysts}
+                      />
+                      {!drafts.docs?.requirementTeamId ? (
+                        <div className="mt-2 rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3 text-sm text-[var(--text-secondary)]">
+                          Selecciona un grupo antes de listar analistas.
+                        </div>
+                      ) : null}
+                      {drafts.docs?.requirementTeamId && !loadingRequirementAnalysts && requirementAnalystCatalog.length === 0 ? (
+                        <div className="mt-2 rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3 text-sm text-[var(--text-secondary)]">
+                          No hay analistas activos disponibles para el grupo seleccionado.
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 </div>
 
-                <div className="rounded-[20px] border border-[var(--border-color)] bg-[var(--bg-app)] p-5">
-                  <div className="flex items-start justify-between gap-4">
+                <div className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] p-4">
+                  <div className="flex items-start gap-3">
+                    <div className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-[14px] border border-[rgba(81,152,194,0.22)] bg-[var(--accent-soft)] text-[var(--accent-strong)]">
+                      <FileText className="h-4 w-4" />
+                    </div>
                     <div>
-                      <p className="text-sm font-semibold text-[var(--text-primary)]">Requerimiento</p>
-                      <p className="mt-1 text-sm text-[var(--text-secondary)]">
-                        Reserva la configuracion base para el futuro requerimiento asociado al proceso documental.
+                      <p className="text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Datos del ticket</p>
+                      <p className="mt-2 text-sm text-[var(--text-secondary)]">
+                        Define el contenido visible del requerimiento que se creara en iTop.
                       </p>
                     </div>
-                    <label className="inline-flex items-center gap-2 rounded-full border border-[var(--border-color)] bg-[var(--bg-app)] px-3 py-2 text-xs font-semibold text-[var(--text-primary)]">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(drafts.docs?.requirementEnabled)}
-                        onChange={(e) => updateField("docs", "requirementEnabled", e.target.checked)}
-                        className="accent-[var(--accent-strong)]"
-                      />
-                      Activar
-                    </label>
                   </div>
-                  <div className={`${drafts.docs?.requirementEnabled ? "" : "pointer-events-none opacity-50"} mt-4 grid gap-4`}>
-                    <div className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-4">
-                      <div className="grid gap-4">
-                        <Field
-                          label="Asunto"
-                          value={drafts.docs?.requirementSubject || ""}
-                          onChange={(e) => updateField("docs", "requirementSubject", e.target.value)}
-                        />
-                        <Field
-                          label="Detalle / observacion"
-                          rows={4}
-                          value={drafts.docs?.requirementTicketTemplate || ""}
-                          onChange={(e) => updateField("docs", "requirementTicketTemplate", e.target.value)}
-                        />
-                      </div>
+                  <div className="mt-4 grid gap-4">
+                    <div className="rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3">
+                      <p className="text-[0.68rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Estado inicial</p>
+                      <p className="mt-2 text-sm font-semibold text-[var(--text-primary)]">Creado</p>
                     </div>
+                    <Field
+                      label="Origen"
+                      value={drafts.docs?.requirementOrigin || ""}
+                      onChange={(e) => updateField("docs", "requirementOrigin", e.target.value)}
+                      options={requirementOriginOptions}
+                      disabled={!loadingRequirementCatalog && requirementCatalog.origins.length === 0}
+                    />
+                    <Field
+                      label="Asunto"
+                      value={drafts.docs?.requirementSubject || ""}
+                      onChange={(e) => updateField("docs", "requirementSubject", e.target.value)}
+                    />
+                    <Field
+                      label="Descripcion"
+                      rows={4}
+                      value={drafts.docs?.requirementTicketTemplate || ""}
+                      onChange={(e) => updateField("docs", "requirementTicketTemplate", e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] p-4">
+                  <div className="flex items-start gap-3">
+                    <div className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-[14px] border border-[rgba(81,152,194,0.22)] bg-[var(--accent-soft)] text-[var(--accent-strong)]">
+                      <FolderTree className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <p className="text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Categorizacion</p>
+                      <p className="mt-2 text-sm text-[var(--text-secondary)]">
+                        Define la categoria y subcategoria que usara el ticket para su clasificacion.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-4 grid gap-4">
+                    <Field
+                      label="Categoria"
+                      value={drafts.docs?.requirementServiceId || ""}
+                      onChange={(e) => updateField("docs", "requirementServiceId", e.target.value)}
+                      options={requirementServiceOptions}
+                    />
+                    <Field
+                      label="SubCategoria"
+                      value={drafts.docs?.requirementServiceSubcategoryId || ""}
+                      onChange={(e) => updateField("docs", "requirementServiceSubcategoryId", e.target.value)}
+                      options={requirementSubcategoryOptions}
+                      disabled={!drafts.docs?.requirementServiceId}
+                    />
+                  </div>
+                </div>
+
+                <div className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] p-4 xl:col-span-2">
+                  <div className="flex items-start gap-3">
+                    <div className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-[14px] border border-[rgba(81,152,194,0.22)] bg-[var(--accent-soft)] text-[var(--accent-strong)]">
+                      <CircleAlert className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <p className="text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Criticidad</p>
+                      <p className="mt-2 text-sm text-[var(--text-secondary)]">
+                        Valores base para prioridad operativa del ticket en iTop.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-4 grid gap-4 md:grid-cols-3">
+                    <Field
+                      label="Impacto"
+                      value={drafts.docs?.requirementImpact || ""}
+                      onChange={(e) => updateField("docs", "requirementImpact", e.target.value)}
+                      options={requirementImpactOptions}
+                      disabled={!loadingRequirementCatalog && requirementCatalog.impacts.length === 0}
+                    />
+                    <Field
+                      label="Urgencia"
+                      value={drafts.docs?.requirementUrgency || ""}
+                      onChange={(e) => updateField("docs", "requirementUrgency", e.target.value)}
+                      options={requirementUrgencyOptions}
+                      disabled={!loadingRequirementCatalog && requirementCatalog.urgencies.length === 0}
+                    />
+                    <Field
+                      label="Prioridad"
+                      value={drafts.docs?.requirementPriority || ""}
+                      onChange={(e) => updateField("docs", "requirementPriority", e.target.value)}
+                      options={requirementPriorityOptions}
+                      disabled={!loadingRequirementCatalog && requirementCatalog.priorities.length === 0}
+                    />
                   </div>
                 </div>
               </div>
             </div>
-            <Actions dirty={dirtyMap.docs} saving={savingPanel === "docs"} onReset={() => resetPanel("docs")} onSave={() => savePanel("docs", "Documentos")} />
+            <Actions
+              dirty={dirtyMap.docs || dirtyMap.organization}
+              saving={savingPanel === "requirement"}
+              onReset={resetRequirementPanel}
+              onSave={saveRequirementPanel}
+            />
           </div>
         ) : null}
 
@@ -1222,12 +2047,6 @@ export function SettingsPage() {
                 description="Permite incluir activos con estado interno iTop Implementation, tratados como no productivos, en Assets y en los objetos CMDB visibles dentro de Personas."
                 checked={Boolean(drafts.cmdb?.showImplementationAssets)}
                 onChange={(e) => updateField("cmdb", "showImplementationAssets", e.target.checked)}
-              />
-              <Toggle
-                label="Generar ticket Requerimiento"
-                description="Reserva la opcion para crear un requerimiento asociado desde los flujos CMDB. Aun no se utiliza operativamente."
-                checked={Boolean(drafts.cmdb?.generateRequirementTicket)}
-                onChange={(e) => updateField("cmdb", "generateRequirementTicket", e.target.checked)}
               />
             </div>
             <div className="grid gap-4 md:grid-cols-2">

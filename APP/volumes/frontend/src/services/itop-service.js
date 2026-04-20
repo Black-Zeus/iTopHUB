@@ -20,8 +20,8 @@ function buildSearchSuffix(query = "", extraParams = {}) {
 }
 
 
-export async function searchItopPeople({ query = "", status = "" } = {}) {
-  const payload = await apiRequest(`/v1/itop/people/search${buildSearchSuffix(query, { status })}`, {
+export async function searchItopPeople({ query = "", status = "", organizationId = "" } = {}) {
+  const payload = await apiRequest(`/v1/itop/people/search${buildSearchSuffix(query, { status, org_id: organizationId })}`, {
     fallbackMessage: "No fue posible buscar personas en iTop.",
     retryOnRevalidate: true,
   });
@@ -67,6 +67,35 @@ export async function getItopAssetCatalog() {
 export async function searchItopUsers(query = "") {
   const payload = await apiRequest(`/v1/itop/users/search${buildSearchSuffix(query)}`, {
     fallbackMessage: "No fue posible buscar usuarios en iTop.",
+    retryOnRevalidate: true,
+  });
+  return payload.items ?? [];
+}
+
+
+export async function getItopRequirementCatalog() {
+  return apiRequest("/v1/itop/settings/requirement-catalog", {
+    fallbackMessage: "No fue posible cargar los catalogos de iTop para el ticket de requerimiento.",
+    retryOnRevalidate: true,
+  });
+}
+
+
+export async function searchItopTeams({ query = "", organizationId = "" } = {}) {
+  const payload = await apiRequest(`/v1/itop/teams/search${buildSearchSuffix(query, { org_id: organizationId })}`, {
+    fallbackMessage: "No fue posible buscar equipos en iTop.",
+    retryOnRevalidate: true,
+  });
+  return payload.items ?? [];
+}
+
+
+export async function searchItopTeamPeople({ teamId, query = "" } = {}) {
+  if (!teamId) {
+    return [];
+  }
+  const payload = await apiRequest(`/v1/itop/teams/${encodeURIComponent(teamId)}/people/search${buildSearchSuffix(query)}`, {
+    fallbackMessage: "No fue posible buscar analistas del equipo en iTop.",
     retryOnRevalidate: true,
   });
   return payload.items ?? [];
