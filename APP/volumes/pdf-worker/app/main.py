@@ -13,6 +13,7 @@ class RenderHtmlRequest(BaseModel):
     html: str
     header_html: str | None = None
     footer_html: str | None = None
+    filename: str | None = None
 
 
 @asynccontextmanager
@@ -34,13 +35,14 @@ def _validate_internal_secret(header_value: str | None) -> None:
         raise HTTPException(status_code=403, detail="Credencial interna invalida.")
 
 
-def _render_pdf(html: str, header_html: str | None = None, footer_html: str | None = None) -> bytes:
+def _render_pdf(html: str, header_html: str | None = None, footer_html: str | None = None, filename: str | None = None) -> bytes:
     gotenberg_url = os.getenv("GOTENBERG_URL", "http://gotenberg:3000").rstrip("/")
     if not html.strip():
         raise HTTPException(status_code=422, detail="El HTML para renderizar esta vacio.")
 
+    html_filename = (filename or "").strip().replace(".pdf", ".html") or "index.html"
     files = [
-        ("files", ("index.html", html.encode("utf-8"), "text/html; charset=utf-8")),
+        ("files", (html_filename, html.encode("utf-8"), "text/html; charset=utf-8")),
     ]
     if (header_html or "").strip():
         files.append(("files", ("header.html", header_html.encode("utf-8"), "text/html; charset=utf-8")))
@@ -82,7 +84,7 @@ def render_html_to_pdf(
     x_internal_secret: str | None = Header(default=None),
 ) -> Response:
     _validate_internal_secret(x_internal_secret)
-    pdf_bytes = _render_pdf(payload.html, payload.header_html, payload.footer_html)
+    pdf_bytes = _render_pdf(payload.html, payload.header_html, payload.footer_html, payload.filename)
     return Response(content=pdf_bytes, media_type="application/pdf")
 
 

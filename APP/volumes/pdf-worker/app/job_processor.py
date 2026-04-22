@@ -39,8 +39,8 @@ def _format_attachment_size(size_bytes: int) -> str:
     return f"{(size_bytes / (1024 * 1024)):.1f} MB"
 
 
-def render_handover_pdf(html: str, footer_html: str | None = None) -> dict[str, Any]:
-    pdf_bytes = _render_pdf(html, footer_html=footer_html)
+def render_handover_pdf(html: str, footer_html: str | None = None, filename: str | None = None) -> dict[str, Any]:
+    pdf_bytes = _render_pdf(html, footer_html=footer_html, filename=filename)
     return {
         "content": pdf_bytes,
         "size": len(pdf_bytes),
@@ -109,19 +109,19 @@ def process_handover_emit_job(job: dict[str, Any]) -> dict[str, Any]:
         session_id=session_id or None,
     )
 
+    main_stored_name = f"{detail_for_pdf.get('documentNumber')}.pdf"
+    detail_document_code = build_detail_document_number(str(detail_for_pdf.get("documentNumber") or ""))
+    detail_stored_name = f"{detail_document_code}.pdf"
+
     html_main, footer_main = build_handover_main_html(detail_for_pdf)
     html_detail, footer_detail = build_handover_detail_html(detail_for_pdf)
 
-    pdf_main = render_handover_pdf(html_main, footer_main)
-    pdf_detail = render_handover_pdf(html_detail, footer_detail)
+    pdf_main = render_handover_pdf(html_main, footer_main, filename=main_stored_name)
+    pdf_detail = render_handover_pdf(html_detail, footer_detail, filename=detail_stored_name)
 
     storage_directory = HANDOVER_DOCUMENT_ROOT / f"document_{document_id}"
     storage_directory.mkdir(parents=True, exist_ok=True)
     generated_at = datetime.now().strftime("%Y-%m-%dT%H:%M")
-
-    main_stored_name = f"{detail_for_pdf.get('documentNumber')}.pdf"
-    detail_document_code = build_detail_document_number(str(detail_for_pdf.get("documentNumber") or ""))
-    detail_stored_name = f"{detail_document_code}.pdf"
 
     created_files: list[Path] = []
     try:
