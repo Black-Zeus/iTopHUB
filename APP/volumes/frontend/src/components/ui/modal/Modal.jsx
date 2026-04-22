@@ -116,13 +116,25 @@ const useBodyScrollLock = (isOpen) => {
   useEffect(() => {
     if (!isOpen) return;
 
-    const originalStyle = window.getComputedStyle(document.body).overflow;
+    const currentCount = Number(document.body.dataset.modalScrollLockCount || "0");
+    if (currentCount === 0) {
+      document.body.dataset.modalOriginalOverflow = window.getComputedStyle(document.body).overflow;
+    }
+    document.body.dataset.modalScrollLockCount = String(currentCount + 1);
     document.body.style.overflow = 'hidden';
     document.body.classList.add(MODAL_CONFIG.bodyClass);
 
     return () => {
-      document.body.style.overflow = originalStyle;
+      const nextCount = Math.max(0, Number(document.body.dataset.modalScrollLockCount || "1") - 1);
+      if (nextCount > 0) {
+        document.body.dataset.modalScrollLockCount = String(nextCount);
+        return;
+      }
+
+      document.body.style.overflow = document.body.dataset.modalOriginalOverflow || '';
       document.body.classList.remove(MODAL_CONFIG.bodyClass);
+      delete document.body.dataset.modalScrollLockCount;
+      delete document.body.dataset.modalOriginalOverflow;
     };
   }, [isOpen]);
 };

@@ -75,9 +75,30 @@ export async function searchItopUsers(query = "") {
 
 export async function getItopRequirementCatalog() {
   return apiRequest("/v1/itop/settings/requirement-catalog", {
-    fallbackMessage: "No fue posible cargar los catalogos de iTop para el ticket de requerimiento.",
+    fallbackMessage: "No fue posible cargar los catalogos de iTop para el ticket iTop.",
     retryOnRevalidate: true,
   });
+}
+
+
+export async function getItopTicketDefaults() {
+  const payload = await apiRequest("/v1/itop/ticket/defaults", {
+    fallbackMessage: "No fue posible cargar la configuracion del ticket iTop.",
+    retryOnRevalidate: true,
+  });
+  return payload.item || {};
+}
+
+
+export async function getItopCurrentUserTeams() {
+  const payload = await apiRequest("/v1/itop/me/teams", {
+    fallbackMessage: "No fue posible cargar los grupos del usuario conectado.",
+    retryOnRevalidate: true,
+  });
+  return {
+    items: payload.items || [],
+    sessionUser: payload.sessionUser || null,
+  };
 }
 
 

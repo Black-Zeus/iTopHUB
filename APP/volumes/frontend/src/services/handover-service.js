@@ -107,7 +107,7 @@ export async function rollbackHandoverDocument(documentId) {
 }
 
 
-export async function uploadHandoverEvidence(documentId, items = []) {
+export async function uploadHandoverEvidence(documentId, items = [], ticketPayload = null) {
   const serializedFiles = await Promise.all(
     items.map(async ({ file, documentType = "" }) => ({
       name: file.name,
@@ -119,7 +119,7 @@ export async function uploadHandoverEvidence(documentId, items = []) {
 
   const response = await apiRequest(`/v1/handover/documents/${documentId}/evidence`, {
     method: "POST",
-    body: JSON.stringify({ files: serializedFiles }),
+    body: JSON.stringify({ files: serializedFiles, ticket: ticketPayload || {} }),
     fallbackMessage: "No fue posible cargar la evidencia del acta de entrega.",
     retryOnRevalidate: true,
   });

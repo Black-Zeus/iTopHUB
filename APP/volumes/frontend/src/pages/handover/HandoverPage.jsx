@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import ModalManager from "../../components/ui/modal";
-import { DataTable, FilterDropdown, KpiCard, Panel, PanelHeader } from "../../components/ui/general";
+import { ActaPublicationModalContent, DataTable, FilterDropdown, KpiCard, Panel, PanelHeader } from "../../components/ui/general";
 import { SearchFilterInput } from "../../components/ui/general/SearchFilterInput";
 import { StatusChip } from "../../components/ui/general/StatusChip";
 import { Icon } from "../../components/ui/icon/Icon";
@@ -18,6 +18,7 @@ import {
   uploadHandoverEvidence,
   updateHandoverDocumentStatus,
 } from "../../services/handover-service";
+import { getItopCurrentUserTeams, getItopRequirementCatalog, getItopTicketDefaults, searchItopTeamPeople } from "../../services/itop-service";
 import { runtimeConfig } from "../../config/runtime";
 import { waitForJobNotification } from "../../services/notification-service";
 import { downloadRowsAsCsv } from "../../utils/export-csv";
@@ -112,6 +113,151 @@ function downloadListCsv(rows) {
   });
 }
 
+function normalizeTicketOptions(options = []) {
+  return options
+    .map((option) => ({
+      ...option,
+      value: String(option?.value ?? option?.id ?? "").trim(),
+      label: String(option?.label ?? option?.name ?? option?.person ?? "").trim(),
+    }))
+    .filter((option) => option.value && option.label);
+}
+
+function buildAnalystOption(sessionUser) {
+  if (!sessionUser) {
+    return null;
+  }
+  const value = String(sessionUser.itopPersonKey || sessionUser.itopPersonId || "").trim();
+  const label = String(sessionUser.name || sessionUser.username || "").trim();
+  return value && label ? { value, label } : null;
+}
+
+function findCurrentAnalystOption(options = [], sessionUser = null) {
+  const normalizedOptions = normalizeTicketOptions(options);
+  if (!normalizedOptions.length || !sessionUser) {
+    return null;
+  }
+
+  const personKey = String(sessionUser.itopPersonKey || sessionUser.itopPersonId || "").trim();
+  if (personKey) {
+    const byPersonKey = normalizedOptions.find((option) => option.value === personKey);
+    if (byPersonKey) {
+      return byPersonKey;
+    }
+  }
+
+  const sessionName = String(sessionUser.name || "").trim().toLowerCase();
+  const sessionUsername = String(sessionUser.username || "").trim().toLowerCase();
+  return normalizedOptions.find((option) => {
+    const label = String(option.label || "").trim().toLowerCase();
+    return Boolean(label && (label === sessionName || label === sessionUsername));
+  }) || null;
+}
+
+function normalizeAnalystOptions(items = [], sessionUser = null, allowFallback = false) {
+  const sessionFallback = buildAnalystOption(sessionUser);
+  const normalizedSessionKey = String(sessionUser?.itopPersonKey || sessionUser?.itopPersonId || "").trim();
+  const normalizedSessionName = String(sessionUser?.name || sessionUser?.username || "").trim().toLowerCase();
+  const options = normalizeTicketOptions(items.map((item) => ({
+    ...item,
+    value: item.id,
+    label: item.person || item.name,
+  }))).map((option) => ({
+    ...option,
+    isCurrent: Boolean(
+      (normalizedSessionKey && option.value === normalizedSessionKey)
+      || (normalizedSessionName && String(option.label || "").trim().toLowerCase() === normalizedSessionName)
+    ),
+  }));
+  if (!options.length && allowFallback && sessionFallback) {
+    return [{ ...sessionFallback, isCurrent: true }];
+  }
+  return options;
+}
+
+function buildRequesterOptions(detail, row) {
+  const people = [];
+  const appendPerson = (person, roleLabel) => {
+    const id = String(person?.id || person?.code || person?.name || "").trim();
+    const name = String(person?.name || person?.person || "").trim();
+    if (!id || !name || people.some((item) => item.value === id)) {
+      return;
+    }
+    people.push({
+      value: id,
+      label: name,
+      roleLabel,
+      code: person?.code || "",
+      email: person?.email || "",
+    });
+  };
+
+  appendPerson(detail?.receiver, "Principal");
+  (detail?.additionalReceivers || []).forEach((person) => appendPerson(person, person.assignmentRole || "Secundario"));
+  if (!people.length && row?.person) {
+    appendPerson({ id: row.person, name: row.person }, "Principal");
+  }
+  return people;
+}
+
+function buildPendingEvidenceDocuments(items = []) {
+  return items.map((item, index) => ({
+    id: `pending-${index}-${item.file?.name || "adjunto"}`,
+    originalName: item.file?.name || "Adjunto preparado",
+    previewFile: item.file || null,
+    documentType: item.documentType || "",
+    uploadedAt: "Preparado",
+    iconName: "paperclip",
+    isAvailable: false,
+  }));
+}
+
+function buildDetailDocumentNumber(documentNumber = "") {
+  const parts = String(documentNumber || "").trim().split("-", 2);
+  if (parts.length !== 2 || !parts[0]) {
+    return `${String(documentNumber || "").trim()}D`;
+  }
+  return `${parts[0]}D-${parts[1]}`;
+}
+
+function buildEvidenceStoredName(documentNumber, documentType, originalName = "") {
+  const dotIndex = String(originalName || "").lastIndexOf(".");
+  const extension = dotIndex >= 0 ? String(originalName || "").slice(dotIndex) : "";
+  const baseNumber = documentType === "detalle" ? buildDetailDocumentNumber(documentNumber) : String(documentNumber || "").trim();
+  return `${baseNumber}${extension}`;
+}
+
+function buildPublicationDocumentItems(detail, pendingItems = []) {
+  const entriesByType = new Map();
+
+  buildHandoverDocumentLibraryEntries({
+    generatedDocuments: detail?.generatedDocuments || [],
+    evidenceAttachments: detail?.evidenceAttachments || [],
+    generatedFallbackUploadedAt: detail?.assignmentDate || "",
+  }).forEach((documentEntry) => {
+    entriesByType.set(documentEntry.documentType, {
+      ...documentEntry,
+      documentTypeLabel: getHandoverDocumentTypeLabel(documentEntry.documentType) || "Documento",
+    });
+  });
+
+  buildPendingEvidenceDocuments(pendingItems).forEach((pendingEntry) => {
+    const documentType = pendingEntry.documentType;
+    if (!documentType) {
+      return;
+    }
+    entriesByType.set(documentType, {
+      ...pendingEntry,
+      id: `pending-${documentType}`,
+      name: buildEvidenceStoredName(detail?.documentNumber, documentType, pendingEntry.originalName),
+      documentTypeLabel: getHandoverDocumentTypeLabel(documentType) || "Adjunto",
+      isAvailable: true,
+    });
+  });
+
+  return ["acta", "detalle"].map((documentType) => entriesByType.get(documentType)).filter(Boolean);
+}
+
 function isAcceptedEvidenceFile(file, allowedExtensions = []) {
   const normalizedName = String(file?.name || "").toLowerCase();
   return allowedExtensions.some((extension) => normalizedName.endsWith(`.${extension}`));
@@ -156,6 +302,8 @@ function EvidenceFileTypeIcon({ file }) {
 }
 
 function EvidenceUploadModal({ row, willConfirmStatus, allowedExtensions, onCancel, onSubmit }) {
+  const fileInputRef = useRef(null);
+  const mountedRef = useRef(true);
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [documentTypes, setDocumentTypes] = useState({});
   const [busy, setBusy] = useState(false);
@@ -166,6 +314,13 @@ function EvidenceUploadModal({ row, willConfirmStatus, allowedExtensions, onCanc
   const acceptValue = normalizedAllowedExtensions.map((item) => `.${item}`).join(",");
   const allowedExtensionsLabel = normalizedAllowedExtensions.map((item) => item.toUpperCase()).join(" / ");
   const buildFileKey = (file) => `${file.name}-${file.size}-${file.lastModified}`;
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const appendFiles = (incomingFiles) => {
     const incomingList = Array.from(incomingFiles || []);
@@ -213,8 +368,23 @@ function EvidenceUploadModal({ row, willConfirmStatus, allowedExtensions, onCanc
   };
 
   const handleFilesChange = (event) => {
+    event.stopPropagation();
     appendFiles(event.target.files || []);
     event.target.value = "";
+  };
+
+  const openFilePicker = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!busy) {
+      fileInputRef.current?.click();
+    }
+  };
+
+  const handleFilePickerKeyDown = (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      openFilePicker(event);
+    }
   };
 
   const handleDragEnter = (event) => {
@@ -318,7 +488,10 @@ function EvidenceUploadModal({ row, willConfirmStatus, allowedExtensions, onCanc
       await onSubmit(items);
     } catch (submitError) {
       setError(submitError?.message || "No fue posible cargar las evidencias.");
-      setBusy(false);
+    } finally {
+      if (mountedRef.current) {
+        setBusy(false);
+      }
     }
   };
 
@@ -329,17 +502,20 @@ function EvidenceUploadModal({ row, willConfirmStatus, allowedExtensions, onCanc
           <div className="grid flex-1 min-h-0 gap-3">
             <span className="text-sm font-semibold text-[var(--text-primary)]">Agregar evidencia</span>
             <input
+              ref={fileInputRef}
               type="file"
               multiple
               accept={acceptValue}
               onChange={handleFilesChange}
               disabled={busy}
               className="hidden"
-              id={`handover-evidence-${row.id}`}
             />
-            <label
-              htmlFor={`handover-evidence-${row.id}`}
+            <div
+              role="button"
+              tabIndex={busy ? -1 : 0}
               className={`flex min-h-[14rem] flex-1 cursor-pointer flex-col items-center justify-center rounded-[18px] border border-dashed px-4 py-6 text-center transition ${dragActive ? "border-[var(--accent-strong)] bg-[var(--accent-soft)] text-[var(--accent-strong)]" : "border-[var(--border-color)] bg-[var(--bg-app)] text-[var(--text-secondary)]"} ${busy ? "pointer-events-none opacity-60" : ""}`}
+              onClick={openFilePicker}
+              onKeyDown={handleFilePickerKeyDown}
               onDragEnter={handleDragEnter}
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
@@ -353,7 +529,7 @@ function EvidenceUploadModal({ row, willConfirmStatus, allowedExtensions, onCanc
               <span className="mt-3 text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
                 Maximo {MAX_EVIDENCE_UPLOAD_FILES} archivos por carga
               </span>
-            </label>
+            </div>
           </div>
 
           {willConfirmStatus ? (
@@ -421,7 +597,7 @@ function EvidenceUploadModal({ row, willConfirmStatus, allowedExtensions, onCanc
                       className="w-full rounded-[12px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 py-2 text-xs text-[var(--text-primary)] outline-none"
                     >
                       <option value="">Selecciona Acta o Detalle</option>
-                      {EVIDENCE_DOCUMENT_TYPE_OPTIONS.map((option) => (
+                      {HANDOVER_DOCUMENT_TYPE_OPTIONS.map((option) => (
                         <option key={option.value} value={option.value}>
                           {option.label}
                         </option>
@@ -474,7 +650,7 @@ function triggerBlobDownload({ url, fileName }) {
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
-function BlobPdfPreviewModal({ blobUrl, fileName }) {
+function BlobPdfPreviewModal({ blobUrl, fileName, showDownload = true }) {
   useEffect(() => () => URL.revokeObjectURL(blobUrl), [blobUrl]);
 
   const handleDownload = () => {
@@ -491,17 +667,19 @@ function BlobPdfPreviewModal({ blobUrl, fileName }) {
         title={fileName || "Documento PDF"}
         className="h-[60vh] w-full rounded-[16px] border border-[var(--border-color)]"
       />
-      <div className="flex justify-end">
-        <Button variant="primary" onClick={handleDownload}>
-          <Icon name="export" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-          Descargar
-        </Button>
-      </div>
+      {showDownload ? (
+        <div className="flex justify-end">
+          <Button variant="primary" onClick={handleDownload}>
+            <Icon name="export" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            Descargar
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }
 
-async function openBlobPreview({ loadBlob, fallbackName }) {
+async function openBlobPreview({ loadBlob, fallbackName, showDownload = true }) {
   const { url } = await loadBlob();
   if (!isPdfDocument(fallbackName)) {
     triggerBlobDownload({ url, fileName: fallbackName });
@@ -512,8 +690,36 @@ async function openBlobPreview({ loadBlob, fallbackName }) {
     title: fallbackName || "Documento PDF",
     size: "pdfViewer",
     showFooter: false,
-    content: <BlobPdfPreviewModal blobUrl={url} fileName={fallbackName || "documento.pdf"} />,
+    content: <BlobPdfPreviewModal blobUrl={url} fileName={fallbackName || "documento.pdf"} showDownload={showDownload} />,
   });
+}
+
+async function openPublicationDocumentPreview(row, document) {
+  if (document?.previewFile) {
+    await openBlobPreview({
+      loadBlob: async () => ({ url: URL.createObjectURL(document.previewFile) }),
+      fallbackName: document.originalName || document.name || "adjunto",
+      showDownload: false,
+    });
+    return;
+  }
+
+  if (document?.origin === "generated" && document?.payload?.kind) {
+    await openBlobPreview({
+      loadBlob: () => fetchHandoverGeneratedPdfBlob(row.id, document.payload.kind),
+      fallbackName: document.payload.name || `${document.payload.code || document.payload.kind || row.code}.pdf`,
+      showDownload: false,
+    });
+    return;
+  }
+
+  if (document?.origin === "attachment" && document?.payload?.storedName) {
+    await openBlobPreview({
+      loadBlob: () => fetchHandoverEvidenceBlob(row.id, document.payload.storedName),
+      fallbackName: document.payload.name || document.payload.storedName || `${row.code || "acta"}-adjunto`,
+      showDownload: false,
+    });
+  }
 }
 
 function DocumentLibraryModal({ row, detail, onClose, onOpenGeneratedDocument, onOpenAttachment }) {
@@ -641,79 +847,47 @@ export function HandoverPage() {
   };
 
   const handleProcess = async (row) => {
-    const modalId = ModalManager.custom({
+    const confirmed = await ModalManager.confirm({
       title: `Procesar ${row.code}`,
-      size: "medium",
-      showFooter: false,
-      content: (
-        <div className="grid gap-5">
-          <p className="text-sm text-[var(--text-secondary)]">
-            Al procesar esta acta, el backend emitira el documento y generara sus PDFs asociados mediante el pipeline documental.
-          </p>
-          <div className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] p-4 text-sm text-[var(--text-secondary)]">
-            <p className="font-semibold text-[var(--text-primary)]">{row.code}</p>
-            <p className="mt-2">
-              Al confirmar, el acta cambiara desde <strong>En creacion</strong> a <strong>Emitida</strong>.
-            </p>
-            <p className="mt-2">
-              En este mismo paso se generaran el acta principal y su detalle tecnico en PDF. Ambos documentos deberan ser firmados como respaldo formal del proceso y del legajo documental asociado.
-            </p>
-            <p className="mt-2">
-              {actionConfig.allowEvidenceUpload ? (
-                <>
-                  Para cerrar el flujo sera necesario cargar la evidencia firmada. Ese paso dejara el documento en estado <strong>Confirmada</strong> y dejara preparada la actualizacion final de datos en iTop.
-                </>
-              ) : (
-                <>
-                  La carga de evidencia se encuentra desactivada en la configuracion actual. El cierre operativo posterior y la actualizacion final de datos en iTop deberan seguir el flujo definido por administracion.
-                </>
-              )}
-            </p>
-          </div>
-          <div className="flex flex-wrap justify-between gap-3">
-            <Button variant="secondary" onClick={() => ModalManager.close(modalId)}>Cancelar</Button>
-            <Button
-              variant="primary"
-              onClick={async () => {
-                let loadingModalId = null;
-                try {
-                  const { jobId } = await emitHandoverDocument(row.id);
-                  loadingModalId = ModalManager.loading({
-                    title: "Procesando acta",
-                    message: "Generando documentos PDF y esperando la notificación del proceso...",
-                    showProgress: false,
-                    cancelLabel: "Cerrar",
-                  });
-
-                  ModalManager.close(modalId);
-                  await waitForJobNotification(jobId, {
-                    timeoutMs: runtimeConfig.jobNotificationTimeoutMs,
-                  });
-
-                  ModalManager.close(loadingModalId);
-                  add({
-                    title: "Acta emitida",
-                    description: `El acta ${row.code} quedó en estado Emitida y sus PDFs fueron generados correctamente.`,
-                    tone: "success",
-                  });
-                  await loadDocuments(filters);
-                } catch (processError) {
-                  if (loadingModalId) {
-                    ModalManager.close(loadingModalId);
-                  }
-                  ModalManager.error({
-                    title: "No fue posible procesar el acta",
-                    message: processError.message || "Ocurrio un error al iniciar el proceso.",
-                  });
-                }
-              }}
-            >
-              Procesar
-            </Button>
-          </div>
-        </div>
-      ),
+      message: "Se generaran los documentos PDF del acta.",
+      content: "El acta quedara en estado Emitida. El registro iTop se validara en el siguiente estado, al cargar la evidencia de cierre.",
+      buttons: { cancel: "Cancelar", confirm: "Procesar" },
     });
+
+    if (!confirmed) {
+      return;
+    }
+
+    let loadingModalId = null;
+    try {
+      const { jobId } = await emitHandoverDocument(row.id);
+      loadingModalId = ModalManager.loading({
+        title: "Procesando acta",
+        message: "Generando documentos PDF y esperando la notificacion del proceso...",
+        showProgress: false,
+        cancelLabel: "Cerrar",
+      });
+
+      await waitForJobNotification(jobId, {
+        timeoutMs: runtimeConfig.jobNotificationTimeoutMs,
+      });
+
+      ModalManager.close(loadingModalId);
+      add({
+        title: "Acta emitida",
+        description: `El acta ${row.code} quedo en estado Emitida y sus PDFs fueron generados correctamente.`,
+        tone: "success",
+      });
+      await loadDocuments(filters);
+    } catch (processError) {
+      if (loadingModalId) {
+        ModalManager.close(loadingModalId);
+      }
+      ModalManager.error({
+        title: "No fue posible procesar el acta",
+        message: processError.message || "Ocurrio un error al iniciar el proceso.",
+      });
+    }
   };
 
   const handleCancel = async (row) => {
@@ -882,6 +1056,8 @@ export function HandoverPage() {
       title: `Cargar evidencia ${row.code}`,
       size: "personDetail",
       showFooter: false,
+      closeOnOverlayClick: false,
+      closeOnEscape: false,
       content: (
         <EvidenceUploadModal
           row={row}
@@ -889,6 +1065,134 @@ export function HandoverPage() {
           allowedExtensions={actionConfig.evidenceAllowedExtensions}
           onCancel={() => ModalManager.close(modalId)}
           onSubmit={async (items) => {
+            if (willConfirmStatus) {
+              let loadingModalId = null;
+              try {
+                loadingModalId = ModalManager.loading({
+                  title: "Preparando ticket iTop",
+                  message: "Cargando configuracion, catalogos y grupos del usuario conectado...",
+                  showProgress: false,
+                  cancelLabel: "Cerrar",
+                });
+
+                const [ticketConfig, catalogPayload, teamsPayload, detail] = await Promise.all([
+                  getItopTicketDefaults(),
+                  getItopRequirementCatalog(),
+                  getItopCurrentUserTeams(),
+                  getHandoverDocument(row.id),
+                ]);
+
+                ModalManager.close(loadingModalId);
+
+                const groupOptions = normalizeTicketOptions(teamsPayload.items);
+                const initialGroupId = groupOptions.length === 1 ? groupOptions[0].value : "";
+                const initialGroupAnalysts = initialGroupId ? await searchItopTeamPeople({ teamId: initialGroupId }) : [];
+                const analystOptions = normalizeAnalystOptions(initialGroupAnalysts, teamsPayload.sessionUser, Boolean(initialGroupId));
+                const analystOption = findCurrentAnalystOption(analystOptions, teamsPayload.sessionUser) || (analystOptions.length === 1 ? analystOptions[0] : null);
+                const currentAnalystOption = buildAnalystOption(teamsPayload.sessionUser);
+                const requesterOptions = buildRequesterOptions(detail, row);
+                const selectedRequester = requesterOptions[0] || null;
+                const documentItems = buildPublicationDocumentItems(detail, items);
+                let publicationModalId = null;
+                publicationModalId = ModalManager.custom({
+                  title: `Registrar en iTop ${row.code}`,
+                  size: "personDetail",
+                  showFooter: false,
+                  closeOnOverlayClick: false,
+                  closeOnEscape: false,
+                  content: (
+                    <ActaPublicationModalContent
+                      initialValues={{
+                        actaType: row.handoverType || "Acta",
+                        requesterId: selectedRequester?.value || "",
+                        requester: selectedRequester?.label || row.person || "",
+                        groupId: initialGroupId,
+                        groupName: initialGroupId ? groupOptions[0].label : "",
+                        analystId: analystOption?.value || "",
+                        analystName: analystOption?.label || "",
+                        subject: ticketConfig.requirementSubject || "",
+                        description: ticketConfig.requirementTicketTemplate || "",
+                        origin: ticketConfig.requirementOrigin || "",
+                        impact: ticketConfig.requirementImpact || "",
+                        urgency: ticketConfig.requirementUrgency || "",
+                        priority: ticketConfig.requirementPriority || "",
+                        category: ticketConfig.requirementServiceId || "",
+                        subcategory: ticketConfig.requirementServiceSubcategoryId || "",
+                      }}
+                      options={{
+                        requesterOptions,
+                        originOptions: catalogPayload.origins || [],
+                        impactOptions: catalogPayload.impacts || [],
+                        urgencyOptions: catalogPayload.urgencies || [],
+                        priorityOptions: catalogPayload.priorities || [],
+                        categoryOptions: catalogPayload.services || [],
+                        subcategoryOptions: catalogPayload.serviceSubcategories || [],
+                        groupOptions,
+                        analystOptions,
+                        currentAnalystOption,
+                      }}
+                      documents={documentItems}
+                      onLoadAnalystOptions={async (teamId) => normalizeAnalystOptions(await searchItopTeamPeople({ teamId }), teamsPayload.sessionUser, Boolean(teamId))}
+                      onPreviewDocument={async (document) => {
+                        const previewLoadingId = ModalManager.loading({
+                          title: `Abriendo ${document.name || "adjunto"}`,
+                          message: "Obteniendo el documento para previsualizacion...",
+                          showProgress: false,
+                          cancelLabel: "Cerrar",
+                        });
+                        try {
+                          await openPublicationDocumentPreview(row, document);
+                        } catch (previewError) {
+                          ModalManager.error({
+                            title: "No fue posible abrir el adjunto",
+                            message: previewError.message || "El documento seleccionado no esta disponible.",
+                          });
+                        } finally {
+                          ModalManager.close(previewLoadingId);
+                        }
+                      }}
+                      submitLabel="Publicar"
+                      submittingLabel="Publicando..."
+                      onCancel={() => ModalManager.close(publicationModalId)}
+                      onSubmit={async (ticketPayload) => {
+                        ModalManager.close(publicationModalId);
+                        const publishLoadingModalId = ModalManager.loading({
+                          title: "Publicando en iTop",
+                          message: "Registrando ticket, vinculando activos y cargando adjuntos...",
+                          showProgress: false,
+                          cancelLabel: "Cerrar",
+                        });
+                        try {
+                          await uploadHandoverEvidence(row.id, items, ticketPayload);
+                          ModalManager.close(publishLoadingModalId);
+                          ModalManager.close(modalId);
+                          setError("");
+                          add({
+                            title: "Acta confirmada",
+                            description: `El acta ${row.code} quedo Confirmada y las evidencias fueron registradas correctamente.`,
+                            tone: "success",
+                          });
+                          await loadDocuments(filters);
+                        } catch (publishError) {
+                          ModalManager.close(publishLoadingModalId);
+                          ModalManager.error({
+                            title: "No fue posible publicar el acta",
+                            message: publishError.message || "No fue posible registrar el ticket y los adjuntos en iTop.",
+                          });
+                        }
+                      }}
+                    />
+                  ),
+                });
+                return;
+              } catch (prepareError) {
+                if (loadingModalId) {
+                  ModalManager.close(loadingModalId);
+                }
+                throw prepareError;
+              }
+            }
+
             await uploadHandoverEvidence(row.id, items);
             ModalManager.close(modalId);
             setError("");

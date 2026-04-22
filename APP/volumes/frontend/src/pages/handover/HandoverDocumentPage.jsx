@@ -93,12 +93,14 @@ export function HandoverDocumentPage() {
   const [selectedTemplateByAsset, setSelectedTemplateByAsset] = useState({});
   const [collapsedSections, setCollapsedSections] = useState({
     document: false,
+    itop: false,
     receiver: false,
     assets: false,
   });
   const personSearchInputRef = useRef(null);
   const receiverSelectionEndRef = useRef(null);
   const itopPeopleWarningShownRef = useRef(false);
+  const pageRootRef = useRef(null);
 
   const statusOptions = bootstrap?.statusOptions || [];
   const activeTemplates = bootstrap?.checklistTemplates || [];
@@ -118,6 +120,12 @@ export function HandoverDocumentPage() {
       [sectionKey]: !current[sectionKey],
     }));
   };
+
+  useEffect(() => {
+    window.requestAnimationFrame(() => {
+      pageRootRef.current?.closest("main")?.scrollTo({ top: 0, left: 0 });
+    });
+  }, [slug]);
 
   const focusPersonSearchInput = () => {
     window.requestAnimationFrame(() => {
@@ -329,6 +337,10 @@ export function HandoverDocumentPage() {
       return;
     }
 
+    const applicableTemplates = activeTemplates.filter((template) => (
+      matchesTemplateCmdbClass(asset?.className, template.cmdbClassLabel)
+    ));
+
     setForm((current) => ({
       ...current,
       items: [
@@ -336,10 +348,17 @@ export function HandoverDocumentPage() {
         {
           asset,
           notes: "",
-          checklists: [],
+          checklists: applicableTemplates.length === 1 ? [cloneTemplate(applicableTemplates[0])] : [],
         },
       ],
     }));
+    if (applicableTemplates.length === 1) {
+      setSelectedTemplateByAsset((current) => {
+        const next = { ...current };
+        delete next[asset.id];
+        return next;
+      });
+    }
     resetAssetSearch();
     setNotice("");
     setError("");
@@ -703,15 +722,22 @@ export function HandoverDocumentPage() {
   };
 
   return (
-    <div className="grid gap-5">
+    <div ref={pageRootRef} className="grid gap-5">
       <Panel className="overflow-hidden">
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
           <div className="grid gap-3">
             <p className="text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Workspace</p>
             <div>
-              <h1 className="text-2xl font-semibold text-[var(--text-primary)]">
-                {isCreateMode ? "Nueva acta de entrega" : isReadOnly ? "Detalle de acta de entrega" : "Edicion de acta de entrega"}
-              </h1>
+              <div className="flex flex-wrap items-center gap-3">
+                <h1 className="text-2xl font-semibold text-[var(--text-primary)]">
+                  {isCreateMode ? "Nueva acta de entrega" : isReadOnly ? "Detalle de acta de entrega" : "Edicion de acta de entrega"}
+                </h1>
+                {!isCreateMode && form.documentNumber ? (
+                  <span className="inline-flex min-h-8 items-center rounded-full border border-[var(--border-color)] bg-[var(--bg-app)] px-3 text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-secondary)]">
+                    Folio {form.documentNumber}
+                  </span>
+                ) : null}
+              </div>
               <p className="mt-2 max-w-3xl text-sm text-[var(--text-secondary)]">
                 Trabaja el documento en una pagina completa para tener mejor separacion visual entre datos del acta, destinatario y activos asociados.
               </p>

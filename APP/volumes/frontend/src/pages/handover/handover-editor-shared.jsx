@@ -77,11 +77,13 @@ function normalizeSecondaryReceiverRole(value) {
 
 export function createEmptyForm(bootstrap) {
   return {
+    documentNumber: "",
     creationDate: bootstrap?.defaults?.creationDate || bootstrap?.defaults?.generatedAt || "",
     assignmentDate: bootstrap?.defaults?.assignmentDate || "",
     evidenceDate: bootstrap?.defaults?.evidenceDate || "",
     generatedDocuments: [],
     evidenceAttachments: bootstrap?.defaults?.evidenceAttachments || [],
+    itopTicket: null,
     status: "En creacion",
     handoverType: "Entrega inicial",
     reason: "",
@@ -95,11 +97,13 @@ export function createEmptyForm(bootstrap) {
 
 export function createFormFromDetail(detail, bootstrap) {
   return {
+    documentNumber: detail.documentNumber || "",
     creationDate: detail.creationDate || detail.generatedAt || bootstrap?.defaults?.creationDate || "",
     assignmentDate: detail.assignmentDate || "",
     evidenceDate: detail.evidenceDate || "",
     generatedDocuments: detail.generatedDocuments || [],
     evidenceAttachments: detail.evidenceAttachments || [],
+    itopTicket: detail.itopTicket || null,
     status: detail.status || "En creacion",
     handoverType: detail.handoverType || "Entrega inicial",
     reason: detail.reason || "",
@@ -270,7 +274,7 @@ function ChecklistTemplatePicker({
       </button>
 
       {isOpen ? (
-        <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-20 max-h-[320px] overflow-y-auto rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-2 shadow-[var(--shadow-soft)]">
+        <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-20 max-h-[min(320px,calc(100vh-12rem))] overflow-y-auto rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-2 shadow-[var(--shadow-soft)]">
           <div className="grid gap-2">
             {availableTemplates.map((template) => {
               const isSelected = String(template.id) === String(selectedTemplateId || "");
@@ -629,6 +633,7 @@ export function HandoverEditorSections({
   documentId = null,
 }) {
   const topPanelsExpanded = !collapsedSections.document && !collapsedSections.receiver;
+  const shouldShowItopSection = readOnly && form.status === "Confirmada";
   const [collapsedAssets, setCollapsedAssets] = useState({});
   const [collapsedChecklists, setCollapsedChecklists] = useState({});
   const libraryDocuments = buildHandoverDocumentLibraryEntries({
@@ -754,114 +759,154 @@ export function HandoverEditorSections({
           </div>
         </EditorSectionPanel>
 
-        <EditorSectionPanel
-          eyebrow="Destino"
-          title="Persona que recibe"
-          helper="Busca en Personas de iTop, define una persona principal y, si hace falta, agrega participantes secundarios con un motivo claro."
-          isCollapsed={collapsedSections.receiver}
-          onToggle={() => toggleSection("receiver")}
-          className={topPanelsExpanded ? "h-full" : ""}
-        >
-          <div className="grid gap-4">
-            {!readOnly ? (
-              <div className="relative z-10">
-                <Field label="Buscar persona">
-                  <input ref={personSearchInputRef} type="search" value={personSearchQuery} onChange={(event) => setPersonSearchQuery(event.target.value)} className={INPUT_CLASS_NAME} placeholder={`Escribe nombre, identificador o correo (${minCharsPeople}+ caracteres)`} />
+        <div className="grid gap-5">
+          {shouldShowItopSection ? (
+            <EditorSectionPanel
+              eyebrow="iTop"
+              title="Ticket asociado"
+              helper="Datos principales registrados en iTop para esta acta."
+              isCollapsed={Boolean(collapsedSections.itop)}
+              onToggle={() => toggleSection("itop")}
+            >
+              <div className="grid gap-4 md:grid-cols-2">
+                <Field label="Numero de ticket">
+                  <ReadOnlyValue value={form.itopTicket?.number} placeholder="Sin ticket registrado" />
                 </Field>
-
-                {personSearchQuery.trim().length > 0 && personSearchQuery.trim().length < minCharsPeople ? (
-                  <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-20">
-                    <MessageBanner>Ingresa al menos {minCharsPeople} caracteres para buscar en Personas de iTop.</MessageBanner>
-                  </div>
-                ) : null}
-
-                {peopleResults.length ? (
-                  <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-20 max-h-[320px] overflow-y-auto rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-2 shadow-[var(--shadow-soft)]">
-                    <div className="grid gap-3">
-                      {peopleResults.map((person) => (
-                        <ResultCard
-                          key={person.id}
-                          title={person.name}
-                          subtitle={`${person.code}${person.email ? ` / ${person.email}` : ""}`}
-                          helper={[person.role, person.status].filter(Boolean).join(" / ")}
-                          actions={(
-                            <>
-                              <Button size="sm" variant="secondary" onClick={() => selectPrimaryReceiver(person)}>Principal</Button>
-                              <Button size="sm" variant="secondary" onClick={() => addAdditionalReceiver(person)}>Agregar secundario</Button>
-                            </>
-                          )}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                ) : peopleLoading ? (
-                  <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-20">
-                    <MessageBanner>Buscando personas...</MessageBanner>
-                  </div>
-                ) : null}
+                <Field label="Solicitante">
+                  <ReadOnlyValue value={form.itopTicket?.requester} />
+                </Field>
+                <Field label="Asignado">
+                  <ReadOnlyValue value={form.itopTicket?.analystName || form.itopTicket?.groupName} />
+                </Field>
+                <Field label="Criticidad">
+                  <ReadOnlyValue
+                    value={[
+                      form.itopTicket?.impactLabel || form.itopTicket?.impact,
+                      form.itopTicket?.urgencyLabel || form.itopTicket?.urgency,
+                      form.itopTicket?.priorityLabel || form.itopTicket?.priority,
+                    ].filter(Boolean).join(" / ")}
+                  />
+                </Field>
+                <Field label="Categoria">
+                  <ReadOnlyValue value={form.itopTicket?.categoryLabel || form.itopTicket?.category} />
+                </Field>
+                <Field label="Subcategoria">
+                  <ReadOnlyValue value={form.itopTicket?.subcategoryLabel || form.itopTicket?.subcategory} />
+                </Field>
               </div>
-            ) : null}
+            </EditorSectionPanel>
+          ) : null}
 
-            {form.receiver ? (
-              <div className="grid gap-3">
-                <div className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Responsable principal</div>
-                <div className="rounded-[18px] border border-[rgba(99,177,255,0.38)] bg-[rgba(99,177,255,0.08)] px-4 py-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <RoleChip label="Principal" tone="primary" />
-                      <p className="mt-3 truncate text-sm font-semibold text-[var(--text-primary)]">{form.receiver.name}</p>
-                      <p className="mt-1 text-sm text-[var(--text-secondary)]">{`${form.receiver.code || "Sin codigo"}${form.receiver.email ? ` / ${form.receiver.email}` : ""}`}</p>
-                      <p className="mt-1 text-xs text-[var(--text-muted)]">{[form.receiver.role, form.receiver.status].filter(Boolean).join(" / ")}</p>
+          <EditorSectionPanel
+            eyebrow="Destino"
+            title="Persona que recibe"
+            helper="Busca en Personas de iTop, define una persona principal y, si hace falta, agrega participantes secundarios con un motivo claro."
+            isCollapsed={collapsedSections.receiver}
+            onToggle={() => toggleSection("receiver")}
+            className={topPanelsExpanded ? "h-full" : ""}
+          >
+            <div className="grid gap-4">
+              {!readOnly ? (
+                <div className="relative z-10">
+                  <Field label="Buscar persona">
+                    <input ref={personSearchInputRef} type="search" value={personSearchQuery} onChange={(event) => setPersonSearchQuery(event.target.value)} className={INPUT_CLASS_NAME} placeholder={`Escribe nombre, identificador o correo (${minCharsPeople}+ caracteres)`} />
+                  </Field>
+
+                  {personSearchQuery.trim().length > 0 && personSearchQuery.trim().length < minCharsPeople ? (
+                    <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-20">
+                      <MessageBanner>Ingresa al menos {minCharsPeople} caracteres para buscar en Personas de iTop.</MessageBanner>
                     </div>
-                    {!readOnly ? (
-                      <div className="flex items-center gap-2">
-                        <CornerIconButton iconName="xmark" label="Quitar principal" onClick={requestRemovePrimaryReceiver} />
+                  ) : null}
+
+                  {peopleResults.length ? (
+                    <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-20 max-h-[320px] overflow-y-auto rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-2 shadow-[var(--shadow-soft)]">
+                      <div className="grid gap-3">
+                        {peopleResults.map((person) => (
+                          <ResultCard
+                            key={person.id}
+                            title={person.name}
+                            subtitle={`${person.code}${person.email ? ` / ${person.email}` : ""}`}
+                            helper={[person.role, person.status].filter(Boolean).join(" / ")}
+                            actions={(
+                              <>
+                                <Button size="sm" variant="secondary" onClick={() => selectPrimaryReceiver(person)}>Principal</Button>
+                                <Button size="sm" variant="secondary" onClick={() => addAdditionalReceiver(person)}>Agregar secundario</Button>
+                              </>
+                            )}
+                          />
+                        ))}
                       </div>
-                    ) : null}
-                  </div>
+                    </div>
+                  ) : peopleLoading ? (
+                    <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-20">
+                      <MessageBanner>Buscando personas...</MessageBanner>
+                    </div>
+                  ) : null}
                 </div>
-              </div>
-            ) : (
-              <MessageBanner>No hay persona principal seleccionada para esta acta.</MessageBanner>
-            )}
+              ) : null}
 
-            {form.additionalReceivers?.length ? (
-              <div className="grid gap-3">
-                <div className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Participantes secundarios</div>
-                {form.additionalReceivers.map((person) => (
-                  <div key={`secondary-${person.id}`} className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] p-4">
+              {form.receiver ? (
+                <div className="grid gap-3">
+                  <div className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Responsable principal</div>
+                  <div className="rounded-[18px] border border-[rgba(99,177,255,0.38)] bg-[rgba(99,177,255,0.08)] px-4 py-4">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
-                        {readOnly
-                          ? <RoleChip label={normalizeSecondaryReceiverRole(person.assignmentRole)} />
-                          : (
-                            <SecondaryRoleMenu
-                              personId={person.id}
-                              currentRole={normalizeSecondaryReceiverRole(person.assignmentRole)}
-                              onChange={(nextRole) => updateAdditionalReceiverRole(person.id, nextRole)}
-                            />
-                          )
-                        }
-                        <p className="truncate text-sm font-semibold text-[var(--text-primary)]">{person.name}</p>
-                        <p className="mt-1 text-sm text-[var(--text-secondary)]">{`${person.code || "Sin codigo"}${person.email ? ` / ${person.email}` : ""}`}</p>
-                        <p className="mt-1 text-xs text-[var(--text-muted)]">{[person.role, person.status].filter(Boolean).join(" / ")}</p>
+                        <RoleChip label="Principal" tone="primary" />
+                        <p className="mt-3 truncate text-sm font-semibold text-[var(--text-primary)]">{form.receiver.name}</p>
+                        <p className="mt-1 text-sm text-[var(--text-secondary)]">{`${form.receiver.code || "Sin codigo"}${form.receiver.email ? ` / ${form.receiver.email}` : ""}`}</p>
+                        <p className="mt-1 text-xs text-[var(--text-muted)]">{[form.receiver.role, form.receiver.status].filter(Boolean).join(" / ")}</p>
                       </div>
                       {!readOnly ? (
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Button size="sm" variant="secondary" onClick={() => promoteAdditionalReceiverToPrimary(person.id)}>
-                            Hacer principal
-                          </Button>
-                          <CornerIconButton iconName="xmark" label="Quitar secundario" onClick={() => requestRemoveAdditionalReceiver(person.id)} />
+                        <div className="flex items-center gap-2">
+                          <CornerIconButton iconName="xmark" label="Quitar principal" onClick={requestRemovePrimaryReceiver} />
                         </div>
                       ) : null}
                     </div>
                   </div>
-                ))}
-              </div>
-            ) : null}
-            <div ref={receiverSelectionEndRef} />
-          </div>
-        </EditorSectionPanel>
+                </div>
+              ) : (
+                <MessageBanner>No hay persona principal seleccionada para esta acta.</MessageBanner>
+              )}
+
+              {form.additionalReceivers?.length ? (
+                <div className="grid gap-3">
+                  <div className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Participantes secundarios</div>
+                  {form.additionalReceivers.map((person) => (
+                    <div key={`secondary-${person.id}`} className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          {readOnly
+                            ? <RoleChip label={normalizeSecondaryReceiverRole(person.assignmentRole)} />
+                            : (
+                              <SecondaryRoleMenu
+                                personId={person.id}
+                                currentRole={normalizeSecondaryReceiverRole(person.assignmentRole)}
+                                onChange={(nextRole) => updateAdditionalReceiverRole(person.id, nextRole)}
+                              />
+                            )
+                          }
+                          <p className="truncate text-sm font-semibold text-[var(--text-primary)]">{person.name}</p>
+                          <p className="mt-1 text-sm text-[var(--text-secondary)]">{`${person.code || "Sin codigo"}${person.email ? ` / ${person.email}` : ""}`}</p>
+                          <p className="mt-1 text-xs text-[var(--text-muted)]">{[person.role, person.status].filter(Boolean).join(" / ")}</p>
+                        </div>
+                        {!readOnly ? (
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Button size="sm" variant="secondary" onClick={() => promoteAdditionalReceiverToPrimary(person.id)}>
+                              Hacer principal
+                            </Button>
+                            <CornerIconButton iconName="xmark" label="Quitar secundario" onClick={() => requestRemoveAdditionalReceiver(person.id)} />
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
+              <div ref={receiverSelectionEndRef} />
+            </div>
+          </EditorSectionPanel>
+        </div>
       </div>
 {!readOnly ? (
       <EditorSectionPanel
@@ -872,7 +917,7 @@ export function HandoverEditorSections({
         onToggle={() => toggleSection("assets")}
       >
         {!readOnly ? (
-          <div className="relative z-10">
+          <div className="relative z-10 mb-16">
             <Field label="Buscar activo">
               <input type="search" value={assetSearchQuery} onChange={(event) => setAssetSearchQuery(event.target.value)} className={INPUT_CLASS_NAME} placeholder={`Codigo, nombre o serie (${minCharsAssets}+ caracteres)`} />
             </Field>
@@ -884,7 +929,7 @@ export function HandoverEditorSections({
             ) : null}
 
             {assetResults.length ? (
-              <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-20 max-h-[320px] overflow-y-auto rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-2 shadow-[var(--shadow-soft)]">
+              <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-20 max-h-[min(320px,calc(100vh-12rem))] overflow-y-auto rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-2 shadow-[var(--shadow-soft)]">
                 <div className="grid gap-3">
                   {assetResults.map((asset) => {
                     const restrictionMessage = getAssetAssignmentRestriction(asset);
@@ -966,7 +1011,7 @@ export function HandoverEditorSections({
                         </section>
 
                         {!readOnly ? (
-                          <section className="rounded-[22px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-4">
+                          <section className="relative z-10 mb-16 rounded-[22px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-4">
                             <div className="grid gap-3">
                               <Field label="Agregar checklist">
                                 <ChecklistTemplatePicker

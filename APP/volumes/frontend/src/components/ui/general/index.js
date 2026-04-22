@@ -1,5 +1,6 @@
 export { KpiCard }              from "./KpiCard";
 export { ActaModulePage }       from "./ActaModulePage";
+export { ActaPublicationModalContent } from "./ActaPublicationModal";
 export { MockActaModulePage }   from "./MockActaModulePage";
 export { Panel, PanelHeader }   from "./Panel";
 export { StatusChip }           from "./StatusChip";
