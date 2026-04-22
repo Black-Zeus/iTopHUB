@@ -436,6 +436,14 @@ def _build_base_html(title: str, subtitle: str, code_label: str, code_value: str
 </html>""", footer_html
 
 
+def _build_handover_footer_note() -> str:
+    docs_settings = get_settings_panel("docs")
+    note = _coerce_str(docs_settings.get("handoverFooterNote")).strip()
+    if not note:
+        return ""
+    return f'<p class="muted" style="font-size:11px; margin:12px 0 0; text-align:justify;">{_escape(note)}</p>'
+
+
 def build_handover_main_html(detail: dict[str, Any]) -> tuple[str, str | None]:
     document_number = _coerce_str(detail.get("documentNumber"))
     generated_at = _format_datetime_label(detail.get("assignmentDate") or detail.get("generatedAt") or detail.get("creationDate"))
@@ -565,11 +573,7 @@ def build_handover_main_html(detail: dict[str, Any]) -> tuple[str, str | None]:
                     </div>
                 </div>
             </div>
-            <p class="muted" style="font-size:11px; margin:12px 0 0; text-align:justify;">
-                El firmante declara haber recibido los activos detallados en la presente acta, en la fecha indicada,
-                aceptando su asignación conforme a la información registrada. La revisión técnica y de preparación
-                de los equipos se documenta en anexo separado.
-            </p>
+            {_build_handover_footer_note()}
         </div>
     </section>
     """
@@ -681,7 +685,7 @@ def build_handover_detail_html(detail: dict[str, Any]) -> tuple[str, str | None]
     )
 
 
-def _render_pdf_from_html(html: str, footer_html: str | None = None) -> bytes:
+def _render_pdf_from_html(html: str, footer_html: str | None = None, filename: str | None = None) -> bytes:
     headers = {}
     if settings.internal_api_secret:
         headers["X-Internal-Secret"] = settings.internal_api_secret
@@ -689,7 +693,7 @@ def _render_pdf_from_html(html: str, footer_html: str | None = None) -> bytes:
     try:
         response = requests.post(
             f"{settings.pdf_worker_url.rstrip('/')}/internal/render/html-to-pdf",
-            json={"html": html, "footer_html": footer_html},
+            json={"html": html, "footer_html": footer_html, "filename": filename or None},
             headers=headers,
             timeout=60,
         )
@@ -763,8 +767,8 @@ def generate_handover_documents(document_id: int, detail: dict[str, Any]) -> lis
     documents: list[dict[str, Any]] = []
     try:
         for definition in definitions:
-            pdf_bytes = _render_pdf_from_html(definition["html"], definition["footerHtml"])
             stored_name = f"{definition['code']}.pdf"
+            pdf_bytes = _render_pdf_from_html(definition["html"], definition["footerHtml"], filename=stored_name)
             stored_path = storage_directory / stored_name
             stored_path.write_bytes(pdf_bytes)
             created_files.append(stored_path)
