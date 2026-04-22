@@ -322,6 +322,7 @@ export function ActaPublicationModalContent({
             value={form.requesterId}
             onChange={(value) => updateField("requesterId", value)}
             options={requesterOptions}
+            disabled
           />
           <SelectField label="Grupo" value={form.groupId} onChange={updateGroup} options={groupOptions} />
           <SelectField
