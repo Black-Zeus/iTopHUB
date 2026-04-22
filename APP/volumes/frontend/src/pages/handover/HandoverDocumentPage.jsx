@@ -806,6 +806,7 @@ export function HandoverDocumentPage() {
           allowEvidenceUpload={Boolean(bootstrap?.actions?.allowEvidenceUpload ?? true)}
           readOnly={isReadOnly}
           documentId={isCreateMode ? null : slug}
+          itopIntegrationUrl={String(bootstrap?.itopIntegrationUrl || "").replace(/\/+$/, "")}
         />
       )}
     </div>

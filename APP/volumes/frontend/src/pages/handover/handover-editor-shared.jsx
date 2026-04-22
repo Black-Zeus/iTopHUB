@@ -465,13 +465,15 @@ function openAttachmentPreview(attachment, documentId) {
 function GeneratedDocumentPreviewContent({ generatedDocument, documentId }) {
   const [state, setState] = useState("loading");
   const [blobUrl, setBlobUrl] = useState(null);
+  const [resolvedFilename, setResolvedFilename] = useState(null);
 
   useEffect(() => {
     let revoked = false;
     fetchHandoverGeneratedPdfBlob(documentId, generatedDocument.kind)
-      .then(({ url }) => {
+      .then(({ url, filename }) => {
         if (!revoked) {
           setBlobUrl(url);
+          setResolvedFilename(filename || generatedDocument.name || `${generatedDocument.code || generatedDocument.kind}.pdf`);
           setState("ready");
         } else {
           URL.revokeObjectURL(url);
@@ -497,7 +499,7 @@ function GeneratedDocumentPreviewContent({ generatedDocument, documentId }) {
     }
     const anchor = document.createElement("a");
     anchor.href = blobUrl;
-    anchor.download = generatedDocument.name || `${generatedDocument.code || generatedDocument.kind}.pdf`;
+    anchor.download = resolvedFilename || generatedDocument.name || `${generatedDocument.code || generatedDocument.kind}.pdf`;
     anchor.click();
   };
 
@@ -631,6 +633,7 @@ export function HandoverEditorSections({
   updateAdditionalReceiverRole,
   readOnly = false,
   documentId = null,
+  itopIntegrationUrl = "",
 }) {
   const topPanelsExpanded = !collapsedSections.document && !collapsedSections.receiver;
   const shouldShowItopSection = readOnly && form.status === "Confirmada";
@@ -770,7 +773,26 @@ export function HandoverEditorSections({
             >
               <div className="grid gap-4 md:grid-cols-2">
                 <Field label="Numero de ticket">
-                  <ReadOnlyValue value={form.itopTicket?.number} placeholder="Sin ticket registrado" />
+                  {(() => {
+                    const base = String(itopIntegrationUrl || "").trim().replace(/\/+$/, "");
+                    const ticketId = String(form.itopTicket?.id || "").trim();
+                    const ticketClass = String(form.itopTicket?.className || "UserRequest").trim();
+                    const url = base && ticketId
+                      ? `${base}/pages/UI.php?operation=details&class=${encodeURIComponent(ticketClass)}&id=${encodeURIComponent(ticketId)}`
+                      : null;
+                    return (
+                      <div className="flex items-stretch gap-2">
+                        <div className="flex-1 min-w-0">
+                          <ReadOnlyValue value={form.itopTicket?.number} placeholder="Sin ticket registrado" />
+                        </div>
+                        {url && (
+                          <a href={url} target="_blank" rel="noopener noreferrer" title="Abrir en iTop" className="flex-shrink-0 flex items-center justify-center w-[50px] rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] text-[var(--accent-strong)] hover:bg-[var(--accent-soft)] transition-colors">
+                            <Icon name="external-link" size={15} />
+                          </a>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </Field>
                 <Field label="Solicitante">
                   <ReadOnlyValue value={form.itopTicket?.requester} />
