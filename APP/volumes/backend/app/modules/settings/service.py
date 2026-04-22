@@ -56,6 +56,17 @@ PROFILE_MODULE_OPTIONS = [
     {"moduleCode": "settings", "label": "Configuracion"},
 ]
 
+LEGACY_REQUIREMENT_SUBJECT = "Registro formal de asociacion de activo"
+LEGACY_REQUIREMENT_TICKET_TEMPLATE = (
+    "Se deja registro formal de la asociacion del activo en el marco del proceso corporativo vigente."
+    "Solicitamos gestionar la actualizacion correspondiente y mantener trazabilidad del requerimiento asociado."
+)
+DEFAULT_REQUIREMENT_SUBJECT = "Registro Movimiento de Inventario"
+DEFAULT_REQUIREMENT_TICKET_TEMPLATE = (
+    "Se deja registro formal de la asociacion del activo en el marco del proceso corporativo vigente."
+    "Solicitamos gestionar la actualizacion correspondiente y mantener trazabilidad del requerimiento asociado."
+)
+
 PANEL_DEFAULTS: dict[str, dict[str, Any]] = {
     "organization": {
         "organizationName": "iTop Hub",
@@ -103,20 +114,14 @@ PANEL_DEFAULTS: dict[str, dict[str, Any]] = {
         "requirementEnabled": False,
         "requirementTicketClass": "UserRequest",
         "requirementInitialStatus": "created",
-        "requirementCallerId": "",
-        "requirementTeamId": "",
-        "requirementAgentId": "",
         "requirementServiceId": "",
         "requirementServiceSubcategoryId": "",
         "requirementOrigin": "",
         "requirementImpact": "",
         "requirementUrgency": "",
         "requirementPriority": "",
-        "requirementSubject": "Registro formal de asociacion de activo",
-        "requirementTicketTemplate": (
-            "Se deja registro formal de la asociacion del activo en el marco del proceso corporativo vigente. "
-            "Solicitamos gestionar la actualizacion correspondiente y mantener trazabilidad del requerimiento asociado."
-        ),
+        "requirementSubject": DEFAULT_REQUIREMENT_SUBJECT,
+        "requirementTicketTemplate": DEFAULT_REQUIREMENT_TICKET_TEMPLATE,
         "pageSize": "A4",
         "marginTopMm": 12,
         "marginRightMm": 12,
@@ -181,6 +186,32 @@ def _coerce_str(value: Any, default: str = "") -> str:
     if value is None:
         return default
     return str(value).strip()
+
+
+def _normalize_requirement_impact(value: Any) -> str:
+    normalized = _coerce_str(value).lower()
+    mapping = {
+        "department": "1",
+        "service": "2",
+        "group": "2",
+        "person": "3",
+    }
+    return mapping.get(normalized, normalized if normalized in {"1", "2", "3"} else "")
+
+
+def _normalize_requirement_level(value: Any) -> str:
+    normalized = _coerce_str(value).lower()
+    mapping = {
+        "critical": "1",
+        "critica": "1",
+        "high": "2",
+        "alta": "2",
+        "medium": "3",
+        "media": "3",
+        "low": "4",
+        "baja": "4",
+    }
+    return mapping.get(normalized, normalized if normalized in {"1", "2", "3", "4"} else "")
 
 
 def _coerce_list(value: Any, default: list[str]) -> list[str]:
@@ -324,6 +355,12 @@ def normalize_panel_config(panel_code: str, config: dict[str, Any]) -> dict[str,
         requirement_initial_status = _coerce_str(merged.get("requirementInitialStatus"), "created").lower()
         if requirement_initial_status not in {"created"}:
             requirement_initial_status = "created"
+        requirement_subject = _coerce_str(merged.get("requirementSubject"), DEFAULT_REQUIREMENT_SUBJECT)
+        if requirement_subject == LEGACY_REQUIREMENT_SUBJECT:
+            requirement_subject = DEFAULT_REQUIREMENT_SUBJECT
+        requirement_ticket_template = _coerce_str(merged.get("requirementTicketTemplate"), DEFAULT_REQUIREMENT_TICKET_TEMPLATE)
+        if requirement_ticket_template == LEGACY_REQUIREMENT_TICKET_TEMPLATE:
+            requirement_ticket_template = DEFAULT_REQUIREMENT_TICKET_TEMPLATE
         return {
             "handoverPrefix": _coerce_str(merged.get("handoverPrefix")),
             "receptionPrefix": _coerce_str(merged.get("receptionPrefix")),
@@ -332,17 +369,14 @@ def normalize_panel_config(panel_code: str, config: dict[str, Any]) -> dict[str,
             "requirementEnabled": _coerce_bool(merged.get("requirementEnabled"), False),
             "requirementTicketClass": requirement_ticket_class,
             "requirementInitialStatus": requirement_initial_status,
-            "requirementCallerId": _coerce_str(merged.get("requirementCallerId")),
-            "requirementTeamId": _coerce_str(merged.get("requirementTeamId")),
-            "requirementAgentId": _coerce_str(merged.get("requirementAgentId")),
             "requirementServiceId": _coerce_str(merged.get("requirementServiceId")),
             "requirementServiceSubcategoryId": _coerce_str(merged.get("requirementServiceSubcategoryId")),
             "requirementOrigin": _coerce_str(merged.get("requirementOrigin")),
-            "requirementImpact": _coerce_str(merged.get("requirementImpact")),
-            "requirementUrgency": _coerce_str(merged.get("requirementUrgency")),
-            "requirementPriority": _coerce_str(merged.get("requirementPriority")),
-            "requirementSubject": _coerce_str(merged.get("requirementSubject")),
-            "requirementTicketTemplate": _coerce_str(merged.get("requirementTicketTemplate")),
+            "requirementImpact": _normalize_requirement_impact(merged.get("requirementImpact")),
+            "requirementUrgency": _normalize_requirement_level(merged.get("requirementUrgency")),
+            "requirementPriority": _normalize_requirement_level(merged.get("requirementPriority")),
+            "requirementSubject": requirement_subject,
+            "requirementTicketTemplate": requirement_ticket_template,
             "pageSize": page_size,
             "marginTopMm": max(0, _coerce_int(merged.get("marginTopMm"), 12)),
             "marginRightMm": max(0, _coerce_int(merged.get("marginRightMm"), 12)),

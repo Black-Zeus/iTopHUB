@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { CircleAlert, FileText, FolderTree, Link as LinkIcon, UserRound } from "lucide-react";
+import { CircleAlert, FileText, FolderTree, Link as LinkIcon } from "lucide-react";
 import ModalManager from "../../components/ui/modal";
 import { FilterDropdown } from "../../components/ui/general";
 import { Button } from "../../ui/Button";
 import { setPdqModuleEnabled } from "../../services/module-visibility-service";
 import { getPdqStatus } from "../../services/pdq-service";
-import { getItopPersonDetail, getItopRequirementCatalog, searchItopPeople, searchItopTeamPeople, searchItopTeams } from "../../services/itop-service";
+import { getItopRequirementCatalog } from "../../services/itop-service";
 import {
   createSettingsProfile,
   createSyncTask,
@@ -27,7 +27,7 @@ const TABS = [
   { id: "sync", label: "Sincronizacion" },
   { id: "mail", label: "Correo" },
   { id: "docs", label: "Documentos" },
-  { id: "requirement", label: "Ticket requerimiento" },
+  { id: "requirement", label: "Ticket iTop" },
   { id: "cmdb", label: "CMDB" },
   { id: "profiles", label: "Perfiles" },
 ];
@@ -172,24 +172,6 @@ function buildSelectOptions(items = [], placeholder = "Selecciona", currentValue
   return [{ value: "", label: placeholder }, ...next];
 }
 
-function mapItopPersonToSelection(item) {
-  if (!item) return null;
-  return {
-    id: Number(item.id),
-    code: item.code || "",
-    name: item.person || item.name || "",
-    email: item.asset || item.email || "",
-    phone: item.phone || "",
-    role: item.role || "",
-    status: item.status || "",
-  };
-}
-
-function isActiveItopStatus(value) {
-  const normalized = `${value || ""}`.trim().toLowerCase();
-  return ["", "activo", "active", "produccion", "production", "enabled"].includes(normalized);
-}
-
 function KPI({ eyebrow, value, status, tone = "success" }) {
   const dot = {
     success: "bg-[var(--success)]",
@@ -225,44 +207,6 @@ function Field({ label, value, onChange, type = "text", rows = 0, options = null
         <input type={type} value={value} onChange={onChange} readOnly={readOnly} disabled={disabled} className={base} />
       )}
     </label>
-  );
-}
-
-function SearchResultItem({ title, subtitle = "", helper = "", actionLabel = "Seleccionar", onSelect }) {
-  return (
-    <div className="rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-3">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-[var(--text-primary)]">{title}</p>
-          {subtitle ? <p className="mt-1 text-sm text-[var(--text-secondary)]">{subtitle}</p> : null}
-          {helper ? <p className="mt-1 text-xs text-[var(--text-muted)]">{helper}</p> : null}
-        </div>
-        <Button type="button" size="sm" variant="secondary" onClick={onSelect}>
-          {actionLabel}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-function SelectedPersonCard({ title, person, onClear }) {
-  if (!person) return null;
-  return (
-    <div className="rounded-[16px] border border-[rgba(99,177,255,0.38)] bg-[rgba(99,177,255,0.08)] px-4 py-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <p className="text-[0.68rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">{title}</p>
-          <p className="mt-2 truncate text-sm font-semibold text-[var(--text-primary)]">{person.name}</p>
-          <p className="mt-1 text-sm text-[var(--text-secondary)]">{`${person.code || "Sin codigo"}${person.email ? ` / ${person.email}` : ""}`}</p>
-          <p className="mt-1 text-xs text-[var(--text-muted)]">{[person.role, person.status].filter(Boolean).join(" / ")}</p>
-        </div>
-        {onClear ? (
-          <Button type="button" size="sm" variant="secondary" onClick={onClear}>
-            Quitar
-          </Button>
-        ) : null}
-      </div>
-    </div>
   );
 }
 
@@ -391,7 +335,6 @@ export function SettingsPage() {
     origins: [],
     services: [],
     serviceSubcategories: [],
-    teams: [],
     impacts: [],
     urgencies: [],
     priorities: [],
@@ -399,14 +342,6 @@ export function SettingsPage() {
   const [loadingRequirementCatalog, setLoadingRequirementCatalog] = useState(false);
   const [requirementCatalogLoaded, setRequirementCatalogLoaded] = useState(false);
   const [requirementCatalogError, setRequirementCatalogError] = useState("");
-  const [requirementCallerQuery, setRequirementCallerQuery] = useState("");
-  const [requirementCallerLoading, setRequirementCallerLoading] = useState(false);
-  const [requirementCallerResults, setRequirementCallerResults] = useState([]);
-  const [requirementSelectedCaller, setRequirementSelectedCaller] = useState(null);
-  const [loadingRequirementTeams, setLoadingRequirementTeams] = useState(false);
-  const [requirementAnalystCatalog, setRequirementAnalystCatalog] = useState([]);
-  const [loadingRequirementAnalysts, setLoadingRequirementAnalysts] = useState(false);
-  const [requirementSelectedAnalyst, setRequirementSelectedAnalyst] = useState(null);
 
   const dirtyMap = useMemo(
     () => TABS.reduce((acc, tab) => ({ ...acc, [tab.id]: JSON.stringify(drafts[tab.id] || {}) !== JSON.stringify(panels[tab.id] || {}) }), {}),
@@ -469,24 +404,6 @@ export function SettingsPage() {
     ),
     [drafts.docs?.requirementServiceId, drafts.docs?.requirementServiceSubcategoryId, loadingRequirementCatalog, requirementFilteredSubcategoryCatalog]
   );
-  const requirementFilteredTeamCatalog = useMemo(() => {
-    const selectedOrganizationId = `${resolvedRequirementOrganizationId || ""}`.trim();
-    if (!selectedOrganizationId) return [];
-    return requirementCatalog.teams.filter((item) => `${item.organizationId || ""}`.trim() === selectedOrganizationId);
-  }, [requirementCatalog.teams, resolvedRequirementOrganizationId]);
-  const requirementTeamOptions = useMemo(
-    () => buildSelectOptions(
-      requirementFilteredTeamCatalog,
-      !resolvedRequirementOrganizationId
-        ? "Selecciona organizacion primero"
-        : loadingRequirementTeams
-          ? "Cargando equipos..."
-          : "Selecciona grupo",
-      drafts.docs?.requirementTeamId || "",
-      requirementFilteredTeamCatalog.find((item) => `${item.value}`.trim() === `${drafts.docs?.requirementTeamId || ""}`.trim())?.label || drafts.docs?.requirementTeamId || ""
-    ),
-    [drafts.docs?.requirementTeamId, loadingRequirementTeams, requirementFilteredTeamCatalog, resolvedRequirementOrganizationId]
-  );
   const requirementImpactOptions = useMemo(
     () => buildSelectOptions(
       requirementCatalog.impacts,
@@ -514,31 +431,14 @@ export function SettingsPage() {
     ),
     [drafts.docs?.requirementPriority, loadingRequirementCatalog, requirementCatalog.priorities]
   );
-  const requirementAnalystOptions = useMemo(
-    () => buildSelectOptions(
-      requirementAnalystCatalog.map((person) => ({
-        value: `${person.id}`,
-        label: person.name,
-      })),
-      !drafts.docs?.requirementTeamId
-        ? "Selecciona grupo primero"
-        : loadingRequirementAnalysts
-          ? "Cargando analistas..."
-          : "Selecciona analista",
-      drafts.docs?.requirementAgentId || "",
-      requirementSelectedAnalyst?.name || drafts.docs?.requirementAgentId || ""
-    ),
-    [
-      drafts.docs?.requirementAgentId,
-      drafts.docs?.requirementTeamId,
-      loadingRequirementAnalysts,
-      requirementAnalystCatalog,
-      requirementSelectedAnalyst?.name,
-    ]
-  );
-
-  const updateField = (panelId, field, value) => {
-    setDrafts((current) => ({ ...current, [panelId]: { ...(current[panelId] || {}), [field]: value } }));
+  const updateField = (panelId, field, value, options = {}) => {
+    setDrafts((current) => {
+      const nextPanel = { ...(current[panelId] || {}), [field]: value };
+      if (panelId === "docs" && field === "requirementServiceId" && !options.preserveRequirementSubcategory) {
+        nextPanel.requirementServiceSubcategoryId = "";
+      }
+      return { ...current, [panelId]: nextPanel };
+    });
   };
 
   const resetPanel = (panelId) => {
@@ -615,7 +515,6 @@ export function SettingsPage() {
           origins: payload?.origins || [],
           services: payload?.services || [],
           serviceSubcategories: payload?.serviceSubcategories || [],
-          teams: payload?.teams || [],
           impacts: payload?.impacts || [],
           urgencies: payload?.urgencies || [],
           priorities: payload?.priorities || [],
@@ -673,7 +572,7 @@ export function SettingsPage() {
     if (requirementCatalog.services.some((item) => `${item.value}`.trim() === currentServiceId)) return;
     const match = requirementCatalog.services.find((item) => `${item.label || ""}`.trim() === currentServiceId);
     if (match) {
-      updateField("docs", "requirementServiceId", `${match.value}`.trim());
+      updateField("docs", "requirementServiceId", `${match.value}`.trim(), { preserveRequirementSubcategory: true });
     }
   }, [drafts.docs?.requirementServiceId, requirementCatalog.services]);
 
@@ -690,227 +589,20 @@ export function SettingsPage() {
   useEffect(() => {
     const currentSubcategoryId = `${drafts.docs?.requirementServiceSubcategoryId || ""}`.trim();
     if (!currentSubcategoryId) return;
+    if (loadingRequirementCatalog || !requirementCatalogLoaded) return;
+    if (!requirementCatalog.serviceSubcategories.length) return;
     if (requirementFilteredSubcategoryCatalog.some((item) => `${item.value}`.trim() === currentSubcategoryId)) return;
     updateField("docs", "requirementServiceSubcategoryId", "");
-  }, [drafts.docs?.requirementServiceSubcategoryId, requirementFilteredSubcategoryCatalog]);
-
-  useEffect(() => {
-    const currentTeamId = `${drafts.docs?.requirementTeamId || ""}`.trim();
-    if (!currentTeamId) {
-      setRequirementAnalystCatalog([]);
-      setRequirementSelectedAnalyst(null);
-      if (`${drafts.docs?.requirementAgentId || ""}`.trim()) {
-        updateField("docs", "requirementAgentId", "");
-      }
-      return;
-    }
-    if (requirementFilteredTeamCatalog.some((item) => `${item.value}`.trim() === currentTeamId)) return;
-    updateField("docs", "requirementTeamId", "");
-    updateField("docs", "requirementAgentId", "");
-    setRequirementAnalystCatalog([]);
-    setRequirementSelectedAnalyst(null);
-  }, [drafts.docs?.requirementTeamId, drafts.docs?.requirementAgentId, requirementFilteredTeamCatalog]);
-
-  useEffect(() => {
-    const organizationId = `${resolvedRequirementOrganizationId || ""}`.trim();
-    if (activeTab !== "requirement") return undefined;
-    if (!organizationId) {
-      setRequirementCatalog((current) => ({ ...current, teams: [] }));
-      setLoadingRequirementTeams(false);
-      return undefined;
-    }
-
-    let cancelled = false;
-    setLoadingRequirementTeams(true);
-
-    searchItopTeams({ organizationId })
-      .then((items) => {
-        if (!cancelled) {
-          setRequirementCatalog((current) => ({
-            ...current,
-            teams: (items || []).map((item) => ({
-              value: `${item.id || ""}`.trim(),
-              label: `${item.name || ""}`.trim(),
-              organizationId: `${item.organizationId || ""}`.trim(),
-              organizationName: `${item.organizationName || ""}`.trim(),
-              email: `${item.email || ""}`.trim(),
-              phone: `${item.phone || ""}`.trim(),
-              role: `${item.role || ""}`.trim(),
-              status: `${item.status || ""}`.trim(),
-            })),
-          }));
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setRequirementCatalog((current) => ({ ...current, teams: [] }));
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoadingRequirementTeams(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeTab, resolvedRequirementOrganizationId]);
-
-  useEffect(() => {
-    const personId = Number(drafts.docs?.requirementCallerId || 0);
-    if (!personId) {
-      setRequirementSelectedCaller(null);
-      return;
-    }
-    if (requirementSelectedCaller?.id === personId) return;
-
-    let cancelled = false;
-    getItopPersonDetail(personId)
-      .then((item) => {
-        const selection = mapItopPersonToSelection(item);
-        if (!cancelled && !isActiveItopStatus(selection?.status)) {
-          updateField("docs", "requirementCallerId", "");
-          setRequirementSelectedCaller(null);
-          return;
-        }
-        if (!cancelled) {
-          setRequirementSelectedCaller(selection);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setRequirementSelectedCaller(null);
-          updateField("docs", "requirementCallerId", "");
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [drafts.docs?.requirementCallerId, requirementSelectedCaller?.id]);
-
-  useEffect(() => {
-    const personId = Number(drafts.docs?.requirementAgentId || 0);
-    if (!personId) {
-      setRequirementSelectedAnalyst(null);
-      return;
-    }
-    if (requirementSelectedAnalyst?.id === personId) return;
-
-    let cancelled = false;
-    getItopPersonDetail(personId)
-      .then((item) => {
-        if (!cancelled) {
-          setRequirementSelectedAnalyst(mapItopPersonToSelection(item));
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setRequirementSelectedAnalyst(null);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [drafts.docs?.requirementAgentId, requirementSelectedAnalyst?.id]);
-
-  useEffect(() => {
-    const teamId = `${drafts.docs?.requirementTeamId || ""}`.trim();
-    if (activeTab !== "requirement") return undefined;
-    if (!teamId) {
-      setRequirementAnalystCatalog([]);
-      setLoadingRequirementAnalysts(false);
-      return undefined;
-    }
-
-    let cancelled = false;
-    setLoadingRequirementAnalysts(true);
-
-    searchItopTeamPeople({ teamId, query: "" })
-      .then((items) => {
-        if (cancelled) return;
-        const nextItems = items.map(mapItopPersonToSelection).sort((a, b) => a.name.localeCompare(b.name, "es"));
-        setRequirementAnalystCatalog(nextItems);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setRequirementAnalystCatalog([]);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoadingRequirementAnalysts(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeTab, drafts.docs?.requirementTeamId]);
-
-  useEffect(() => {
-    const analystId = `${drafts.docs?.requirementAgentId || ""}`.trim();
-    if (!analystId || loadingRequirementAnalysts || !drafts.docs?.requirementTeamId) return;
-    if (requirementAnalystCatalog.some((person) => `${person.id}` === analystId)) return;
-    updateField("docs", "requirementAgentId", "");
-    setRequirementSelectedAnalyst(null);
   }, [
-    drafts.docs?.requirementAgentId,
-    drafts.docs?.requirementTeamId,
-    loadingRequirementAnalysts,
-    requirementAnalystCatalog,
+    drafts.docs?.requirementServiceSubcategoryId,
+    loadingRequirementCatalog,
+    requirementCatalogLoaded,
+    requirementCatalog.serviceSubcategories,
+    requirementFilteredSubcategoryCatalog,
   ]);
 
-  useEffect(() => {
-    const normalizedQuery = requirementCallerQuery.trim();
-    if (activeTab !== "requirement") return undefined;
-    if (!resolvedRequirementOrganizationId) {
-      setRequirementCallerResults([]);
-      setRequirementCallerLoading(false);
-      return undefined;
-    }
-    if (!normalizedQuery) {
-      setRequirementCallerResults([]);
-      setRequirementCallerLoading(false);
-      return undefined;
-    }
-    if (normalizedQuery.length < 2) {
-      setRequirementCallerResults([]);
-      setRequirementCallerLoading(false);
-      return undefined;
-    }
-
-    let cancelled = false;
-    setRequirementCallerLoading(true);
-    const timer = window.setTimeout(async () => {
-      try {
-        const items = await searchItopPeople({
-          query: normalizedQuery,
-          status: "active",
-          organizationId: resolvedRequirementOrganizationId,
-        });
-        if (!cancelled) {
-          setRequirementCallerResults(items.map(mapItopPersonToSelection));
-        }
-      } catch {
-        if (!cancelled) {
-          setRequirementCallerResults([]);
-        }
-      } finally {
-        if (!cancelled) {
-          setRequirementCallerLoading(false);
-        }
-      }
-    }, 250);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [activeTab, requirementCallerQuery, resolvedRequirementOrganizationId]);
-
-  const persistPanel = async (panelId) => {
-    const response = await updateSettingsPanel(panelId, drafts[panelId] || {});
+  const persistPanel = async (panelId, config = drafts[panelId] || {}) => {
+    const response = await updateSettingsPanel(panelId, config);
     const nextPdqStatus = panelId === "pdq" ? await getPdqStatus() : null;
     const nextConfig = panelId === "pdq"
       ? {
@@ -959,17 +651,27 @@ export function SettingsPage() {
 
   const saveRequirementPanel = async () => {
     const confirmed = await ModalManager.confirm({
-      title: "Guardar Ticket de requerimiento",
-      message: "Se aplicaran los cambios del ticket de requerimiento y su contexto organizacional.",
+      title: "Guardar Ticket iTop",
+      message: "Se aplicaran los cambios del ticket iTop y su contexto organizacional.",
       content: "Confirma para persistir esta configuracion en la base de datos del Hub.",
       buttons: { cancel: "Cancelar", confirm: "Guardar" },
     });
     if (!confirmed) return;
     setSavingPanel("requirement");
     try {
-      await persistPanel("organization");
-      await persistPanel("docs");
-      ModalManager.success({ title: "Configuracion actualizada", message: "El panel Ticket de requerimiento fue guardado correctamente." });
+      const organizationDraft = drafts.organization || {};
+      const docsDraft = drafts.docs || {};
+      const [organizationResponse, docsResponse] = await Promise.all([
+        updateSettingsPanel("organization", organizationDraft),
+        updateSettingsPanel("docs", docsDraft),
+      ]);
+      const nextPanels = {
+        organization: organizationResponse.config,
+        docs: docsResponse.config,
+      };
+      setPanels((current) => ({ ...current, ...nextPanels }));
+      setDrafts((current) => ({ ...current, ...nextPanels }));
+      ModalManager.success({ title: "Configuracion actualizada", message: "El panel Ticket iTop fue guardado correctamente." });
     } catch (saveError) {
       ModalManager.error({ title: "No fue posible guardar", message: saveError.message || "Ocurrio un error al guardar." });
     } finally {
@@ -1727,7 +1429,7 @@ export function SettingsPage() {
             <div className="rounded-[20px] border border-[var(--border-color)] bg-[var(--bg-app)] p-5">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-sm font-semibold text-[var(--text-primary)]">Ticket de requerimiento</p>
+                  <p className="text-sm font-semibold text-[var(--text-primary)]">Ticket iTop</p>
                   <p className="mt-1 text-sm text-[var(--text-secondary)]">
                     Parametriza el ticket iTop que se utilizara cuando el proceso de acta requiera crear un requerimiento.
                   </p>
@@ -1745,7 +1447,7 @@ export function SettingsPage() {
               <div className={`${drafts.docs?.requirementEnabled ? "" : "pointer-events-none opacity-50"} mt-4 grid gap-4 xl:grid-cols-2`}>
                 {loadingRequirementCatalog ? (
                   <div className="rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3 text-sm text-[var(--text-secondary)] xl:col-span-2">
-                    Cargando catalogos de iTop para el ticket de requerimiento...
+                    Cargando catalogos de iTop para el ticket iTop...
                   </div>
                 ) : null}
                 {requirementCatalogError ? (
@@ -1789,157 +1491,6 @@ export function SettingsPage() {
                 <div className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] p-4">
                   <div className="flex items-start gap-3">
                     <div className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-[14px] border border-[rgba(81,152,194,0.22)] bg-[var(--accent-soft)] text-[var(--accent-strong)]">
-                      <UserRound className="h-4 w-4" />
-                    </div>
-                    <div>
-                      <p className="text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Informacion del solicitante</p>
-                      <p className="mt-2 text-sm text-[var(--text-secondary)]">
-                        Identifica al solicitante y el equipo operativo que recibira el ticket. Los identificadores tecnicos se manejaran de forma interna.
-                      </p>
-                    </div>
-                  </div>
-                  <div className="mt-4 grid gap-4">
-                    <div className="relative">
-                      <Field
-                        label="Solicitante"
-                        value={requirementCallerQuery}
-                        onChange={(e) => setRequirementCallerQuery(e.target.value)}
-                        inputClassName={!requirementSelectedCaller ? "" : "opacity-60"}
-                        disabled={!resolvedRequirementOrganizationId}
-                      />
-                      {!resolvedRequirementOrganizationId ? (
-                        <div className="mt-2 rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3 text-sm text-[var(--text-secondary)]">
-                          Selecciona una organizacion activa antes de buscar solicitantes.
-                        </div>
-                      ) : null}
-                      {requirementSelectedCaller ? (
-                        <div className="mt-3">
-                          <SelectedPersonCard
-                            title="Persona seleccionada"
-                            person={requirementSelectedCaller}
-                            onClear={() => {
-                              updateField("docs", "requirementCallerId", "");
-                              setRequirementSelectedCaller(null);
-                              setRequirementCallerQuery("");
-                              setRequirementCallerResults([]);
-                            }}
-                          />
-                        </div>
-                      ) : null}
-                      {!requirementSelectedCaller && requirementCallerQuery.trim().length > 0 && requirementCallerQuery.trim().length < 2 ? (
-                        <div className="mt-2 rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3 text-sm text-[var(--text-secondary)]">
-                          Ingresa al menos 2 caracteres para buscar personas en iTop.
-                        </div>
-                      ) : null}
-                      {!requirementSelectedCaller && requirementCallerLoading ? (
-                        <div className="mt-2 rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3 text-sm text-[var(--text-secondary)]">
-                          Buscando personas...
-                        </div>
-                      ) : null}
-                      {!requirementSelectedCaller && requirementCallerResults.length ? (
-                        <div className="mt-3 grid gap-3">
-                          {requirementCallerResults.map((person) => (
-                            <SearchResultItem
-                              key={`requirement-caller-${person.id}`}
-                              title={person.name}
-                              subtitle={`${person.code || "Sin codigo"}${person.email ? ` / ${person.email}` : ""}`}
-                              helper={[person.role, person.status].filter(Boolean).join(" / ")}
-                              onSelect={() => {
-                                updateField("docs", "requirementCallerId", String(person.id));
-                                setRequirementSelectedCaller(person);
-                                setRequirementCallerQuery("");
-                                setRequirementCallerResults([]);
-                              }}
-                            />
-                          ))}
-                        </div>
-                      ) : null}
-                    </div>
-                    <Field
-                      label="Grupo"
-                      value={drafts.docs?.requirementTeamId || ""}
-                      onChange={(e) => {
-                        updateField("docs", "requirementTeamId", e.target.value);
-                        updateField("docs", "requirementAgentId", "");
-                        setRequirementSelectedAnalyst(null);
-                        setRequirementAnalystCatalog([]);
-                      }}
-                      options={requirementTeamOptions}
-                      disabled={!resolvedRequirementOrganizationId}
-                    />
-                    {!resolvedRequirementOrganizationId ? (
-                      <div className="-mt-1 rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3 text-sm text-[var(--text-secondary)]">
-                        Selecciona una organizacion activa antes de listar grupos.
-                      </div>
-                    ) : null}
-                    <div>
-                      <Field
-                        label="Analista"
-                        value={drafts.docs?.requirementAgentId || ""}
-                        onChange={(e) => {
-                          const analystId = e.target.value;
-                          const selectedAnalyst = requirementAnalystCatalog.find((person) => `${person.id}` === analystId) || null;
-                          updateField("docs", "requirementAgentId", analystId);
-                          setRequirementSelectedAnalyst(selectedAnalyst);
-                        }}
-                        options={requirementAnalystOptions}
-                        disabled={!drafts.docs?.requirementTeamId || loadingRequirementAnalysts}
-                      />
-                      {!drafts.docs?.requirementTeamId ? (
-                        <div className="mt-2 rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3 text-sm text-[var(--text-secondary)]">
-                          Selecciona un grupo antes de listar analistas.
-                        </div>
-                      ) : null}
-                      {drafts.docs?.requirementTeamId && !loadingRequirementAnalysts && requirementAnalystCatalog.length === 0 ? (
-                        <div className="mt-2 rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3 text-sm text-[var(--text-secondary)]">
-                          No hay analistas activos disponibles para el grupo seleccionado.
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] p-4">
-                  <div className="flex items-start gap-3">
-                    <div className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-[14px] border border-[rgba(81,152,194,0.22)] bg-[var(--accent-soft)] text-[var(--accent-strong)]">
-                      <FileText className="h-4 w-4" />
-                    </div>
-                    <div>
-                      <p className="text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Datos del ticket</p>
-                      <p className="mt-2 text-sm text-[var(--text-secondary)]">
-                        Define el contenido visible del requerimiento que se creara en iTop.
-                      </p>
-                    </div>
-                  </div>
-                  <div className="mt-4 grid gap-4">
-                    <div className="rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3">
-                      <p className="text-[0.68rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Estado inicial</p>
-                      <p className="mt-2 text-sm font-semibold text-[var(--text-primary)]">Creado</p>
-                    </div>
-                    <Field
-                      label="Origen"
-                      value={drafts.docs?.requirementOrigin || ""}
-                      onChange={(e) => updateField("docs", "requirementOrigin", e.target.value)}
-                      options={requirementOriginOptions}
-                      disabled={!loadingRequirementCatalog && requirementCatalog.origins.length === 0}
-                    />
-                    <Field
-                      label="Asunto"
-                      value={drafts.docs?.requirementSubject || ""}
-                      onChange={(e) => updateField("docs", "requirementSubject", e.target.value)}
-                    />
-                    <Field
-                      label="Descripcion"
-                      rows={4}
-                      value={drafts.docs?.requirementTicketTemplate || ""}
-                      onChange={(e) => updateField("docs", "requirementTicketTemplate", e.target.value)}
-                    />
-                  </div>
-                </div>
-
-                <div className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] p-4">
-                  <div className="flex items-start gap-3">
-                    <div className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-[14px] border border-[rgba(81,152,194,0.22)] bg-[var(--accent-soft)] text-[var(--accent-strong)]">
                       <FolderTree className="h-4 w-4" />
                     </div>
                     <div>
@@ -1966,7 +1517,41 @@ export function SettingsPage() {
                   </div>
                 </div>
 
-                <div className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] p-4 xl:col-span-2">
+                <div className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] p-4">
+                  <div className="flex items-start gap-3">
+                    <div className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-[14px] border border-[rgba(81,152,194,0.22)] bg-[var(--accent-soft)] text-[var(--accent-strong)]">
+                      <FileText className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <p className="text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Datos del ticket</p>
+                      <p className="mt-2 text-sm text-[var(--text-secondary)]">
+                        Define el contenido visible del requerimiento que se creara en iTop.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-4 grid gap-4">
+                    <Field
+                      label="Origen"
+                      value={drafts.docs?.requirementOrigin || ""}
+                      onChange={(e) => updateField("docs", "requirementOrigin", e.target.value)}
+                      options={requirementOriginOptions}
+                      disabled={!loadingRequirementCatalog && requirementCatalog.origins.length === 0}
+                    />
+                    <Field
+                      label="Asunto"
+                      value={drafts.docs?.requirementSubject || ""}
+                      onChange={(e) => updateField("docs", "requirementSubject", e.target.value)}
+                    />
+                    <Field
+                      label="Descripcion"
+                      rows={4}
+                      value={drafts.docs?.requirementTicketTemplate || ""}
+                      onChange={(e) => updateField("docs", "requirementTicketTemplate", e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] p-4">
                   <div className="flex items-start gap-3">
                     <div className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-[14px] border border-[rgba(81,152,194,0.22)] bg-[var(--accent-soft)] text-[var(--accent-strong)]">
                       <CircleAlert className="h-4 w-4" />
@@ -1978,7 +1563,7 @@ export function SettingsPage() {
                       </p>
                     </div>
                   </div>
-                  <div className="mt-4 grid gap-4 md:grid-cols-3">
+                  <div className="mt-4 grid gap-4">
                     <Field
                       label="Impacto"
                       value={drafts.docs?.requirementImpact || ""}
