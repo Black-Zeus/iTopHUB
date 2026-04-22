@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import unicodedata
-from base64 import b64decode
+from base64 import b64decode, b64encode
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -11,8 +11,11 @@ from uuid import uuid4
 from fastapi import HTTPException
 
 from core.config import settings
+from integrations.itop_cmdb_connector import iTopCMDBConnector, iTopObject
+from integrations.itop_runtime import get_itop_runtime_config
 from infrastructure.job_manager import create_job, get_job
 from modules.handover.pdf_pipeline import (
+    HANDOVER_DOCUMENT_ROOT,
     build_detail_document_number,
     generate_handover_documents,
     remove_generated_handover_documents,
@@ -110,6 +113,48 @@ def _format_attachment_size(size_bytes: int) -> str:
     return f"{(size_bytes / (1024 * 1024)):.1f} MB"
 
 
+def _normalize_ticket_id(value: Any) -> str:
+    text = _coerce_str(value)
+    return text if text.isdigit() else ""
+
+
+def _normalize_itop_impact(value: Any) -> str:
+    normalized = _coerce_str(value).lower()
+    mapping = {
+        "department": "1",
+        "service": "2",
+        "group": "2",
+        "person": "3",
+    }
+    return mapping.get(normalized, normalized if normalized in {"1", "2", "3"} else "")
+
+
+def _normalize_itop_level(value: Any) -> str:
+    normalized = _coerce_str(value).lower()
+    mapping = {
+        "critical": "1",
+        "critica": "1",
+        "high": "2",
+        "alta": "2",
+        "medium": "3",
+        "media": "3",
+        "low": "4",
+        "baja": "4",
+    }
+    return mapping.get(normalized, normalized if normalized in {"1", "2", "3", "4"} else "")
+
+
+def _build_itop_connector(runtime_token: str) -> iTopCMDBConnector:
+    itop_config = get_itop_runtime_config()
+    return iTopCMDBConnector(
+        base_url=itop_config["integrationUrl"],
+        token=runtime_token,
+        username="hub-session-user",
+        verify_ssl=itop_config["verifySsl"],
+        timeout=itop_config["timeoutSeconds"],
+    )
+
+
 def _get_allowed_evidence_extensions() -> set[str]:
     docs_settings = get_settings_panel("docs")
     configured_values = docs_settings.get("evidenceAllowedExtensions") or []
@@ -136,6 +181,48 @@ def _normalize_evidence_document_type(value: Any, *, allow_blank: bool = False) 
     if allow_blank:
         return ""
     raise HTTPException(status_code=422, detail="Uno de los adjuntos no tiene un tipo de documento valido.")
+
+
+def _normalize_itop_ticket_summary(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+
+    return {
+        "id": _coerce_str(value.get("id")),
+        "number": _coerce_str(value.get("number") or value.get("ref")),
+        "className": _coerce_str(value.get("className") or value.get("ticketClass")),
+        "status": _coerce_str(value.get("status")),
+        "subject": _coerce_str(value.get("subject")),
+        "description": _coerce_str(value.get("description")),
+        "requesterId": _coerce_str(value.get("requesterId")),
+        "requester": _coerce_str(value.get("requester")),
+        "orgId": _coerce_str(value.get("orgId")),
+        "groupId": _coerce_str(value.get("groupId")),
+        "groupName": _coerce_str(value.get("groupName")),
+        "analystId": _coerce_str(value.get("analystId")),
+        "analystName": _coerce_str(value.get("analystName")),
+        "origin": _coerce_str(value.get("origin")),
+        "originLabel": _coerce_str(value.get("originLabel")),
+        "impact": _coerce_str(value.get("impact")),
+        "impactLabel": _coerce_str(value.get("impactLabel")),
+        "urgency": _coerce_str(value.get("urgency")),
+        "urgencyLabel": _coerce_str(value.get("urgencyLabel")),
+        "priority": _coerce_str(value.get("priority")),
+        "priorityLabel": _coerce_str(value.get("priorityLabel")),
+        "category": _coerce_str(value.get("category")),
+        "categoryLabel": _coerce_str(value.get("categoryLabel")),
+        "subcategory": _coerce_str(value.get("subcategory")),
+        "subcategoryLabel": _coerce_str(value.get("subcategoryLabel")),
+        "createdAt": _coerce_str(value.get("createdAt")),
+    }
+
+
+def _extract_itop_ticket_from_attachments(attachments: list[dict[str, Any]]) -> dict[str, Any]:
+    for attachment in attachments:
+        ticket = _normalize_itop_ticket_summary(attachment.get("itopTicket"))
+        if ticket.get("id") or ticket.get("number"):
+            return ticket
+    return {}
 
 
 def _build_evidence_document_code(document_number: Any, document_type: str) -> str:
@@ -498,6 +585,9 @@ def get_handover_document_detail(document_id: int) -> dict[str, Any]:
             }
         )
 
+    generated_documents = _deserialize_generated_documents(document_row.get("generated_documents"))
+    evidence_attachments = _deserialize_evidence_attachments(document_row.get("evidence_attachments"))
+
     return {
         "id": int(document_row["id"]),
         "documentNumber": document_row["document_number"],
@@ -505,8 +595,9 @@ def get_handover_document_detail(document_id: int) -> dict[str, Any]:
         "creationDate": _serialize_datetime(document_row.get("creation_date") or document_row.get("generated_at")),
         "assignmentDate": _serialize_datetime(document_row.get("assignment_date")),
         "evidenceDate": _serialize_datetime(document_row.get("evidence_date")),
-        "generatedDocuments": _deserialize_generated_documents(document_row.get("generated_documents")),
-        "evidenceAttachments": _deserialize_evidence_attachments(document_row.get("evidence_attachments")),
+        "generatedDocuments": generated_documents,
+        "evidenceAttachments": evidence_attachments,
+        "itopTicket": _extract_itop_ticket_from_attachments(evidence_attachments),
         "status": STATUS_DB_TO_UI.get(document_row["status"], document_row["status"]),
         "handoverType": TYPE_DB_TO_UI.get(document_row["handover_type"], document_row["handover_type"]),
         "reason": document_row["reason"],
@@ -663,16 +754,20 @@ def _deserialize_evidence_attachments(raw_value: Any) -> list[dict[str, Any]]:
     for item in payload:
         if not isinstance(item, dict):
             continue
+        stored_name = _coerce_str(item.get("storedName")) or Path(_coerce_str(item.get("source"))).name or _coerce_str(item.get("name"))
         normalized.append(
             {
                 "name": _coerce_str(item.get("name")),
                 "size": _coerce_str(item.get("size")),
                 "mimeType": _coerce_str(item.get("mimeType")),
                 "source": _coerce_str(item.get("source")),
-                "storedName": _coerce_str(item.get("storedName")),
+                "storedName": stored_name,
                 "uploadedAt": _coerce_str(item.get("uploadedAt")),
                 "documentType": _normalize_evidence_document_type(item.get("documentType"), allow_blank=True),
                 "observation": _coerce_str(item.get("observation")),
+                "itopTicket": _normalize_itop_ticket_summary(item.get("itopTicket")),
+                "itopAssignment": item.get("itopAssignment") if isinstance(item.get("itopAssignment"), list) else [],
+                "itopAttachments": item.get("itopAttachments") if isinstance(item.get("itopAttachments"), dict) else {},
             }
         )
     return normalized
@@ -724,16 +819,20 @@ def _normalize_evidence_attachments(payload: Any) -> str:
     for item in payload:
         if not isinstance(item, dict):
             raise HTTPException(status_code=422, detail="La evidencia adjunta no tiene un formato valido.")
+        stored_name = _coerce_str(item.get("storedName")) or Path(_coerce_str(item.get("source"))).name or _coerce_str(item.get("name"))
         normalized.append(
             {
                 "name": _coerce_str(item.get("name")),
                 "size": _coerce_str(item.get("size")),
                 "mimeType": _coerce_str(item.get("mimeType")),
                 "source": _coerce_str(item.get("source")),
-                "storedName": _coerce_str(item.get("storedName")),
+                "storedName": stored_name,
                 "uploadedAt": _coerce_str(item.get("uploadedAt")),
                 "documentType": _normalize_evidence_document_type(item.get("documentType"), allow_blank=True),
                 "observation": _coerce_str(item.get("observation")),
+                "itopTicket": _normalize_itop_ticket_summary(item.get("itopTicket")),
+                "itopAssignment": item.get("itopAssignment") if isinstance(item.get("itopAssignment"), list) else [],
+                "itopAttachments": item.get("itopAttachments") if isinstance(item.get("itopAttachments"), dict) else {},
             }
         )
     return json.dumps(normalized, ensure_ascii=True)
@@ -770,6 +869,610 @@ def _normalize_generated_documents(payload: Any) -> str:
             }
         )
     return json.dumps(normalized, ensure_ascii=True)
+
+
+def _get_requester_org_id(connector: iTopCMDBConnector, requester_id: str) -> str:
+    if not requester_id.isdigit():
+        return ""
+    try:
+        response = connector.get("Person", int(requester_id), output_fields="id,org_id,org_id_friendlyname")
+    except Exception:
+        return ""
+
+    person = response.first()
+    if person is None:
+        return ""
+    return _normalize_ticket_id(person.get("org_id"))
+
+
+ITOP_HANDOVER_TICKET_OUTPUT_FIELDS = (
+    "id,ref,title,status,caller_id,caller_id_friendlyname,team_id,team_id_friendlyname,"
+    "agent_id,agent_id_friendlyname,impact,urgency,priority,service_id,service_id_friendlyname,"
+    "servicesubcategory_id,servicesubcategory_id_friendlyname"
+)
+
+
+def _ensure_itop_ticket_assignment(
+    connector: iTopCMDBConnector,
+    ticket_class: str,
+    ticket_id: int,
+    assignment_fields: dict[str, int],
+    document_number: str,
+) -> iTopObject | None:
+    if not assignment_fields:
+        return None
+
+    try:
+        response = connector.get(ticket_class, ticket_id, output_fields=ITOP_HANDOVER_TICKET_OUTPUT_FIELDS)
+    except Exception:
+        return None
+
+    item = response.first()
+    if item is None:
+        return None
+
+    status = _coerce_str(item.get("status")).lower()
+    missing_assignment = any(not _normalize_ticket_id(item.get(field_name)) for field_name in assignment_fields)
+    if status not in {"new", "created"} and not missing_assignment:
+        return item
+
+    comment = f"Asignacion sincronizada desde acta {document_number}".strip()
+    if missing_assignment:
+        update_response = connector.update(
+            ticket_class,
+            ticket_id,
+            assignment_fields,
+            output_fields=ITOP_HANDOVER_TICKET_OUTPUT_FIELDS,
+            comment=comment,
+        )
+        if update_response.ok and update_response.first() is not None:
+            item = update_response.first()
+            status = _coerce_str(item.get("status")).lower()
+
+    if status in {"new", "created"}:
+        stimulus_response = connector.apply_stimulus(
+            ticket_class,
+            ticket_id,
+            "ev_assign",
+            fields=assignment_fields,
+            output_fields=ITOP_HANDOVER_TICKET_OUTPUT_FIELDS,
+            comment=comment,
+        )
+        if stimulus_response.ok and stimulus_response.first() is not None:
+            return stimulus_response.first()
+
+    refresh_response = connector.get(ticket_class, ticket_id, output_fields=ITOP_HANDOVER_TICKET_OUTPUT_FIELDS)
+    return refresh_response.first()
+
+
+def _create_itop_handover_ticket(
+    current_detail: dict[str, Any],
+    ticket_payload: dict[str, Any] | None,
+    runtime_token: str,
+) -> dict[str, Any]:
+    payload = _normalize_itop_ticket_summary(ticket_payload)
+    if not payload:
+        return {}
+
+    requester_id = _normalize_ticket_id(payload.get("requesterId"))
+    group_id = _normalize_ticket_id(payload.get("groupId"))
+    analyst_id = _normalize_ticket_id(payload.get("analystId"))
+    subject = _coerce_str(payload.get("subject"))
+    description = _coerce_str(payload.get("description"))
+    if not requester_id or not subject or not description:
+        raise HTTPException(status_code=422, detail="El ticket iTop requiere solicitante, asunto y descripcion.")
+
+    docs_settings = get_settings_panel("docs")
+    organization_settings = get_settings_panel("organization")
+    ticket_class = _coerce_str(docs_settings.get("requirementTicketClass"), "UserRequest") or "UserRequest"
+
+    connector = _build_itop_connector(runtime_token)
+    try:
+        org_id = _normalize_ticket_id(organization_settings.get("itopOrganizationId")) or _get_requester_org_id(connector, requester_id)
+        if not org_id:
+            raise HTTPException(status_code=422, detail="No fue posible determinar la organizacion para crear el ticket iTop.")
+
+        fields: dict[str, Any] = {
+            "org_id": int(org_id),
+            "caller_id": int(requester_id),
+            "title": subject,
+            "description": description,
+        }
+
+        for field_name, field_value in {
+            "team_id": group_id,
+            "agent_id": analyst_id,
+            "service_id": _normalize_ticket_id(payload.get("category")),
+            "servicesubcategory_id": _normalize_ticket_id(payload.get("subcategory")),
+        }.items():
+            if field_value:
+                fields[field_name] = int(field_value)
+
+        origin = _coerce_str(payload.get("origin"))
+        if origin:
+            fields["origin"] = origin
+
+        impact = _normalize_itop_impact(payload.get("impact"))
+        if impact:
+            fields["impact"] = impact
+
+        urgency = _normalize_itop_level(payload.get("urgency"))
+        if urgency:
+            fields["urgency"] = urgency
+
+        priority = _normalize_itop_level(payload.get("priority"))
+        if priority:
+            fields["priority"] = priority
+
+        response = connector.create(
+            ticket_class,
+            fields,
+            output_fields=ITOP_HANDOVER_TICKET_OUTPUT_FIELDS,
+            comment=f"Registro generado desde acta {current_detail.get('documentNumber') or ''}".strip(),
+        )
+        if not response.ok:
+            raise HTTPException(status_code=502, detail=f"No fue posible crear el ticket iTop: {response.message}")
+
+        item = response.first()
+        if item is None:
+            raise HTTPException(status_code=502, detail="iTop no retorno el ticket creado.")
+
+        assigned_item = _ensure_itop_ticket_assignment(
+            connector,
+            ticket_class,
+            item.id,
+            {
+                field_name: field_value
+                for field_name, field_value in {
+                    "team_id": fields.get("team_id"),
+                    "agent_id": fields.get("agent_id"),
+                }.items()
+                if isinstance(field_value, int)
+            },
+            _coerce_str(current_detail.get("documentNumber")),
+        )
+        if assigned_item is not None:
+            item = assigned_item
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"No fue posible crear el ticket iTop: {exc}") from exc
+    finally:
+        connector.close()
+
+    return _normalize_itop_ticket_summary(
+        {
+            **payload,
+            "id": item.id,
+            "number": item.get("ref") or item.get("friendlyname") or str(item.id),
+            "className": item.itop_class or ticket_class,
+            "status": item.get("status"),
+            "orgId": org_id,
+            "subject": item.get("title") or subject,
+            "requester": item.get("caller_id_friendlyname") or payload.get("requester"),
+            "groupName": item.get("team_id_friendlyname") or payload.get("groupName"),
+            "analystName": item.get("agent_id_friendlyname") or payload.get("analystName"),
+            "categoryLabel": item.get("service_id_friendlyname") or payload.get("categoryLabel"),
+            "subcategoryLabel": item.get("servicesubcategory_id_friendlyname") or payload.get("subcategoryLabel"),
+            "createdAt": datetime.now().strftime("%Y-%m-%dT%H:%M"),
+        }
+    )
+
+
+def _resolve_asset_itop_class(connector: iTopCMDBConnector, asset_id: int) -> str:
+    try:
+        response = connector.get("FunctionalCI", asset_id, output_fields="id,finalclass,status")
+    except Exception:
+        response = None
+
+    item = response.first() if response is not None else None
+    resolved_class = _coerce_str(item.get("finalclass")) if item else ""
+    if resolved_class and resolved_class != "FunctionalCI":
+        return resolved_class
+
+    try:
+        oql_response = connector.get(
+            "FunctionalCI",
+            f"SELECT FunctionalCI WHERE id = {asset_id}",
+            output_fields="id,finalclass",
+        )
+    except Exception:
+        oql_response = None
+
+    oql_item = oql_response.first() if oql_response is not None else None
+    resolved_class = _coerce_str(oql_item.get("finalclass")) if oql_item else ""
+    if resolved_class and resolved_class != "FunctionalCI":
+        return resolved_class
+
+    return _coerce_str(item.itop_class if item else "") or "FunctionalCI"
+
+
+def _apply_itop_handover_assignment(
+    current_detail: dict[str, Any],
+    runtime_token: str,
+    ticket_id: str = "",
+) -> list[dict[str, Any]]:
+    receiver = current_detail.get("receiver") or {}
+    try:
+        person_id = int(receiver.get("id") or 0)
+    except (TypeError, ValueError):
+        person_id = 0
+    if person_id <= 0:
+        raise HTTPException(status_code=422, detail="La persona principal del acta no tiene un identificador iTop valido.")
+
+    connector = _build_itop_connector(runtime_token)
+    results: list[dict[str, Any]] = []
+    try:
+        for item in current_detail.get("items") or []:
+            asset = item.get("asset") or {}
+            try:
+                asset_id = int(asset.get("id") or 0)
+            except (TypeError, ValueError):
+                asset_id = 0
+            if asset_id <= 0:
+                continue
+
+            asset_class = _resolve_asset_itop_class(connector, asset_id)
+            asset_result = {
+                "assetId": str(asset_id),
+                "assetClass": asset_class,
+                "contactLinked": False,
+                "statusUpdated": False,
+                "statusUpdateError": "",
+                "ticketLinked": False,
+            }
+
+            link_response = connector.link_contact_to_ci(
+                asset_class,
+                asset_id,
+                person_id,
+            )
+            if not link_response.ok:
+                raise HTTPException(status_code=502, detail=f"No fue posible relacionar el EC {asset_id} con la persona: {link_response.message}")
+            asset_result["contactLinked"] = True
+
+            status_response = connector.update_ci_status(
+                asset_class,
+                asset_id,
+                "production",
+                comment=f"Asignado desde acta {current_detail.get('documentNumber') or ''}".strip(),
+            )
+            if status_response.ok:
+                asset_result["statusUpdated"] = True
+            else:
+                asset_result["statusUpdateError"] = status_response.message
+
+            if _normalize_ticket_id(ticket_id):
+                ticket_link_response = connector.create(
+                    "lnkFunctionalCIToTicket",
+                    {
+                        "ticket_id": int(ticket_id),
+                        "functionalci_id": asset_id,
+                        "impact_code": "manual",
+                    },
+                    output_fields="id,ticket_id,functionalci_id,impact_code",
+                    comment=f"EC asociado desde acta {current_detail.get('documentNumber') or ''}".strip(),
+                )
+                if ticket_link_response.ok:
+                    asset_result["ticketLinked"] = True
+                else:
+                    raise HTTPException(
+                        status_code=502,
+                        detail=f"No fue posible relacionar el EC {asset_id} con el ticket iTop: {ticket_link_response.message}",
+                    )
+
+            results.append(asset_result)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"No fue posible actualizar la asignacion en iTop: {exc}") from exc
+    finally:
+        connector.close()
+
+    return results
+
+
+def _resolve_itop_object_org_id(connector: iTopCMDBConnector, item_class: str, item_id: int) -> str:
+    try:
+        response = connector.get(item_class, item_id, output_fields="id,org_id")
+    except Exception:
+        return ""
+
+    item = response.first()
+    if item is None:
+        return ""
+    return _normalize_ticket_id(item.get("org_id"))
+
+
+def _build_itop_handover_document_files(
+    document_id: int,
+    generated_documents: list[dict[str, Any]],
+    evidence_attachments: list[dict[str, Any]],
+    pending_files: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    pending_by_name = {
+        Path(_coerce_str(item.get("final"))).name: item
+        for item in pending_files
+        if _coerce_str(item.get("final"))
+    }
+    documents: list[dict[str, Any]] = []
+
+    for document in generated_documents:
+        stored_name = Path(_coerce_str(document.get("storedName"))).name
+        if not stored_name:
+            continue
+        documents.append(
+            {
+                "documentType": "detalle" if _coerce_str(document.get("kind")) == "detail" else "acta",
+                "name": _coerce_str(document.get("name")) or stored_name,
+                "storedName": stored_name,
+                "mimeType": _coerce_str(document.get("mimeType")) or "application/pdf",
+                "path": HANDOVER_DOCUMENT_ROOT / f"document_{document_id}" / stored_name,
+            }
+        )
+
+    for attachment in evidence_attachments:
+        stored_name = Path(_coerce_str(attachment.get("storedName"))).name
+        if not stored_name:
+            continue
+        pending_file = pending_by_name.get(stored_name)
+        file_path = pending_file.get("temporary") if pending_file else HANDOVER_EVIDENCE_ROOT / f"document_{document_id}" / stored_name
+        documents.append(
+            {
+                "documentType": _normalize_evidence_document_type(attachment.get("documentType"), allow_blank=True),
+                "name": _coerce_str(attachment.get("name")) or stored_name,
+                "storedName": stored_name,
+                "mimeType": _coerce_str(attachment.get("mimeType")) or "application/octet-stream",
+                "path": file_path,
+            }
+        )
+
+    ordered: list[dict[str, Any]] = []
+    for document_type in ("acta", "detalle"):
+        match = next((item for item in documents if item.get("documentType") == document_type), None)
+        if match:
+            ordered.append(match)
+    return ordered
+
+
+def _create_itop_attachment(
+    connector: iTopCMDBConnector,
+    *,
+    target_class: str,
+    target_id: int,
+    target_org_id: int,
+    document: dict[str, Any],
+    comment: str,
+) -> dict[str, Any]:
+    file_path = document.get("path")
+    if not isinstance(file_path, Path) or not file_path.exists():
+        raise HTTPException(status_code=502, detail=f"No fue posible adjuntar '{document.get('name') or 'documento'}' en iTop: el archivo local no existe.")
+
+    file_content = file_path.read_bytes()
+    response = connector.create(
+        "Attachment",
+        {
+            "item_class": target_class,
+            "item_id": target_id,
+            "item_org_id": target_org_id,
+            "creation_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "contents": {
+                "filename": _coerce_str(document.get("name")) or file_path.name,
+                "mimetype": _coerce_str(document.get("mimeType")) or "application/octet-stream",
+                "data": b64encode(file_content).decode("ascii"),
+            },
+        },
+        output_fields="id,item_class,item_id,item_org_id",
+        comment=comment,
+    )
+    if not response.ok:
+        raise HTTPException(status_code=502, detail=f"No fue posible adjuntar '{document.get('name') or file_path.name}' en iTop: {response.message}")
+
+    item = response.first()
+    return {
+        "id": str(item.id) if item else "",
+        "targetClass": target_class,
+        "targetId": str(target_id),
+        "name": _coerce_str(document.get("name")) or file_path.name,
+        "documentType": _coerce_str(document.get("documentType")),
+    }
+
+
+def _resolve_itop_document_type_id(connector: iTopCMDBConnector) -> str:
+    docs_settings = get_settings_panel("docs")
+    configured_document_type_id = _normalize_ticket_id(
+        docs_settings.get("handoverDocumentTypeId")
+        or docs_settings.get("itopAssetDocumentTypeId")
+        or docs_settings.get("documentTypeId")
+    )
+    if configured_document_type_id:
+        return configured_document_type_id
+
+    for document_type_name in ("Acta de Entrega", "Acta", "Aprobacion Equipos"):
+        escaped_name = document_type_name.replace("\\", "\\\\").replace("'", "\\'")
+        response = connector.get("DocumentType", f"SELECT DocumentType WHERE name = '{escaped_name}'", output_fields="id,name")
+        item = response.first()
+        if item is not None:
+            return str(item.id)
+
+    response = connector.get("DocumentType", "SELECT DocumentType", output_fields="id,name")
+    item = response.first()
+    return str(item.id) if item is not None else ""
+
+
+def _create_itop_document_file(
+    connector: iTopCMDBConnector,
+    *,
+    target_id: int,
+    target_org_id: int,
+    document_type_id: int,
+    document: dict[str, Any],
+    document_number: str,
+) -> dict[str, Any]:
+    file_path = document.get("path")
+    if not isinstance(file_path, Path) or not file_path.exists():
+        raise HTTPException(status_code=502, detail=f"No fue posible crear documento iTop '{document.get('name') or 'documento'}': el archivo local no existe.")
+
+    document_name = _coerce_str(document.get("name")) or file_path.name
+    existing_link_response = connector.get(
+        "lnkDocumentToFunctionalCI",
+        (
+            "SELECT lnkDocumentToFunctionalCI "
+            f"WHERE functionalci_id = {target_id} AND document_name = '{document_name.replace('\\', '\\\\').replace("'", "\\'")}'"
+        ),
+        output_fields="id,functionalci_id,document_id,document_id_friendlyname",
+    )
+    existing_link = existing_link_response.first()
+    if existing_link is not None:
+        return {
+            "id": _coerce_str(existing_link.get("document_id")),
+            "linkId": str(existing_link.id),
+            "targetId": str(target_id),
+            "name": _coerce_str(existing_link.get("document_id_friendlyname")) or document_name,
+            "documentType": _coerce_str(document.get("documentType")),
+            "reused": True,
+        }
+
+    file_content = file_path.read_bytes()
+    create_response = connector.create(
+        "DocumentFile",
+        {
+            "name": document_name,
+            "org_id": target_org_id,
+            "documenttype_id": document_type_id,
+            "version": "1",
+            "description": f"Documento sincronizado desde acta {document_number}".strip(),
+            "status": "published",
+            "file": {
+                "filename": document_name,
+                "mimetype": _coerce_str(document.get("mimeType")) or "application/octet-stream",
+                "data": b64encode(file_content).decode("ascii"),
+            },
+        },
+        output_fields="id,name,org_id,documenttype_id,status",
+        comment=f"Documento creado desde acta {document_number}".strip(),
+    )
+    if not create_response.ok:
+        raise HTTPException(status_code=502, detail=f"No fue posible crear documento iTop '{document_name}': {create_response.message}")
+
+    created_document = create_response.first()
+    if created_document is None:
+        raise HTTPException(status_code=502, detail=f"iTop no retorno el documento creado para '{document_name}'.")
+
+    link_response = connector.create(
+        "lnkDocumentToFunctionalCI",
+        {
+            "document_id": created_document.id,
+            "functionalci_id": target_id,
+        },
+        output_fields="id,functionalci_id,document_id",
+        comment=f"Documento asociado desde acta {document_number}".strip(),
+    )
+    if not link_response.ok:
+        raise HTTPException(status_code=502, detail=f"No fue posible vincular documento '{document_name}' al EC {target_id}: {link_response.message}")
+
+    link = link_response.first()
+    return {
+        "id": str(created_document.id),
+        "linkId": str(link.id) if link else "",
+        "targetId": str(target_id),
+        "name": document_name,
+        "documentType": _coerce_str(document.get("documentType")),
+        "reused": False,
+    }
+
+
+def _attach_handover_documents_to_itop_targets(
+    current_detail: dict[str, Any],
+    runtime_token: str,
+    itop_ticket: dict[str, Any],
+    documents: list[dict[str, Any]],
+) -> dict[str, Any]:
+    if not documents:
+        return {"ticket": [], "assets": [], "person": []}
+
+    connector = _build_itop_connector(runtime_token)
+    result: dict[str, Any] = {"ticket": [], "assets": [], "person": []}
+    document_number = _coerce_str(current_detail.get("documentNumber"))
+
+    try:
+        ticket_id = _normalize_ticket_id(itop_ticket.get("id"))
+        if ticket_id:
+            ticket_class = _coerce_str(itop_ticket.get("className"), "UserRequest") or "UserRequest"
+            ticket_org_id = _normalize_ticket_id(itop_ticket.get("orgId")) or _resolve_itop_object_org_id(connector, ticket_class, int(ticket_id))
+            if not ticket_org_id:
+                raise HTTPException(status_code=502, detail="No fue posible determinar la organizacion del ticket iTop para adjuntar documentos.")
+            for document in documents:
+                result["ticket"].append(
+                    _create_itop_attachment(
+                        connector,
+                        target_class=ticket_class,
+                        target_id=int(ticket_id),
+                        target_org_id=int(ticket_org_id),
+                        document=document,
+                        comment=f"Adjunto sincronizado desde acta {document_number}".strip(),
+                    )
+                )
+
+        document_type_id = _resolve_itop_document_type_id(connector)
+        if not document_type_id:
+            raise HTTPException(status_code=502, detail="No fue posible determinar el tipo de documento iTop para vincular documentos al EC.")
+
+        for item in current_detail.get("items") or []:
+            asset = item.get("asset") or {}
+            try:
+                asset_id = int(asset.get("id") or 0)
+            except (TypeError, ValueError):
+                asset_id = 0
+            if asset_id <= 0:
+                continue
+
+            asset_class = _resolve_asset_itop_class(connector, asset_id)
+            asset_org_id = _resolve_itop_object_org_id(connector, asset_class, asset_id)
+            if not asset_org_id:
+                raise HTTPException(status_code=502, detail=f"No fue posible determinar la organizacion del EC {asset_id} para adjuntar documentos.")
+            asset_attachments = []
+            asset_documents = []
+            for document in documents:
+                asset_attachments.append(
+                    _create_itop_attachment(
+                        connector,
+                        target_class=asset_class,
+                        target_id=asset_id,
+                        target_org_id=int(asset_org_id),
+                        document=document,
+                        comment=f"Adjunto sincronizado desde acta {document_number}".strip(),
+                    )
+                )
+                asset_documents.append(
+                    _create_itop_document_file(
+                        connector,
+                        target_id=asset_id,
+                        target_org_id=int(asset_org_id),
+                        document_type_id=int(document_type_id),
+                        document=document,
+                        document_number=document_number,
+                    )
+                )
+            result["assets"].append(
+                {
+                    "assetId": str(asset_id),
+                    "assetClass": asset_class,
+                    "attachments": asset_attachments,
+                    "documents": asset_documents,
+                }
+            )
+
+        # TODO pendiente UI no soporta adjunto: Person acepta Attachment via API,
+        # pero la pantalla de iTop no expone documentos/adjuntos para personas.
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"No fue posible adjuntar documentos en iTop: {exc}") from exc
+    finally:
+        connector.close()
+
+    return result
 
 
 def _build_receiver_payload(receiver: dict[str, Any]) -> dict[str, Any]:
@@ -1259,6 +1962,8 @@ def attach_handover_document_evidence(
     document_id: int,
     attachments: list[dict[str, Any]],
     session_user: dict[str, Any],
+    runtime_token: str,
+    ticket_payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     del session_user
 
@@ -1290,6 +1995,15 @@ def attach_handover_document_evidence(
 
     next_generated_documents = list(current_detail.get("generatedDocuments") or [])
     next_evidence_attachments = list(current_detail.get("evidenceAttachments") or [])
+    existing_ticket = _extract_itop_ticket_from_attachments(next_evidence_attachments)
+    itop_ticket = existing_ticket or _create_itop_handover_ticket(current_detail, ticket_payload, runtime_token)
+    if not _normalize_ticket_id(itop_ticket.get("id") if itop_ticket else ""):
+        raise HTTPException(status_code=422, detail="No fue posible determinar el ticket iTop para registrar los adjuntos del acta.")
+    assignment_updates = _apply_itop_handover_assignment(
+        current_detail,
+        runtime_token,
+        ticket_id=_coerce_str(itop_ticket.get("id") if itop_ticket else ""),
+    )
     pending_files: list[dict[str, Path]] = []
     evidence_stored_names_to_delete: list[str] = []
     generated_stored_names_to_delete: list[str] = []
@@ -1376,6 +2090,8 @@ def attach_handover_document_evidence(
                     "uploadedAt": evidence_at,
                     "documentType": document_type,
                     "observation": "",
+                    "itopTicket": itop_ticket,
+                    "itopAssignment": assignment_updates,
                 }
             )
 
@@ -1384,6 +2100,26 @@ def attach_handover_document_evidence(
                 status_code=422,
                 detail="El acta solo puede conservar un maximo total de 2 documentos entre generados y adjuntos.",
             )
+
+        itop_documents = _build_itop_handover_document_files(
+            document_id,
+            next_generated_documents,
+            next_evidence_attachments,
+            pending_files,
+        )
+        itop_attachment_updates = _attach_handover_documents_to_itop_targets(
+            current_detail,
+            runtime_token,
+            itop_ticket,
+            itop_documents,
+        )
+        next_evidence_attachments = [
+            {
+                **item,
+                "itopAttachments": itop_attachment_updates,
+            }
+            for item in next_evidence_attachments
+        ]
 
         document_payload = _build_document_payload_from_detail(
             current_detail,

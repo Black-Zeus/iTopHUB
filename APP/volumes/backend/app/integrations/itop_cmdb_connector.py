@@ -631,10 +631,8 @@ class iTopCMDBConnector:
             grouped.setdefault(obj.itop_class, []).append(obj)
         return grouped
 
-    def link_contact_to_ci(self, ci_class: str | CIClass, ci_id: int, contact_id: int, role: str = "") -> iTopResponse:
+    def link_contact_to_ci(self, ci_class: str | CIClass, ci_id: int, contact_id: int) -> iTopResponse:
         contacts_list: list[dict[str, Any]] = [{"contact_id": contact_id}]
-        if role:
-            contacts_list[0]["role"] = role
         return self.update(
             ci_class,
             ci_id,

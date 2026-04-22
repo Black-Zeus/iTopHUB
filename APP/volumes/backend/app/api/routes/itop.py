@@ -7,7 +7,13 @@ from modules.assets.service import get_itop_asset_detail, list_itop_asset_catalo
 from modules.auth.service import AuthenticationError, get_runtime_token
 from modules.people.service import get_itop_person_detail, search_itop_people
 from modules.settings.itop_catalog_service import get_requirement_itop_catalog
-from modules.teams.service import search_itop_team_people, search_itop_teams
+from modules.settings.service import get_settings_panel
+from modules.teams.service import (
+    list_itop_current_user_teams,
+    resolve_itop_current_person_id,
+    search_itop_team_people,
+    search_itop_teams,
+)
 from modules.users.service import search_itop_users
 
 
@@ -132,7 +138,7 @@ def itop_users_search(q: str = "", hub_session_id: str | None = Cookie(default=N
 def itop_requirement_catalog(hub_session_id: str | None = Cookie(default=None)) -> dict[str, Any]:
     session_id = ensure_session(hub_session_id)
     try:
-        ensure_settings_access(session_id)
+        ensure_any_module_access(session_id, ("settings", "handover"))
         runtime_token = get_runtime_token(session_id)
         return get_requirement_itop_catalog(runtime_token)
     except AuthenticationError as exc:
@@ -143,6 +149,45 @@ def itop_requirement_catalog(hub_session_id: str | None = Cookie(default=None)) 
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Unable to load iTop requirement catalog: {exc}") from exc
+
+
+@router.get("/ticket/defaults")
+def itop_ticket_defaults(hub_session_id: str | None = Cookie(default=None)) -> dict[str, Any]:
+    session_id = ensure_session(hub_session_id)
+    try:
+        ensure_any_module_access(session_id, ("settings", "handover"))
+        return {"item": get_settings_panel("docs")}
+    except AuthenticationError as exc:
+        raise_auth_error(exc)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Unable to load iTop ticket defaults: {exc}") from exc
+
+
+@router.get("/me/teams")
+def itop_current_user_teams(hub_session_id: str | None = Cookie(default=None)) -> dict[str, Any]:
+    session_id = ensure_session(hub_session_id)
+    try:
+        session_user = ensure_any_module_access(session_id, ("handover", "settings"))
+        runtime_token = get_runtime_token(session_id)
+        current_person_id = resolve_itop_current_person_id(session_user, runtime_token)
+        return {
+            "items": list_itop_current_user_teams(session_user, runtime_token),
+            "sessionUser": {
+                **session_user,
+                "itopPersonId": current_person_id,
+                "itopPersonKey": session_user.get("itopPersonKey") or current_person_id,
+            },
+        }
+    except AuthenticationError as exc:
+        raise_auth_error(exc)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Unable to load current user teams: {exc}") from exc
 
 
 @router.get("/teams/search")
@@ -174,7 +219,7 @@ def itop_team_people_search(
 ) -> dict[str, Any]:
     session_id = ensure_session(hub_session_id)
     try:
-        ensure_settings_access(session_id)
+        ensure_any_module_access(session_id, ("settings", "handover"))
         runtime_token = get_runtime_token(session_id)
         return {"items": search_itop_team_people(team_id, q, runtime_token)}
     except AuthenticationError as exc:

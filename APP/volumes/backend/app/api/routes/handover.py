@@ -156,6 +156,7 @@ def handover_document_attach_evidence(
     session_id = ensure_session(hub_session_id)
     try:
         session_user = ensure_module_access(session_id, "handover", write=True)
+        runtime_token = get_runtime_token(session_id)
         normalized_files = [
             {
                 "name": item.name,
@@ -165,7 +166,7 @@ def handover_document_attach_evidence(
             }
             for item in payload.files
         ]
-        return {"item": attach_handover_document_evidence(document_id, normalized_files, session_user)}
+        return {"item": attach_handover_document_evidence(document_id, normalized_files, session_user, runtime_token, payload.ticket)}
     except AuthenticationError as exc:
         raise_auth_error(exc)
     except HTTPException:

@@ -28,3 +28,4 @@ class HandoverEvidenceFileRequest(BaseModel):
 
 class HandoverEvidenceUploadRequest(BaseModel):
     files: list[HandoverEvidenceFileRequest] = Field(default_factory=list)
+    ticket: dict[str, Any] = Field(default_factory=dict)
