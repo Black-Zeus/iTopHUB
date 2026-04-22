@@ -82,7 +82,7 @@ For documentation regeneration, normalization, or governance updates, read `REGE
 ## Git Usage Policy
 
 - Normal Git workflow is allowed for non-destructive repository work.
-- Do not create commits unless the user explicitly requests a commit in the current task.
+- **Commits must only be executed when the user gives a direct, explicit instruction to commit in the current message.** Completing a task or applying changes does not imply permission to commit. If in doubt, do not commit.
 - Allowed Git operations include:
   - `git add`
   - `git commit`
