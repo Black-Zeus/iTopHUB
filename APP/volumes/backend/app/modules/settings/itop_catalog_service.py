@@ -15,21 +15,23 @@ REQUIREMENT_ORIGIN_OPTIONS = [
 ]
 
 REQUIREMENT_IMPACT_OPTIONS = [
-    {"value": "person", "label": "Una Persona"},
-    {"value": "department", "label": "Un Departamento"},
-    {"value": "service", "label": "Un Servicio"},
+    {"value": "3", "label": "Una Persona"},
+    {"value": "1", "label": "Un Departamento"},
+    {"value": "2", "label": "Un Servicio"},
 ]
 
 REQUIREMENT_URGENCY_OPTIONS = [
-    {"value": "low", "label": "Baja"},
-    {"value": "medium", "label": "Media"},
-    {"value": "high", "label": "Alta"},
+    {"value": "4", "label": "Baja"},
+    {"value": "3", "label": "Media"},
+    {"value": "2", "label": "Alta"},
+    {"value": "1", "label": "Critica"},
 ]
 
 REQUIREMENT_PRIORITY_OPTIONS = [
-    {"value": "low", "label": "Baja"},
-    {"value": "medium", "label": "Media"},
-    {"value": "high", "label": "Alta"},
+    {"value": "4", "label": "Baja"},
+    {"value": "3", "label": "Media"},
+    {"value": "2", "label": "Alta"},
+    {"value": "1", "label": "Critica"},
 ]
 
 
