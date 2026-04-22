@@ -136,6 +136,11 @@ PANEL_DEFAULTS: dict[str, dict[str, Any]] = {
         "footerShowPageNumber": True,
         "allowEvidenceUpload": True,
         "evidenceAllowedExtensions": ["pdf", "doc", "docx"],
+        "handoverFooterNote": (
+            "El firmante declara haber recibido los activos detallados en la presente acta, en la fecha indicada, "
+            "aceptando su asignacion conforme a la informacion registrada. La revision tecnica y de preparacion "
+            "de los equipos se documenta en anexo separado."
+        ),
     },
     "cmdb": {
         "enabledAssetTypes": ["Desktop (PC)", "Laptop (Laptop)"],
@@ -398,6 +403,10 @@ def normalize_panel_config(panel_code: str, config: dict[str, Any]) -> dict[str,
                 )
                 if item in {"pdf", "doc", "docx", "txt"}
             ] or PANEL_DEFAULTS["docs"]["evidenceAllowedExtensions"],
+            "handoverFooterNote": _coerce_str(
+                merged.get("handoverFooterNote"),
+                PANEL_DEFAULTS["docs"]["handoverFooterNote"],
+            ),
         }
 
     return {

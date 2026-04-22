@@ -1420,6 +1420,13 @@ export function SettingsPage() {
                 </div>
               </div>
             </div>
+            <div className="mt-4 rounded-[20px] border border-[var(--border-color)] bg-[var(--bg-app)] p-5">
+              <p className="text-sm font-semibold text-[var(--text-primary)]">Pie Acta</p>
+              <p className="mt-1 text-sm text-[var(--text-secondary)]">Texto que aparece al pie del acta de asignacion, bajo las firmas.</p>
+              <div className="mt-4">
+                <Field label="Mensaje pie de acta" rows={3} value={drafts.docs?.handoverFooterNote || ""} onChange={(e) => updateField("docs", "handoverFooterNote", e.target.value)} />
+              </div>
+            </div>
             <Actions dirty={dirtyMap.docs} saving={savingPanel === "docs"} onReset={() => resetPanel("docs")} onSave={() => savePanel("docs", "Documentos")} />
           </div>
         ) : null}
