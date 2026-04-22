@@ -24,3 +24,4 @@ Acts as the reverse proxy entrypoint for the stack and centralizes public routin
 - `itop` is only proxied locally in `dev`.
 - In `qa` and `prd`, the expectation is to proxy the Hub while consuming the original iTop site externally.
 - SSE endpoints should be proxied with buffering disabled and longer read/send timeouts so `/api/v1/events/*` can stay open without polling.
+- Dev proxy allows request bodies up to `50m` so handover evidence uploads can pass through `/api/` even when files are serialized from the browser.
