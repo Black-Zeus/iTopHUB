@@ -105,6 +105,31 @@ function buildItopTicketUrl(integrationUrl, ticketId, ticketClass) {
   return `${base}/pages/UI.php?operation=details&class=${encodeURIComponent(cls)}&id=${encodeURIComponent(id)}`;
 }
 
+function buildTicketDescription(row, template, detail) {
+  const code = String(row?.code || "").trim();
+  const detailCode = code ? buildDetailDocumentNumber(code) : "";
+  const items = detail?.items || [];
+  const count = items.length || Number(row?.assetCount ?? 0);
+
+  let assetLine;
+  if (count === 1 && items[0]?.asset) {
+    const a = items[0].asset;
+    const label = [a.className, a.code].filter(Boolean).join(" - ");
+    assetLine = `Se adjunta acta firmada con el activo entregado: ${label || a.name || "sin identificar"}.`;
+  } else {
+    assetLine = `Se adjunta acta firmada con detalle de ${count} dispositivos entregados.`;
+  }
+
+  const lines = [];
+  const base = String(template || "").trim();
+  if (base) lines.push(base);
+  lines.push("");
+  if (code) lines.push(`Acta: ${code}.`);
+  if (detailCode) lines.push(`Detalle: ${detailCode}.`);
+  lines.push(assetLine);
+  return lines.join("\n");
+}
+
 function downloadListCsv(rows) {
   downloadRowsAsCsv({
     filename: "actas_entrega.csv",
@@ -1121,7 +1146,7 @@ export function HandoverPage() {
                         analystId: analystOption?.value || "",
                         analystName: analystOption?.label || "",
                         subject: ticketConfig.requirementSubject || "",
-                        description: ticketConfig.requirementTicketTemplate || "",
+                        description: buildTicketDescription(row, ticketConfig.requirementTicketTemplate, detail),
                         origin: ticketConfig.requirementOrigin || "",
                         impact: ticketConfig.requirementImpact || "",
                         urgency: ticketConfig.requirementUrgency || "",
