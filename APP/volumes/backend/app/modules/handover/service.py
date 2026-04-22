@@ -472,6 +472,7 @@ def get_handover_bootstrap(session_user: dict[str, Any], runtime_token: str) -> 
             "minCharsAssets": 2,
         },
         "runtimeReady": bool(runtime_token),
+        "itopIntegrationUrl": get_itop_runtime_config().get("integrationUrl") or "",
     }
 
 
@@ -494,13 +495,17 @@ def list_handover_documents(
         handover_type=normalized_type,
     )
 
-    items = [
-        {
+    def _build_list_item(row: dict[str, Any]) -> dict[str, Any]:
+        itop_ticket = _extract_itop_ticket_from_attachments(
+            _deserialize_evidence_attachments(row.get("evidence_attachments"))
+        )
+        return {
             "id": int(row["id"]),
             "code": row["document_number"],
             "person": row["receiver_name"],
             "email": row.get("receiver_email") or "",
             "role": row.get("receiver_role") or "",
+            "elaborador": row.get("owner_name") or "",
             "assetCount": int(row.get("asset_count") or 0),
             "asset": _format_asset_summary(
                 _coerce_str(row.get("first_asset_name")),
@@ -510,10 +515,13 @@ def list_handover_documents(
             "generatedAt": _serialize_datetime(row.get("generated_at")),
             "status": STATUS_DB_TO_UI.get(row["status"], row["status"]),
             "handoverType": TYPE_DB_TO_UI.get(row["handover_type"], row["handover_type"]),
-            "ownerName": row["owner_name"],
+            "ownerName": row.get("owner_name") or "",
+            "itopTicketNumber": itop_ticket.get("number") or "",
+            "itopTicketId": itop_ticket.get("id") or "",
+            "itopTicketClass": itop_ticket.get("className") or "",
         }
-        for row in rows
-    ]
+
+    items = [_build_list_item(row) for row in rows]
     return {"items": items}
 
 

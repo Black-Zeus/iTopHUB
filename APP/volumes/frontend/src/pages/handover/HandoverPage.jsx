@@ -97,18 +97,25 @@ function getHandoverFilterOptionClassName(_, isActive) {
     : "border-transparent bg-transparent text-[var(--text-secondary)] hover:border-[var(--border-color)] hover:bg-[var(--bg-app)] hover:text-[var(--text-primary)]";
 }
 
+function buildItopTicketUrl(integrationUrl, ticketId, ticketClass) {
+  const base = String(integrationUrl || "").trim().replace(/\/+$/, "");
+  const id = String(ticketId || "").trim();
+  const cls = String(ticketClass || "UserRequest").trim();
+  if (!base || !id) return null;
+  return `${base}/pages/UI.php?operation=details&class=${encodeURIComponent(cls)}&id=${encodeURIComponent(id)}`;
+}
+
 function downloadListCsv(rows) {
   downloadRowsAsCsv({
     filename: "actas_entrega.csv",
-    header: ["Acta", "Destinatario", "Cargo", "Activos", "Fecha", "Estado", "Responsable"],
+    header: ["Acta", "Destinatario", "Elaborador", "Folio iTop", "Fecha", "Estado"],
     rows: rows.map((row) => [
       row.code || "",
       row.person || "",
-      row.role || "",
-      row.asset || "",
+      row.elaborador || "",
+      row.itopTicketNumber || "",
       row.date || "",
       row.status || "",
-      row.ownerName || "",
     ]),
   });
 }
@@ -680,17 +687,18 @@ function BlobPdfPreviewModal({ blobUrl, fileName, showDownload = true }) {
 }
 
 async function openBlobPreview({ loadBlob, fallbackName, showDownload = true }) {
-  const { url } = await loadBlob();
-  if (!isPdfDocument(fallbackName)) {
-    triggerBlobDownload({ url, fileName: fallbackName });
+  const { url, filename } = await loadBlob();
+  const resolvedName = filename || fallbackName;
+  if (!isPdfDocument(resolvedName)) {
+    triggerBlobDownload({ url, fileName: resolvedName });
     return;
   }
 
   ModalManager.custom({
-    title: fallbackName || "Documento PDF",
+    title: resolvedName || "Documento PDF",
     size: "pdfViewer",
     showFooter: false,
-    content: <BlobPdfPreviewModal blobUrl={url} fileName={fallbackName || "documento.pdf"} showDownload={showDownload} />,
+    content: <BlobPdfPreviewModal blobUrl={url} fileName={resolvedName || "documento.pdf"} showDownload={showDownload} />,
   });
 }
 
@@ -805,6 +813,7 @@ export function HandoverPage() {
   const [filters, setFilters] = useState({ query: "", status: "" });
   const [catalog, setCatalog] = useState({ statusOptions: [] });
   const [actionConfig, setActionConfig] = useState({ allowEvidenceUpload: true, evidenceAllowedExtensions: ["pdf", "doc", "docx"] });
+  const [itopIntegrationUrl, setItopIntegrationUrl] = useState("");
 
   const kpis = useMemo(() => buildKpis(rows), [rows]);
 
@@ -831,6 +840,7 @@ export function HandoverPage() {
         allowEvidenceUpload: Boolean(bootstrap?.actions?.allowEvidenceUpload ?? true),
         evidenceAllowedExtensions: bootstrap?.actions?.evidenceAllowedExtensions || ["pdf", "doc", "docx"],
       });
+      setItopIntegrationUrl(String(bootstrap?.itopIntegrationUrl || "").replace(/\/+$/, ""));
     } catch (loadError) {
       setError(loadError.message || "No fue posible preparar el modulo.");
     }
@@ -1213,8 +1223,21 @@ export function HandoverPage() {
   const tableColumns = [
     { key: "code", label: "Acta", sortable: true, headerClassName: "w-[9rem] min-w-[9rem]", cellClassName: "w-[9rem] min-w-[9rem]" },
     { key: "person", label: "Destinatario", sortable: true },
-    { key: "role", label: "Cargo", sortable: true },
-    { key: "asset", label: "Activos" },
+    { key: "elaborador", label: "Elaborador", sortable: true },
+    {
+      key: "itopTicketNumber",
+      label: "Folio iTop",
+      sortable: true,
+      headerClassName: "w-[8rem] min-w-[8rem]",
+      cellClassName: "w-[8rem] min-w-[8rem]",
+      render: (value, row) => {
+        const url = buildItopTicketUrl(itopIntegrationUrl, row.itopTicketId, row.itopTicketClass);
+        if (!value) return null;
+        return url
+          ? <a href={url} target="_blank" rel="noopener noreferrer" className="text-[var(--accent-strong)] underline underline-offset-2 hover:opacity-70">{value}</a>
+          : <span>{value}</span>;
+      },
+    },
     { key: "date", label: "Fecha", sortable: true, headerClassName: "w-[7.5rem] min-w-[7.5rem]", cellClassName: "w-[7.5rem] min-w-[7.5rem]" },
     {
       key: "status",
