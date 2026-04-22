@@ -149,7 +149,11 @@ export async function fetchHandoverGeneratedPdfBlob(documentId, documentKind) {
     throw new Error("No fue posible obtener el PDF generado.");
   }
   const blob = await response.blob();
-  return { blob, url: URL.createObjectURL(blob) };
+  const disposition = response.headers.get("Content-Disposition") || "";
+  const match = disposition.match(/filename[^;=\n]*=(['"]?)([^'"\n;]+)\1/i);
+  const filename = match?.[2]?.trim() || null;
+  const namedBlob = filename ? new File([blob], filename, { type: "application/pdf" }) : blob;
+  return { blob, url: URL.createObjectURL(namedBlob), filename };
 }
 
 
