@@ -8,9 +8,14 @@ from fastapi import APIRouter, Cookie, HTTPException
 from fastapi.responses import FileResponse
 
 from api.deps import build_itop_api_url, ensure_session, ensure_settings_access, model_to_dict, raise_auth_error
-from modules.auth.service import AuthenticationError
+from modules.auth.service import AuthenticationError, get_runtime_token
+from modules.handover.document_type_registry import create_missing_document_types, inspect_document_types
+from integrations.itop_cmdb_connector import iTopCMDBConnector
+from integrations.itop_runtime import get_itop_runtime_config
 from modules.settings.service import (
     create_settings_profile,
+    get_settings_panel,
+    normalize_panel_config,
     create_settings_sync_task,
     SETTINGS_ASSET_ROOT,
     list_settings_payload,
@@ -32,6 +37,29 @@ from schemas.settings import (
 
 
 router = APIRouter(prefix="/v1/settings", tags=["settings"])
+
+
+def _build_runtime_itop_connector(runtime_token: str) -> iTopCMDBConnector:
+    runtime_config = get_itop_runtime_config()
+    integration_url = str(runtime_config.get("integrationUrl") or "").strip()
+    if not integration_url:
+        raise HTTPException(status_code=422, detail="La URL de iTop no esta configurada.")
+    return iTopCMDBConnector(
+        base_url=integration_url,
+        token=runtime_token,
+        username="hub-session-user",
+        verify_ssl=bool(runtime_config.get("verifySsl", True)),
+        timeout=int(runtime_config.get("timeoutSeconds") or 30),
+    )
+
+
+def _resolve_docs_config(draft_config: dict[str, Any] | None = None) -> dict[str, Any]:
+    current = get_settings_panel("docs")
+    merged = {
+        **current,
+        **(draft_config or {}),
+    }
+    return normalize_panel_config("docs", merged)
 
 
 @router.get("")
@@ -65,6 +93,80 @@ def settings_update_panel(
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Unable to update settings panel: {exc}") from exc
+
+
+@router.post("/docs/itop-document-types/validate")
+def settings_validate_itop_document_types(
+    payload: SettingsPanelUpdateRequest,
+    hub_session_id: str | None = Cookie(default=None),
+) -> dict[str, Any]:
+    session_id = ensure_session(hub_session_id)
+    try:
+        ensure_settings_access(session_id)
+        runtime_token = get_runtime_token(session_id)
+        docs_config = _resolve_docs_config(payload.config)
+        connector = _build_runtime_itop_connector(runtime_token)
+        try:
+            result = inspect_document_types(connector, docs_config)
+        finally:
+            connector.close()
+        next_config = normalize_panel_config(
+            "docs",
+            {
+                **docs_config,
+                "itopDocumentTypeIds": result.get("resolvedIds") or {},
+            },
+        )
+        return {
+            "ok": all(bool(item.get("exists")) for item in result.get("items") or []),
+            "config": next_config,
+            **result,
+        }
+    except AuthenticationError as exc:
+        raise_auth_error(exc)
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"No fue posible validar los tipos documentales en iTop: {exc}") from exc
+
+
+@router.post("/docs/itop-document-types/create")
+def settings_create_itop_document_types(
+    payload: SettingsPanelUpdateRequest,
+    hub_session_id: str | None = Cookie(default=None),
+) -> dict[str, Any]:
+    session_id = ensure_session(hub_session_id)
+    try:
+        ensure_settings_access(session_id, write=True)
+        runtime_token = get_runtime_token(session_id)
+        docs_config = _resolve_docs_config(payload.config)
+        connector = _build_runtime_itop_connector(runtime_token)
+        try:
+            result = create_missing_document_types(connector, docs_config)
+        finally:
+            connector.close()
+        next_config = normalize_panel_config(
+            "docs",
+            {
+                **docs_config,
+                "itopDocumentTypeIds": result.get("resolvedIds") or {},
+            },
+        )
+        return {
+            "ok": True,
+            "config": next_config,
+            **result,
+        }
+    except AuthenticationError as exc:
+        raise_auth_error(exc)
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"No fue posible crear los tipos documentales en iTop: {exc}") from exc
 
 
 @router.get("/assets/{asset_path:path}")

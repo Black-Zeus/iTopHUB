@@ -51,12 +51,15 @@ Runs the custom React/Vite interface for the Hub layer on top of iTop.
 - `Settings` now shows whether the PDQ SQLite file was detected in the configured shared folder.
 - `Settings` persists panel values from MariaDB through the backend API; panel saves are independent and confirmed from the UI.
 - `Settings` now includes an `Organizacion` panel used by PDF generation, where operators define organization name, acronym, and the logo rendered on generated documents.
+- `Settings > Documentos` now also owns iTop document-type provisioning for actas, including strategy selection (`Tipo unico` vs `Uno por tipo de acta`), preview of expected names, and explicit `Validar en iTop` / `Crear faltantes` actions before saving the panel.
 - The PDQ menu visibility is no longer a browser-only preference; it is loaded from backend configuration.
 - `Settings` exposes explicit validation actions for external services from the panel itself, such as SMTP test, iTop connectivity test, and PDQ database validation, so operators can confirm the current draft values before saving or applying them elsewhere.
 - In panels that expose a `Test` action, the save action should remain blocked until the current draft passes a successful validation; any subsequent edit invalidates that test requirement again.
 - In `Integracion iTop`, the derived REST route should mirror the backend connector and display `URL base + /webservices/rest.php`, not the Hub backend route `/api`.
 - The `Checklists` administration page loads its templates from the backend and persists changes only when the operator confirms `Guardar checklist`, preserving the current editing flow while removing frontend-only mock storage.
 - The `Actas de Entrega` page is no longer a static placeholder: it now loads list data from the backend, searches iTop for receiver/assets during authoring, and saves the acta body plus checklist answers in MariaDB.
+- `Actas de Devolucion` currently mirrors the same handover UI flow as `Actas de Entrega`, exposed as a separate route and filtered by document type while its dedicated business rules are still pending.
+- `Actas de Devolucion` now diverge from delivery in the editor: they allow only one responsible and select assets through a modal filtered by that responsible's current iTop assignments, instead of the inline stock search used by delivery.
 - Collapsible sections should reuse the same expand/collapse interaction pattern defined from `Informes`, including the same button structure, icon direction, and rotation transition, instead of introducing alternate variants per module.
 - Export actions for table results should reuse the same header-button pattern used in `PDQ`: `PanelHeader.actions`, `Button variant="secondary"`, `Icon name="download"`, and the label `Descargar Excel`, even when the generated file is CSV for compatibility reasons.
 - Every filtering form must expose an explicit `Buscar` button visible in the UI; pressing Enter may also submit the search, but the button is mandatory and should remain visually aligned with the filter controls.

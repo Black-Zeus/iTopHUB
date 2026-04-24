@@ -65,6 +65,7 @@ def itop_person_detail(person_id: int, hub_session_id: str | None = Cookie(defau
 @router.get("/assets/search")
 def itop_assets_search(
     q: str = "",
+    assigned_person_id: int | None = None,
     hub_session_id: str | None = Cookie(default=None),
 ) -> dict[str, Any]:
     session_id = ensure_session(hub_session_id)
@@ -72,7 +73,7 @@ def itop_assets_search(
         session_user = ensure_any_module_access(session_id, ("assets", "handover"))
         runtime_token = get_runtime_token(session_id)
         return {
-            "items": search_itop_assets(q, runtime_token),
+            "items": search_itop_assets(q, runtime_token, assigned_person_id=assigned_person_id),
             "sessionUser": session_user["username"],
         }
     except AuthenticationError as exc:

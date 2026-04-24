@@ -7,6 +7,7 @@ import { setPdqModuleEnabled } from "../../services/module-visibility-service";
 import { getPdqStatus } from "../../services/pdq-service";
 import { getItopRequirementCatalog } from "../../services/itop-service";
 import {
+  createItopDocumentTypes,
   createSettingsProfile,
   createSyncTask,
   deleteSyncTask,
@@ -18,6 +19,7 @@ import {
   updateSettingsPanel,
   updateSettingsProfile,
   updateSyncTask,
+  validateItopDocumentTypes,
 } from "../../services/settings-service";
 
 const TABS = [
@@ -41,6 +43,15 @@ const CMDB_OPTIONS = [
   "Periferico (Peripheral)",
 ];
 
+const HANDOVER_RETURN_ASSET_STATUS_OPTIONS = [
+  { value: "stock", label: "En Inventario (stock)" },
+  { value: "implementation", label: "En Implementacion (implementation)" },
+  { value: "production", label: "En Produccion (production)" },
+  { value: "test", label: "En Pruebas (test)" },
+  { value: "obsolete", label: "Obsoleto (obsolete)" },
+  { value: "inactive", label: "Inactivo (inactive)" },
+];
+
 const EVIDENCE_EXTENSION_OPTIONS = [
   { value: "pdf", label: "PDF" },
   { value: "doc", label: "DOC" },
@@ -48,10 +59,29 @@ const EVIDENCE_EXTENSION_OPTIONS = [
   { value: "txt", label: "TXT" },
 ];
 
+const HANDOVER_DOCUMENT_TYPE_STRATEGY_OPTIONS = [
+  { value: "single", label: "Tipo unico" },
+  { value: "per_type", label: "Uno por tipo de acta" },
+];
+
+const HANDOVER_DOCUMENT_TYPE_PREVIEW_TARGETS = [
+  { key: "initial_assignment", label: "Entrega inicial", suffix: "Entrega" },
+  { key: "return", label: "Devolucion", suffix: "Devolucion" },
+  { key: "reassignment", label: "Reasignacion", suffix: "Reasignacion" },
+  { key: "replacement", label: "Reposicion", suffix: "Reposicion" },
+  { key: "normalization", label: "Normalizacion", suffix: "Normalizacion" },
+  { key: "laboratory", label: "Laboratorio", suffix: "Laboratorio" },
+];
+
 const REQUIREMENT_TICKET_CLASS_OPTIONS = [
   { value: "UserRequest", label: "Requerimiento (UserRequest)" },
   { value: "Incident", label: "Incidente (Incident)" },
   { value: "NormalChange", label: "Cambio normal (NormalChange)" },
+];
+
+const REQUIREMENT_INITIAL_STATUS_OPTIONS = [
+  { value: "assigned", label: "Asignado" },
+  { value: "created", label: "Creado" },
 ];
 
 const EMPTY_TASK = {
@@ -170,6 +200,65 @@ function buildSelectOptions(items = [], placeholder = "Selecciona", currentValue
   }
 
   return [{ value: "", label: placeholder }, ...next];
+}
+
+function normalizeDocumentTypeBaseName(value) {
+  const normalized = `${value || ""}`.trim().replace(/\s+/g, " ");
+  return normalized || "Acta";
+}
+
+function buildExpectedDocumentTypeItems(config = {}) {
+  const baseName = normalizeDocumentTypeBaseName(config.itopDocumentTypeBaseName);
+  const strategy = `${config.itopDocumentTypeStrategy || "single"}`.trim().toLowerCase() === "per_type" ? "per_type" : "single";
+
+  if (strategy === "single") {
+    return [
+      {
+        key: "default",
+        typeLabel: "Todas las actas",
+        documentTypeName: baseName,
+      },
+    ];
+  }
+
+  return HANDOVER_DOCUMENT_TYPE_PREVIEW_TARGETS.map((item) => ({
+    key: item.key,
+    typeLabel: item.label,
+    documentTypeName: `${baseName} ${item.suffix}`.trim(),
+  }));
+}
+
+function buildDocumentTypeStatusItems(previewItems = [], syncResult = null, action = "") {
+  const resolvedItems = Array.isArray(syncResult?.items) ? syncResult.items : [];
+
+  return previewItems.map((item) => {
+    const resolved = resolvedItems.find((current) => current.key === item.key);
+
+    if (action) {
+      return {
+        ...item,
+        statusTone: "warning",
+        statusLabel: "Validando...",
+        documentTypeId: resolved?.documentTypeId || "",
+      };
+    }
+
+    if (resolved) {
+      return {
+        ...item,
+        statusTone: resolved.exists ? "success" : "danger",
+        statusLabel: resolved.exists ? "Correcto" : "Error",
+        documentTypeId: resolved.documentTypeId || "",
+      };
+    }
+
+    return {
+      ...item,
+      statusTone: "neutral",
+      statusLabel: "Pendiente",
+      documentTypeId: "",
+    };
+  });
 }
 
 function KPI({ eyebrow, value, status, tone = "success" }) {
@@ -317,6 +406,8 @@ export function SettingsPage() {
   const [testingItop, setTestingItop] = useState(false);
   const [testingPdq, setTestingPdq] = useState(false);
   const [testingMail, setTestingMail] = useState(false);
+  const [documentTypeAction, setDocumentTypeAction] = useState("");
+  const [documentTypeSyncResult, setDocumentTypeSyncResult] = useState(null);
   const [validatedPanelSignatures, setValidatedPanelSignatures] = useState({
     itop: "",
     pdq: "",
@@ -431,18 +522,32 @@ export function SettingsPage() {
     ),
     [drafts.docs?.requirementPriority, loadingRequirementCatalog, requirementCatalog.priorities]
   );
+  const documentTypePreviewItems = useMemo(() => buildExpectedDocumentTypeItems(drafts.docs || {}), [drafts.docs]);
+  const documentTypeStatusItems = useMemo(
+    () => buildDocumentTypeStatusItems(documentTypePreviewItems, documentTypeSyncResult, documentTypeAction),
+    [documentTypeAction, documentTypePreviewItems, documentTypeSyncResult]
+  );
   const updateField = (panelId, field, value, options = {}) => {
     setDrafts((current) => {
       const nextPanel = { ...(current[panelId] || {}), [field]: value };
       if (panelId === "docs" && field === "requirementServiceId" && !options.preserveRequirementSubcategory) {
         nextPanel.requirementServiceSubcategoryId = "";
       }
+      if (panelId === "docs" && (field === "itopDocumentTypeStrategy" || field === "itopDocumentTypeBaseName")) {
+        nextPanel.itopDocumentTypeIds = {};
+      }
       return { ...current, [panelId]: nextPanel };
     });
+    if (panelId === "docs" && ["itopDocumentTypeStrategy", "itopDocumentTypeBaseName"].includes(field)) {
+      setDocumentTypeSyncResult(null);
+    }
   };
 
   const resetPanel = (panelId) => {
     setDrafts((current) => ({ ...current, [panelId]: panels[panelId] || {} }));
+    if (panelId === "docs") {
+      setDocumentTypeSyncResult(null);
+    }
   };
 
   const loadAll = async () => {
@@ -469,6 +574,7 @@ export function SettingsPage() {
         pdq: "",
         mail: "",
       });
+      setDocumentTypeSyncResult(null);
       if ((profilesPayload || []).length > 0) {
         setSelectedProfileCode(profilesPayload[0].code);
         setProfileForm(profilesPayload[0]);
@@ -647,6 +753,68 @@ export function SettingsPage() {
   const resetRequirementPanel = () => {
     resetPanel("docs");
     resetPanel("organization");
+  };
+
+  const syncDocumentTypeDraft = (response) => {
+    const nextConfig = response?.config || drafts.docs || {};
+    setDrafts((current) => ({ ...current, docs: nextConfig }));
+    setDocumentTypeSyncResult(response || null);
+    return nextConfig;
+  };
+
+  const validateDocumentTypesInItop = async () => {
+    setDocumentTypeAction("validate");
+    try {
+      const response = await validateItopDocumentTypes(drafts.docs || {});
+      syncDocumentTypeDraft(response);
+      if (response.ok) {
+        ModalManager.success({
+          title: "Tipos documentales validados",
+          message: "Todos los tipos documentales esperados existen en iTop. Guarda el panel para persistir la referencia resuelta.",
+        });
+      } else {
+        ModalManager.warning({
+          title: "Faltan tipos documentales en iTop",
+          message: "La configuracion fue validada, pero aun faltan tipos por crear. Revisa el detalle y usa Crear faltantes si corresponde.",
+        });
+      }
+    } catch (actionError) {
+      ModalManager.error({
+        title: "No fue posible validar",
+        message: actionError.message || "Ocurrio un error al validar los tipos documentales en iTop.",
+      });
+    } finally {
+      setDocumentTypeAction("");
+    }
+  };
+
+  const createDocumentTypesInItop = async () => {
+    const confirmed = await ModalManager.confirm({
+      title: "Crear tipos documentales en iTop",
+      message: "Se crearan en iTop los tipos documentales faltantes segun la configuracion actual.",
+      content: "Esta accion usa tu sesion runtime contra iTop. Luego debes guardar el panel Documentos para persistir los IDs resueltos en el Hub.",
+      buttons: { cancel: "Cancelar", confirm: "Crear faltantes" },
+    });
+    if (!confirmed) return;
+
+    setDocumentTypeAction("create");
+    try {
+      const response = await createItopDocumentTypes(drafts.docs || {});
+      syncDocumentTypeDraft(response);
+      ModalManager.success({
+        title: "Tipos documentales creados",
+        message: response.created?.length
+          ? `Se crearon ${response.created.length} tipo(s) documental(es) en iTop. Guarda el panel para dejar la configuracion persistida.`
+          : "No habia tipos pendientes por crear. Guarda el panel si quieres persistir los IDs resueltos.",
+      });
+    } catch (actionError) {
+      ModalManager.error({
+        title: "No fue posible crear",
+        message: actionError.message || "Ocurrio un error al crear los tipos documentales en iTop.",
+      });
+    } finally {
+      setDocumentTypeAction("");
+    }
   };
 
   const saveRequirementPanel = async () => {
@@ -1421,6 +1589,126 @@ export function SettingsPage() {
               </div>
             </div>
             <div className="mt-4 rounded-[20px] border border-[var(--border-color)] bg-[var(--bg-app)] p-5">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-[var(--text-primary)]">Tipo documental iTop</p>
+                  <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                    Define como el Hub resolvera o creara el `DocumentType` de iTop para las actas sincronizadas.
+                  </p>
+                </div>
+                <div className="rounded-full border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-secondary)]">
+                  {drafts.docs?.itopDocumentTypeStrategy === "per_type" ? "Uno por tipo" : "Tipo unico"}
+                </div>
+              </div>
+
+              <div className="mt-4 grid gap-4">
+                <div className="grid gap-4 xl:grid-cols-[minmax(240px,0.7fr)_minmax(240px,0.7fr)_minmax(0,1.1fr)]">
+                  <Field
+                    label="Estrategia documental"
+                    value={drafts.docs?.itopDocumentTypeStrategy || "single"}
+                    options={HANDOVER_DOCUMENT_TYPE_STRATEGY_OPTIONS}
+                    onChange={(e) => updateField("docs", "itopDocumentTypeStrategy", e.target.value)}
+                  />
+                  <Field
+                    label="Nombre base"
+                    value={drafts.docs?.itopDocumentTypeBaseName || "Acta"}
+                    onChange={(e) => updateField("docs", "itopDocumentTypeBaseName", e.target.value)}
+                  />
+                  <div className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-4">
+                    <p className="text-sm font-semibold text-[var(--text-primary)]">Validacion y provision</p>
+                    <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                      Valida la existencia en iTop y, si faltan tipos, puedes crearlos desde aqui antes de guardar el panel.
+                    </p>
+                    <div className="mt-4 flex flex-wrap gap-3">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        disabled={documentTypeAction === "validate" || documentTypeAction === "create"}
+                        onClick={validateDocumentTypesInItop}
+                      >
+                        {documentTypeAction === "validate" ? "Validando..." : "Validar en iTop"}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="primary"
+                        disabled={documentTypeAction === "validate" || documentTypeAction === "create"}
+                        onClick={createDocumentTypesInItop}
+                      >
+                        {documentTypeAction === "create" ? "Creando..." : "Crear faltantes"}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-4">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-[var(--text-primary)]">Tipos documentales esperados</p>
+                      <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                        Cada tarjeta muestra el nombre esperado y su semaforo de validacion en iTop.
+                      </p>
+                    </div>
+                    {documentTypeSyncResult ? (
+                      <span className={`inline-flex items-center rounded-full px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] ${
+                        documentTypeSyncResult.ok
+                          ? "bg-[rgba(109,204,146,0.12)] text-[var(--success)]"
+                          : "bg-[rgba(220,171,78,0.12)] text-[var(--warning)]"
+                      }`}>
+                        {documentTypeSyncResult.ok ? "Completo" : "Revision pendiente"}
+                      </span>
+                    ) : null}
+                  </div>
+
+                  <div className={`mt-4 grid gap-3 ${drafts.docs?.itopDocumentTypeStrategy === "per_type" ? "md:grid-cols-2" : ""}`}>
+                    {documentTypeStatusItems.map((item) => {
+                      const statusStyles = {
+                        success: {
+                          dot: "bg-[var(--success)]",
+                          pill: "bg-[rgba(109,204,146,0.12)] text-[var(--success)]",
+                        },
+                        warning: {
+                          dot: "bg-[var(--warning)]",
+                          pill: "bg-[rgba(220,171,78,0.12)] text-[var(--warning)]",
+                        },
+                        danger: {
+                          dot: "bg-[var(--danger)]",
+                          pill: "bg-[rgba(210,138,138,0.12)] text-[var(--danger)]",
+                        },
+                        neutral: {
+                          dot: "bg-[var(--text-muted)]",
+                          pill: "bg-[var(--bg-app)] text-[var(--text-secondary)]",
+                        },
+                      }[item.statusTone];
+
+                      return (
+                        <div key={item.key} className="rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">{item.typeLabel}</p>
+                              <p className="mt-1 text-sm font-semibold text-[var(--text-primary)]">{item.documentTypeName}</p>
+                              <p className="mt-1 text-xs text-[var(--text-secondary)]">
+                                ID: {item.documentTypeId || "Pendiente"}
+                              </p>
+                            </div>
+                            <span className={`inline-flex items-center gap-2 rounded-full px-3 py-2 text-[0.7rem] font-semibold uppercase tracking-[0.08em] ${statusStyles.pill}`}>
+                              <span className={`h-2.5 w-2.5 rounded-full ${statusStyles.dot}`} aria-hidden="true" />
+                              {item.statusLabel}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {documentTypeSyncResult?.created?.length ? (
+                    <div className="mt-4 rounded-[16px] border border-[rgba(109,204,146,0.24)] bg-[rgba(109,204,146,0.08)] px-4 py-4 text-sm text-[var(--text-primary)]">
+                      Se crearon: {documentTypeSyncResult.created.map((item) => item.documentTypeName).join(", ")}.
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+            <div className="mt-4 rounded-[20px] border border-[var(--border-color)] bg-[var(--bg-app)] p-5">
               <p className="text-sm font-semibold text-[var(--text-primary)]">Pie Acta</p>
               <p className="mt-1 text-sm text-[var(--text-secondary)]">Texto que aparece al pie del acta de asignacion, bajo las firmas.</p>
               <div className="mt-4">
@@ -1491,6 +1779,12 @@ export function SettingsPage() {
                       value={drafts.docs?.requirementTicketClass || "UserRequest"}
                       onChange={(e) => updateField("docs", "requirementTicketClass", e.target.value)}
                       options={REQUIREMENT_TICKET_CLASS_OPTIONS}
+                    />
+                    <Field
+                      label="Estado inicial"
+                      value={drafts.docs?.requirementInitialStatus || "assigned"}
+                      onChange={(e) => updateField("docs", "requirementInitialStatus", e.target.value)}
+                      options={REQUIREMENT_INITIAL_STATUS_OPTIONS}
                     />
                   </div>
                 </div>
@@ -1642,13 +1936,38 @@ export function SettingsPage() {
               />
             </div>
             <div className="grid gap-4 md:grid-cols-2">
-              <Field
-                label="Alerta de vencimiento (dias)"
-                type="number"
-                value={String(drafts.cmdb?.warrantyAlertDays || 30)}
-                onChange={(e) => updateField("cmdb", "warrantyAlertDays", e.target.value)}
-              />
-              <Field label="Nota operacional" rows={4} value={drafts.cmdb?.supportNote || ""} onChange={(e) => updateField("cmdb", "supportNote", e.target.value)} />
+              <div className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] p-4">
+                <div>
+                  <p className="text-sm font-semibold text-[var(--text-primary)]">Estado al generar acta de devolucion</p>
+                  <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                    Define el estado CMDB que debe usarse como destino cuando se implemente el flujo operacional de devolucion.
+                  </p>
+                </div>
+                <div className="mt-4">
+                  <Field
+                    label="Estado destino"
+                    value={drafts.cmdb?.handoverReturnAssetStatus || "stock"}
+                    onChange={(e) => updateField("cmdb", "handoverReturnAssetStatus", e.target.value)}
+                    options={HANDOVER_RETURN_ASSET_STATUS_OPTIONS}
+                  />
+                </div>
+              </div>
+              <div className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] p-4">
+                <div>
+                  <p className="text-sm font-semibold text-[var(--text-primary)]">Alerta de vencimiento</p>
+                  <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                    Define la anticipacion, en dias, para advertir vencimientos de garantia en vistas que consumen esta regla CMDB.
+                  </p>
+                </div>
+                <div className="mt-4">
+                  <Field
+                    label="Dias de alerta"
+                    type="number"
+                    value={String(drafts.cmdb?.warrantyAlertDays || 30)}
+                    onChange={(e) => updateField("cmdb", "warrantyAlertDays", e.target.value)}
+                  />
+                </div>
+              </div>
             </div>
             <Actions dirty={dirtyMap.cmdb} saving={savingPanel === "cmdb"} onReset={() => resetPanel("cmdb")} onSave={() => savePanel("cmdb", "CMDB")} />
           </div>

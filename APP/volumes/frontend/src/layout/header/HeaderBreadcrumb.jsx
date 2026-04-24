@@ -3,6 +3,8 @@ import { useLocation } from "react-router-dom";
 const ROUTE_MAP = {
   "/dashboard": { breadcrumb: "Inicio / Dashboard", title: "Dashboard" },
   "/handover": { breadcrumb: "Operacion / Actas de Entrega", title: "Actas de Entrega" },
+  "/returns": { breadcrumb: "Operacion / Actas de Devolucion", title: "Actas de Devolucion" },
+  "/normalization": { breadcrumb: "Operacion / Actas de Normalizacion", title: "Actas de Normalizacion" },
   "/reception": { breadcrumb: "Operacion / Actas de Recepcion", title: "Actas de Recepcion" },
   "/reassignment": { breadcrumb: "Operacion / Acta de Reasignacion", title: "Acta de Reasignacion" },
   "/lab": { breadcrumb: "Laboratorio / Actas", title: "Actas de Laboratorio" },

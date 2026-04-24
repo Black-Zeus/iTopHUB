@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS hub_handover_documents (
     CONSTRAINT chk_hub_handover_documents_status
         CHECK (status IN ('draft', 'issued', 'confirmed')),
     CONSTRAINT chk_hub_handover_documents_type
-        CHECK (handover_type IN ('initial_assignment', 'reassignment', 'replacement'))
+        CHECK (handover_type IN ('initial_assignment', 'return', 'reassignment', 'replacement', 'normalization', 'laboratory'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS hub_handover_document_items (

@@ -28,6 +28,7 @@ import {
   HANDOVER_DOCUMENT_TYPE_OPTIONS,
 } from "./handover-document-library";
 import { MessageBanner } from "./handover-editor-shared";
+import { getHandoverModuleConfig } from "./handover-module-config";
 
 const HANDOVER_FILTER_CONTROL_HEIGHT = "h-[66px]";
 const MAX_EVIDENCE_UPLOAD_FILES = 2;
@@ -105,34 +106,45 @@ function buildItopTicketUrl(integrationUrl, ticketId, ticketClass) {
   return `${base}/pages/UI.php?operation=details&class=${encodeURIComponent(cls)}&id=${encodeURIComponent(id)}`;
 }
 
-function buildTicketDescription(row, template, detail) {
+function buildTicketDescription(row, template, detail, moduleConfig) {
   const code = String(row?.code || "").trim();
   const detailCode = code ? buildDetailDocumentNumber(code) : "";
   const items = detail?.items || [];
   const count = items.length || Number(row?.assetCount ?? 0);
+  const returnReason = String(detail?.reason || "").trim();
 
   let assetLine;
   if (count === 1 && items[0]?.asset) {
     const a = items[0].asset;
-    const label = [a.className, a.code].filter(Boolean).join(" - ");
-    assetLine = `Se adjunta acta firmada con el activo entregado: ${label || a.name || "sin identificar"}.`;
+    const assetIdentifier = a.name || a.code;
+    const label = [a.className, assetIdentifier].filter(Boolean).join(" - ");
+    assetLine = moduleConfig.ticketSingleAssetLine({
+      assetLabel: label,
+      assetName: a.name,
+    });
   } else {
-    assetLine = `Se adjunta acta firmada con detalle de ${count} dispositivos entregados.`;
+    assetLine = moduleConfig.ticketMultiAssetLine({ count });
   }
 
   const lines = [];
   const base = String(template || "").trim();
   if (base) lines.push(base);
   lines.push("");
-  if (code) lines.push(`Acta: ${code}.`);
-  if (detailCode) lines.push(`Detalle: ${detailCode}.`);
-  lines.push(assetLine);
+  if (code) lines.push(`* Acta: ${code}.`);
+  if (detailCode) lines.push(`* Detalle: ${detailCode}.`);
+  if (moduleConfig?.key === "return" && returnReason) {
+    lines.push("");
+    lines.push("Motivo de devolucion:");
+    lines.push(returnReason);
+    lines.push("");
+  }
+  lines.push(`* ${assetLine}`);
   return lines.join("\n");
 }
 
-function downloadListCsv(rows) {
+function downloadListCsv(rows, moduleConfig) {
   downloadRowsAsCsv({
-    filename: "actas_entrega.csv",
+    filename: moduleConfig.csvFilename,
     header: ["Acta", "Destinatario", "Elaborador", "Folio iTop", "Fecha", "Estado"],
     rows: rows.map((row) => [
       row.code || "",
@@ -245,11 +257,12 @@ function buildPendingEvidenceDocuments(items = []) {
 }
 
 function buildDetailDocumentNumber(documentNumber = "") {
-  const parts = String(documentNumber || "").trim().split("-", 2);
-  if (parts.length !== 2 || !parts[0]) {
-    return `${String(documentNumber || "").trim()}D`;
+  const normalized = String(documentNumber || "").trim();
+  const separatorIndex = normalized.indexOf("-");
+  if (separatorIndex <= 0) {
+    return `${normalized}D`;
   }
-  return `${parts[0]}D-${parts[1]}`;
+  return `${normalized.slice(0, separatorIndex)}D-${normalized.slice(separatorIndex + 1)}`;
 }
 
 function buildEvidenceStoredName(documentNumber, documentType, originalName = "") {
@@ -829,9 +842,10 @@ function DocumentLibraryModal({ row, detail, onClose, onOpenGeneratedDocument, o
   );
 }
 
-export function HandoverPage() {
+export function HandoverPage({ moduleVariant = "delivery" }) {
   const navigate = useNavigate();
   const { add } = useToast();
+  const moduleConfig = getHandoverModuleConfig(moduleVariant);
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -846,10 +860,13 @@ export function HandoverPage() {
     setLoading(true);
     setError("");
     try {
-      const payload = await listHandoverDocuments(nextFilters);
+      const payload = await listHandoverDocuments({
+        ...nextFilters,
+        handoverType: moduleConfig.typeFilter,
+      });
       setRows(payload.items || []);
     } catch (loadError) {
-      setError(loadError.message || "No fue posible cargar las actas de entrega.");
+      setError(loadError.message || `No fue posible cargar las ${moduleConfig.titleSingular.replace("acta", "actas")}.`);
     } finally {
       setLoading(false);
     }
@@ -1119,6 +1136,34 @@ export function HandoverPage() {
 
                 ModalManager.close(loadingModalId);
 
+                if (!ticketConfig.requirementEnabled) {
+                  const confirmLoadingModalId = ModalManager.loading({
+                    title: "Confirmando acta",
+                    message: "Registrando evidencias y actualizando el acta...",
+                    showProgress: false,
+                    cancelLabel: "Cerrar",
+                  });
+                  try {
+                    await uploadHandoverEvidence(row.id, items);
+                    ModalManager.close(confirmLoadingModalId);
+                    ModalManager.close(modalId);
+                    setError("");
+                    add({
+                      title: "Acta confirmada",
+                      description: `El acta ${row.code} quedo Confirmada y las evidencias fueron registradas correctamente.`,
+                      tone: "success",
+                    });
+                    await loadDocuments(filters);
+                  } catch (publishError) {
+                    ModalManager.close(confirmLoadingModalId);
+                    ModalManager.error({
+                      title: "No fue posible confirmar el acta",
+                      message: publishError.message || "No fue posible registrar las evidencias del acta.",
+                    });
+                  }
+                  return;
+                }
+
                 const groupOptions = normalizeTicketOptions(teamsPayload.items);
                 const initialGroupId = groupOptions.length === 1 ? groupOptions[0].value : "";
                 const initialGroupAnalysts = initialGroupId ? await searchItopTeamPeople({ teamId: initialGroupId }) : [];
@@ -1146,7 +1191,7 @@ export function HandoverPage() {
                         analystId: analystOption?.value || "",
                         analystName: analystOption?.label || "",
                         subject: ticketConfig.requirementSubject || "",
-                        description: buildTicketDescription(row, ticketConfig.requirementTicketTemplate, detail),
+                        description: buildTicketDescription(row, ticketConfig.requirementTicketTemplate, detail, moduleConfig),
                         origin: ticketConfig.requirementOrigin || "",
                         impact: ticketConfig.requirementImpact || "",
                         urgency: ticketConfig.requirementUrgency || "",
@@ -1289,7 +1334,7 @@ export function HandoverPage() {
             key: "edit",
             label: "Editar",
             icon: "edit",
-            onClick: () => navigate(`/handover/${row.id}`),
+            onClick: () => navigate(`${moduleConfig.basePath}/${row.id}`),
           });
         }
 
@@ -1298,7 +1343,7 @@ export function HandoverPage() {
             key: "view",
             label: "Ver",
             icon: "eye",
-            onClick: () => navigate(`/handover/${row.id}`),
+            onClick: () => navigate(`${moduleConfig.basePath}/${row.id}`),
           });
         }
 
@@ -1414,7 +1459,7 @@ export function HandoverPage() {
       {error ? <MessageBanner tone="danger">{error}</MessageBanner> : null}
 
       <Panel>
-        <PanelHeader eyebrow="Operacion" title="Filtros Actas de Entrega" />
+        <PanelHeader eyebrow="Operacion" title={moduleConfig.filterTitle} />
         <form className="grid gap-4" onSubmit={handleFilterSubmit}>
           <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
             <div className="grid gap-3">
@@ -1422,7 +1467,7 @@ export function HandoverPage() {
                 <div className="min-w-0 xl:col-span-3">
                   <SearchFilterInput
                     value={filters.query}
-                    placeholder="Buscar por acta, colaborador o activo entregado"
+                    placeholder={moduleConfig.searchPlaceholder}
                     onChange={(event) => setFilters((current) => ({ ...current, query: event.target.value }))}
                   />
                 </div>
@@ -1474,16 +1519,16 @@ export function HandoverPage() {
       <Panel>
         <PanelHeader
           eyebrow="Operacion"
-          title="Listado de Actas de Entrega"
+          title={moduleConfig.listTitle}
           actions={(
             <>
               {rows.length ? (
-                <Button variant="secondary" onClick={() => downloadListCsv(rows)}>
+                <Button variant="secondary" onClick={() => downloadListCsv(rows, moduleConfig)}>
                   <Icon name="download" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                   Descargar Excel
                 </Button>
               ) : null}
-              <Button variant="primary" onClick={() => navigate("/handover/nueva")}>
+              <Button variant="primary" onClick={() => navigate(`${moduleConfig.basePath}/nueva`)}>
                 <Icon name="plus" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                 Nueva acta
               </Button>
@@ -1491,7 +1536,7 @@ export function HandoverPage() {
           )}
         />
 
-        <DataTable columns={tableColumns} rows={rows} loading={loading} emptyMessage="No hay actas de entrega registradas con los filtros actuales." />
+        <DataTable columns={tableColumns} rows={rows} loading={loading} emptyMessage={moduleConfig.emptyListMessage} />
       </Panel>
     </div>
   );

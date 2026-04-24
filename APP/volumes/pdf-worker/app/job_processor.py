@@ -1,5 +1,6 @@
 import os
 import sys
+import importlib
 import importlib.util
 from datetime import datetime
 from pathlib import Path
@@ -24,9 +25,6 @@ def _load_pdf_worker_render_function():
         raise RuntimeError("El modulo local de pdf-worker no expone _render_pdf.")
     return render_fn
 
-
-_render_pdf = _load_pdf_worker_render_function()
-
 sys.path.insert(0, "/app_backend")
 from infrastructure.job_manager import get_pending_job, set_job_status
 
@@ -40,10 +38,45 @@ def _format_attachment_size(size_bytes: int) -> str:
 
 
 def render_handover_pdf(html: str, footer_html: str | None = None, filename: str | None = None) -> dict[str, Any]:
-    pdf_bytes = _render_pdf(html, footer_html=footer_html, filename=filename)
+    render_pdf = _load_pdf_worker_render_function()
+    pdf_bytes = render_pdf(html, footer_html=footer_html, filename=filename)
     return {
         "content": pdf_bytes,
         "size": len(pdf_bytes),
+    }
+
+
+def _load_backend_module(module_name: str):
+    module = importlib.import_module(module_name)
+    if os.getenv("ENV_NAME", "").strip().lower() == "dev":
+        # Reload each module before importing dependants so long-lived workers
+        # pick up newly added symbols during local development.
+        module = importlib.reload(module)
+    return module
+
+
+def _load_handover_emit_dependencies() -> dict[str, Any]:
+    _load_backend_module("modules.settings.service")
+    handover_types = _load_backend_module("modules.handover.handover_types")
+    document_templates = _load_backend_module("modules.handover.document_templates")
+    payloads = _load_backend_module("modules.handover.payloads")
+    pdf_pipeline = _load_backend_module("modules.handover.pdf_pipeline")
+    repository = _load_backend_module("modules.handover.repository")
+    service = _load_backend_module("modules.handover.service")
+
+    return {
+        "build_detail_document_number": document_templates.build_detail_document_number,
+        "build_handover_detail_html": document_templates.build_handover_detail_html,
+        "build_handover_main_html": document_templates.build_handover_main_html,
+        "build_document_payload_from_detail": payloads.build_document_payload_from_detail,
+        "build_item_payloads_from_detail": payloads.build_item_payloads_from_detail,
+        "build_handover_storage_directory": service.build_handover_storage_directory,
+        "build_handover_storage_source": service.build_handover_storage_source,
+        "fetch_handover_document_row": repository.fetch_handover_document_row,
+        "save_handover_document": repository.save_handover_document,
+        "enrich_handover_detail_for_pdf": service.enrich_handover_detail_for_pdf,
+        "get_handover_document_detail": service.get_handover_document_detail,
+        "logger": service.logger,
     }
 
 
@@ -74,21 +107,19 @@ def _extract_job_error(exc: Exception) -> tuple[str, str]:
 
 def process_handover_emit_job(job: dict[str, Any]) -> dict[str, Any]:
     sys.path.insert(0, "/app_backend")
-
-    from modules.handover.pdf_pipeline import (
-        HANDOVER_DOCUMENT_ROOT,
-        build_detail_document_number,
-        build_handover_detail_html,
-        build_handover_main_html,
-    )
-    from modules.handover.service import (
-        get_handover_document_detail,
-        save_handover_document,
-        fetch_handover_document_row,
-        _build_document_payload_from_detail,
-        _build_item_payloads_from_detail,
-        enrich_handover_detail_for_pdf,
-    )
+    dependencies = _load_handover_emit_dependencies()
+    build_detail_document_number = dependencies["build_detail_document_number"]
+    build_handover_detail_html = dependencies["build_handover_detail_html"]
+    build_handover_main_html = dependencies["build_handover_main_html"]
+    build_document_payload_from_detail = dependencies["build_document_payload_from_detail"]
+    build_item_payloads_from_detail = dependencies["build_item_payloads_from_detail"]
+    build_handover_storage_directory = dependencies["build_handover_storage_directory"]
+    build_handover_storage_source = dependencies["build_handover_storage_source"]
+    fetch_handover_document_row = dependencies["fetch_handover_document_row"]
+    save_handover_document = dependencies["save_handover_document"]
+    enrich_handover_detail_for_pdf = dependencies["enrich_handover_detail_for_pdf"]
+    get_handover_document_detail = dependencies["get_handover_document_detail"]
+    logger = dependencies["logger"]
 
     document_id = int(job["payload"]["document_id"])
     session_id = str(job.get("session_id") or "").strip()
@@ -108,6 +139,7 @@ def process_handover_emit_job(job: dict[str, Any]) -> dict[str, Any]:
         detail_for_pdf,
         session_id=session_id or None,
     )
+    handover_type = detail_for_pdf.get("handoverTypeCode") or detail_for_pdf.get("handoverType") or "initial_assignment"
 
     main_stored_name = f"{detail_for_pdf.get('documentNumber')}.pdf"
     detail_document_code = build_detail_document_number(str(detail_for_pdf.get("documentNumber") or ""))
@@ -119,8 +151,14 @@ def process_handover_emit_job(job: dict[str, Any]) -> dict[str, Any]:
     pdf_main = render_handover_pdf(html_main, footer_main, filename=main_stored_name)
     pdf_detail = render_handover_pdf(html_detail, footer_detail, filename=detail_stored_name)
 
-    storage_directory = HANDOVER_DOCUMENT_ROOT / f"document_{document_id}"
+    storage_directory = build_handover_storage_directory("documents", document_id, handover_type)
     storage_directory.mkdir(parents=True, exist_ok=True)
+    logger.info(
+        "Usando directorio PDF de handover para acta %s (%s): %s",
+        document_id,
+        handover_type,
+        storage_directory,
+    )
     generated_at = datetime.now().strftime("%Y-%m-%dT%H:%M")
 
     created_files: list[Path] = []
@@ -134,7 +172,7 @@ def process_handover_emit_job(job: dict[str, Any]) -> dict[str, Any]:
         created_files.append(detail_path)
 
         existing_document = fetch_handover_document_row(document_id)
-        document_payload = _build_document_payload_from_detail(
+        document_payload = build_document_payload_from_detail(
             detail_for_pdf,
             existing_document,
             status_ui="Emitida",
@@ -149,7 +187,13 @@ def process_handover_emit_job(job: dict[str, Any]) -> dict[str, Any]:
                     "storedName": main_stored_name,
                     "mimeType": "application/pdf",
                     "size": _format_attachment_size(pdf_main["size"]),
-                    "source": f"{env_name}/handover_documents/document_{document_id}/{main_stored_name}",
+                    "source": build_handover_storage_source(
+                        env_name,
+                        "documents",
+                        document_id,
+                        handover_type,
+                        main_stored_name,
+                    ),
                     "uploadedAt": generated_at,
                 },
                 {
@@ -160,13 +204,19 @@ def process_handover_emit_job(job: dict[str, Any]) -> dict[str, Any]:
                     "storedName": detail_stored_name,
                     "mimeType": "application/pdf",
                     "size": _format_attachment_size(pdf_detail["size"]),
-                    "source": f"{env_name}/handover_documents/document_{document_id}/{detail_stored_name}",
+                    "source": build_handover_storage_source(
+                        env_name,
+                        "documents",
+                        document_id,
+                        handover_type,
+                        detail_stored_name,
+                    ),
                     "uploadedAt": generated_at,
                 },
             ],
             evidence_attachments=current_detail.get("evidenceAttachments") or [],
         )
-        item_payloads = _build_item_payloads_from_detail(current_detail.get("items") or [])
+        item_payloads = build_item_payloads_from_detail(current_detail.get("items") or [])
 
         save_handover_document(document_id, document_payload, item_payloads)
     except Exception:

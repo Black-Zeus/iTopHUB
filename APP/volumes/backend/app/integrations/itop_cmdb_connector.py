@@ -640,6 +640,76 @@ class iTopCMDBConnector:
             comment="Contact linked via iTopCMDBConnector",
         )
 
+    def link_contacts_to_ci(self, ci_class: str | CIClass, ci_id: int, contact_ids: list[int]) -> iTopResponse:
+        unique_ids = sorted({int(contact_id) for contact_id in contact_ids if int(contact_id) > 0})
+        if not unique_ids:
+            return iTopResponse(code=0, message="No contact links requested.", objects={}, raw={})
+        contacts_list: list[dict[str, Any]] = [{"contact_id": contact_id} for contact_id in unique_ids]
+        return self.update(
+            ci_class,
+            ci_id,
+            {"contacts_list": contacts_list},
+            comment="Contacts linked via iTopCMDBConnector",
+        )
+
+    def link_contacts_to_ticket(self, ticket_class: str | CIClass, ticket_id: int, contact_ids: list[int]) -> iTopResponse:
+        unique_ids = sorted({int(contact_id) for contact_id in contact_ids if int(contact_id) > 0})
+        if not unique_ids:
+            return iTopResponse(code=0, message="No contact links requested.", objects={}, raw={})
+
+        contacts_list: list[dict[str, Any]] = [{"contact_id": contact_id} for contact_id in unique_ids]
+        response = self.update(
+            ticket_class,
+            ticket_id,
+            {"contacts_list": contacts_list},
+            comment="Contacts linked to ticket via iTopCMDBConnector",
+        )
+        if response.ok:
+            return response
+
+        linked_objects: dict[str, dict[str, Any]] = {}
+        for contact_id in unique_ids:
+            create_response = self.create(
+                "lnkContactToTicket",
+                {
+                    "ticket_id": int(ticket_id),
+                    "contact_id": int(contact_id),
+                },
+                output_fields="id,ticket_id,contact_id",
+                comment="Contact linked to ticket via iTopCMDBConnector",
+            )
+            if not create_response.ok:
+                return create_response
+            linked_objects.update(create_response.objects or {})
+
+        return iTopResponse(
+            code=0,
+            message="Contacts linked to ticket.",
+            objects=linked_objects,
+            raw={"fallback": "lnkContactToTicket"},
+        )
+
+    def unlink_contact_from_ci(self, ci_id: int, contact_id: int) -> iTopResponse:
+        relation_query = (
+            "SELECT lnkContactToFunctionalCI "
+            f"WHERE functionalci_id = {int(ci_id)} AND contact_id = {int(contact_id)}"
+        )
+        relation_rows = self.get("lnkContactToFunctionalCI", relation_query, output_fields="id").items()
+        if not relation_rows:
+            return iTopResponse(code=0, message="No contact link found.", objects={}, raw={})
+
+        for relation_row in relation_rows:
+            response = self.delete(
+                "lnkContactToFunctionalCI",
+                relation_row.id,
+                simulate=False,
+                comment="Contact unlinked via iTopCMDBConnector",
+            )
+            if not response.ok:
+                return response
+
+        return iTopResponse(code=0, message="Contact link removed.", objects={}, raw={})
+
     def list_persons(
         self,
         org_id: Optional[int] = None,

@@ -8,8 +8,6 @@ from fastapi.responses import FileResponse
 from api.deps import ensure_module_access, ensure_session, model_to_dict, raise_auth_error
 from modules.auth.service import AuthenticationError, get_runtime_token
 from modules.handover.service import (
-    HANDOVER_EVIDENCE_ROOT,
-    GENERATED_DOCUMENT_KINDS,
     attach_handover_document_evidence,
     create_handover_document,
     emit_handover_document,
@@ -19,7 +17,8 @@ from modules.handover.service import (
     rollback_handover_document,
     update_handover_document,
 )
-from modules.handover.pdf_pipeline import HANDOVER_DOCUMENT_ROOT
+from modules.handover.shared import GENERATED_DOCUMENT_KINDS
+from modules.handover.storage_paths import resolve_existing_handover_storage_file
 from schemas.handover import HandoverEvidenceUploadRequest, HandoverSaveRequest
 
 
@@ -85,7 +84,8 @@ def handover_document_create(
     session_id = ensure_session(hub_session_id)
     try:
         session_user = ensure_module_access(session_id, "handover", write=True)
-        return {"item": create_handover_document(model_to_dict(payload), session_user)}
+        runtime_token = get_runtime_token(session_id)
+        return {"item": create_handover_document(model_to_dict(payload), session_user, runtime_token=runtime_token)}
     except AuthenticationError as exc:
         raise_auth_error(exc)
     except HTTPException:
@@ -103,7 +103,8 @@ def handover_document_update(
     session_id = ensure_session(hub_session_id)
     try:
         session_user = ensure_module_access(session_id, "handover", write=True)
-        return {"item": update_handover_document(document_id, model_to_dict(payload), session_user)}
+        runtime_token = get_runtime_token(session_id)
+        return {"item": update_handover_document(document_id, model_to_dict(payload), session_user, runtime_token=runtime_token)}
     except AuthenticationError as exc:
         raise_auth_error(exc)
     except HTTPException:
@@ -187,15 +188,21 @@ def handover_document_evidence_download(
     except AuthenticationError as exc:
         raise_auth_error(exc)
 
-    safe_name = Path(stored_name).name
-    file_path = HANDOVER_EVIDENCE_ROOT / f"document_{document_id}" / safe_name
-    if not file_path.exists():
+    document = get_handover_document_detail(document_id)
+    file_path = resolve_existing_handover_storage_file(
+        "evidence",
+        document_id,
+        stored_name,
+        handover_type=document.get("handoverTypeCode") or document.get("handoverType"),
+        include_legacy=True,
+    )
+    if file_path is None:
         raise HTTPException(status_code=404, detail="Adjunto no encontrado.")
 
-    media_type, _ = mimetypes.guess_type(safe_name)
+    media_type, _ = mimetypes.guess_type(file_path.name)
     return FileResponse(
         path=str(file_path),
-        filename=safe_name,
+        filename=file_path.name,
         media_type=media_type or "application/octet-stream",
     )
 
@@ -228,8 +235,14 @@ def handover_document_pdf_download(
     if not safe_name:
         raise HTTPException(status_code=404, detail="PDF no encontrado.")
 
-    file_path = HANDOVER_DOCUMENT_ROOT / f"document_{document_id}" / safe_name
-    if not file_path.exists():
+    file_path = resolve_existing_handover_storage_file(
+        "documents",
+        document_id,
+        safe_name,
+        handover_type=document.get("handoverTypeCode") or document.get("handoverType"),
+        include_legacy=True,
+    )
+    if file_path is None:
         raise HTTPException(status_code=404, detail="PDF no encontrado.")
 
     return FileResponse(

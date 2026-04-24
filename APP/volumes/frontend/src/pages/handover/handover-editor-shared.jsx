@@ -8,6 +8,7 @@ import {
   buildHandoverDocumentLibraryEntries,
   getHandoverDocumentTypeLabel,
 } from "./handover-document-library";
+import { getHandoverModuleConfig } from "./handover-module-config";
 
 export const INPUT_CLASS_NAME = "h-[50px] rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 text-sm text-[var(--text-primary)] outline-none";
 export const TEXTAREA_CLASS_NAME = "w-full rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-3 text-sm text-[var(--text-primary)] outline-none";
@@ -51,11 +52,38 @@ function matchesTemplateCmdbClass(assetClassName, templateClassLabel) {
 
 export { matchesTemplateCmdbClass };
 
-export function getAssetAssignmentRestriction(asset) {
+export function getAssetAssignmentRestriction(asset, options = {}) {
+  const selectionMode = options.assetSelectionMode || "stock_unassigned";
+  const receiver = options.receiver || null;
+  const enforceSingleAssignment = Boolean(options.enforceSingleAssignment);
   const status = String(asset?.status || "").trim();
   const assignedUser = String(asset?.assignedUser || "").trim();
   const normalizedStatus = normalizeComparisonText(status);
   const normalizedAssignedUser = normalizeComparisonText(assignedUser);
+
+  if (selectionMode === "assigned_to_receiver") {
+    const receiverId = Number(receiver?.id || 0);
+    const assignedUsers = Array.isArray(asset?.assignedUsers) ? asset.assignedUsers : [];
+    const matchesReceiver = receiverId > 0 && assignedUsers.some((item) => Number(item?.id || 0) === receiverId);
+    if (!receiverId) {
+      return "Debes seleccionar primero al responsable para buscar activos asociados.";
+    }
+    if (!matchesReceiver) {
+      return `No se puede agregar porque el activo no esta asociado a ${receiver?.name || "este responsable"}.`;
+    }
+    if (enforceSingleAssignment && assignedUsers.length > 1) {
+      const assignedNames = assignedUsers
+        .map((item) => String(item?.name || "").trim())
+        .filter(Boolean)
+        .join(", ");
+      return `No se puede agregar porque el activo esta asociado a mas de una persona en iTop${assignedNames ? `: ${assignedNames}.` : "."}`;
+    }
+    return "";
+  }
+
+  if (selectionMode === "none") {
+    return "";
+  }
 
   if (normalizedStatus !== "stock") {
     return `No se puede asignar porque esta en estado ${status || "desconocido"}.`;
@@ -75,7 +103,8 @@ function normalizeSecondaryReceiverRole(value) {
   return SECONDARY_RECEIVER_ROLE_OPTIONS.includes(value) ? value : "Contraturno";
 }
 
-export function createEmptyForm(bootstrap) {
+export function createEmptyForm(bootstrap, options = {}) {
+  const moduleConfig = getHandoverModuleConfig(options.moduleVariant);
   return {
     documentNumber: "",
     creationDate: bootstrap?.defaults?.creationDate || bootstrap?.defaults?.generatedAt || "",
@@ -85,7 +114,7 @@ export function createEmptyForm(bootstrap) {
     evidenceAttachments: bootstrap?.defaults?.evidenceAttachments || [],
     itopTicket: null,
     status: "En creacion",
-    handoverType: "Entrega inicial",
+    handoverType: options.defaultHandoverType || moduleConfig.handoverType,
     reason: "",
     notes: "",
     owner: bootstrap?.sessionUser || { id: null, name: "", username: "" },
@@ -118,7 +147,14 @@ export function createFormFromDetail(detail, bootstrap) {
       ...person,
       assignmentRole: normalizeSecondaryReceiverRole(person.assignmentRole),
     })),
-    items: detail.items || [],
+    items: (detail.items || []).map((item) => ({
+      ...item,
+      evidences: (item.evidences || []).map((evidence) => ({
+        ...evidence,
+        previewUrl: "",
+        file: null,
+      })),
+    })),
   };
 }
 
@@ -634,11 +670,30 @@ export function HandoverEditorSections({
   readOnly = false,
   documentId = null,
   itopIntegrationUrl = "",
+  reasonLabel = "Motivo de entrega",
+  receiverSectionTitle = "Persona que recibe",
+  receiverSectionHelper = "Busca en Personas de iTop, define una persona principal y, si hace falta, agrega participantes secundarios con un motivo claro.",
+  receiverSearchLabel = "Buscar persona",
+  primaryReceiverLabel = "Responsable principal",
+  emptyPrimaryReceiverMessage = "No hay persona principal seleccionada para esta acta.",
+  allowAdditionalReceivers = true,
+  addSecondaryLabel = "Agregar secundario",
+  assetSectionTitle = "Activos incluidos",
+  assetSelectionMode = "inline",
+  assetSearchLabel = "Buscar activo",
+  assetSearchPlaceholder = "Codigo, nombre o serie",
+  enforceSingleAssignment = false,
+  onOpenAssetSelector = null,
+  showItemEvidenceSection = false,
+  addItemEvidenceFiles = () => {},
+  updateItemEvidenceCaption = () => {},
+  removeItemEvidence = () => {},
 }) {
   const topPanelsExpanded = !collapsedSections.document && !collapsedSections.receiver;
   const shouldShowItopSection = readOnly && form.status === "Confirmada";
   const [collapsedAssets, setCollapsedAssets] = useState({});
   const [collapsedChecklists, setCollapsedChecklists] = useState({});
+  const [collapsedEvidences, setCollapsedEvidences] = useState({});
   const libraryDocuments = buildHandoverDocumentLibraryEntries({
     generatedDocuments: form.generatedDocuments || [],
     evidenceAttachments: form.evidenceAttachments || [],
@@ -657,6 +712,13 @@ export function HandoverEditorSections({
     setCollapsedChecklists((current) => ({
       ...current,
       [checklistKey]: !current[checklistKey],
+    }));
+  };
+
+  const toggleEvidenceSection = (assetId) => {
+    setCollapsedEvidences((current) => ({
+      ...current,
+      [assetId]: !current[assetId],
     }));
   };
 
@@ -744,7 +806,7 @@ export function HandoverEditorSections({
               </div>
             ) : null}
             <div className="md:col-span-2">
-              <Field label="Motivo de entrega">
+              <Field label={reasonLabel}>
                 {readOnly
                   ? <ReadOnlyValue value={form.reason} placeholder="Sin motivo registrado" />
                   : <textarea rows="3" value={form.reason} onChange={(event) => setForm((current) => ({ ...current, reason: event.target.value }))} className={TEXTAREA_CLASS_NAME} placeholder="Indica por que se emite esta acta" />
@@ -821,16 +883,16 @@ export function HandoverEditorSections({
 
           <EditorSectionPanel
             eyebrow="Destino"
-            title="Persona que recibe"
-            helper="Busca en Personas de iTop, define una persona principal y, si hace falta, agrega participantes secundarios con un motivo claro."
+            title={receiverSectionTitle}
+            helper={receiverSectionHelper}
             isCollapsed={collapsedSections.receiver}
             onToggle={() => toggleSection("receiver")}
             className={topPanelsExpanded ? "h-full" : ""}
           >
             <div className="grid gap-4">
               {!readOnly ? (
-                <div className="relative z-10">
-                  <Field label="Buscar persona">
+                <div className="relative z-20">
+                  <Field label={receiverSearchLabel}>
                     <input ref={personSearchInputRef} type="search" value={personSearchQuery} onChange={(event) => setPersonSearchQuery(event.target.value)} className={INPUT_CLASS_NAME} placeholder={`Escribe nombre, identificador o correo (${minCharsPeople}+ caracteres)`} />
                   </Field>
 
@@ -852,7 +914,9 @@ export function HandoverEditorSections({
                             actions={(
                               <>
                                 <Button size="sm" variant="secondary" onClick={() => selectPrimaryReceiver(person)}>Principal</Button>
-                                <Button size="sm" variant="secondary" onClick={() => addAdditionalReceiver(person)}>Agregar secundario</Button>
+                                {allowAdditionalReceivers ? (
+                                  <Button size="sm" variant="secondary" onClick={() => addAdditionalReceiver(person)}>{addSecondaryLabel}</Button>
+                                ) : null}
                               </>
                             )}
                           />
@@ -869,7 +933,7 @@ export function HandoverEditorSections({
 
               {form.receiver ? (
                 <div className="grid gap-3">
-                  <div className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Responsable principal</div>
+                  <div className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">{primaryReceiverLabel}</div>
                   <div className="rounded-[18px] border border-[rgba(99,177,255,0.38)] bg-[rgba(99,177,255,0.08)] px-4 py-4">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
@@ -887,10 +951,10 @@ export function HandoverEditorSections({
                   </div>
                 </div>
               ) : (
-                <MessageBanner>No hay persona principal seleccionada para esta acta.</MessageBanner>
+                <MessageBanner>{emptyPrimaryReceiverMessage}</MessageBanner>
               )}
 
-              {form.additionalReceivers?.length ? (
+              {allowAdditionalReceivers && form.additionalReceivers?.length ? (
                 <div className="grid gap-3">
                   <div className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Participantes secundarios</div>
                   {form.additionalReceivers.map((person) => (
@@ -933,15 +997,28 @@ export function HandoverEditorSections({
 {!readOnly ? (
       <EditorSectionPanel
         eyebrow="Activos"
-        title="Activos incluidos"
+        title={assetSectionTitle}
         
         isCollapsed={collapsedSections.assets}
         onToggle={() => toggleSection("assets")}
       >
         {!readOnly ? (
-          <div className="relative z-10 mb-16">
-            <Field label="Buscar activo">
-              <input type="search" value={assetSearchQuery} onChange={(event) => setAssetSearchQuery(event.target.value)} className={INPUT_CLASS_NAME} placeholder={`Codigo, nombre o serie (${minCharsAssets}+ caracteres)`} />
+          assetSelectionMode === "modal" ? (
+            <div className="grid gap-3 mb-6">
+              <MessageBanner>
+                Abre una lista ya cargada con los activos del responsable seleccionado y vincula solo los que correspondan a esta devolucion.
+              </MessageBanner>
+              <div className="flex flex-wrap gap-3">
+                <Button variant="secondary" onClick={() => onOpenAssetSelector?.()} disabled={!form.receiver?.id}>
+                  <Icon name="plus" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  Abrir lista de activos asociados
+                </Button>
+              </div>
+            </div>
+          ) : (
+          <div className="relative z-0 mb-16">
+            <Field label={assetSearchLabel}>
+              <input type="search" value={assetSearchQuery} onChange={(event) => setAssetSearchQuery(event.target.value)} className={INPUT_CLASS_NAME} placeholder={`${assetSearchPlaceholder} (${minCharsAssets}+ caracteres)`} />
             </Field>
 
             {assetSearchQuery.trim().length > 0 && assetSearchQuery.trim().length < minCharsAssets ? (
@@ -954,7 +1031,11 @@ export function HandoverEditorSections({
               <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-20 max-h-[min(320px,calc(100vh-12rem))] overflow-y-auto rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-2 shadow-[var(--shadow-soft)]">
                 <div className="grid gap-3">
                   {assetResults.map((asset) => {
-                    const restrictionMessage = getAssetAssignmentRestriction(asset);
+                    const restrictionMessage = getAssetAssignmentRestriction(asset, {
+                      assetSelectionMode: assetSelectionMode === "modal" ? "assigned_to_receiver" : "stock_unassigned",
+                      receiver: form.receiver,
+                      enforceSingleAssignment,
+                    });
 
                     return (
                       <ResultCard
@@ -974,6 +1055,7 @@ export function HandoverEditorSections({
               </div>
             ) : null}
           </div>
+          )
         ) : null}
       </EditorSectionPanel>
 ) : null}
@@ -1024,16 +1106,18 @@ export function HandoverEditorSections({
                     <div className={`grid gap-5 ${isCollapsed ? "pointer-events-none" : ""}`}>
                       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.92fr)]">
                         <section className="rounded-[22px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-4">
-                          <Field label="Observacion del item">
-                            {readOnly
-                              ? <ReadOnlyValue value={item.notes} placeholder="Sin observacion registrada" />
-                              : <textarea rows="4" value={item.notes || ""} onChange={(event) => updateItemNotes(assetId, event.target.value)} className={TEXTAREA_CLASS_NAME} placeholder="Accesorios, condiciones particulares o acuerdos asociados al activo" />
-                            }
-                          </Field>
+                          <div className="grid gap-4">
+                            <Field label="Observacion del item">
+                              {readOnly
+                                ? <ReadOnlyValue value={item.notes} placeholder="Sin observacion registrada" />
+                                : <textarea rows="4" value={item.notes || ""} onChange={(event) => updateItemNotes(assetId, event.target.value)} className={TEXTAREA_CLASS_NAME} placeholder="Accesorios, condiciones particulares o acuerdos asociados al activo" />
+                              }
+                            </Field>
+                          </div>
                         </section>
 
                         {!readOnly ? (
-                          <section className="relative z-10 mb-16 rounded-[22px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-4">
+                          <section className="relative z-0 mb-16 rounded-[22px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-4">
                             <div className="grid gap-3">
                               <Field label="Agregar checklist">
                                 <ChecklistTemplatePicker
@@ -1053,6 +1137,98 @@ export function HandoverEditorSections({
                           </section>
                         ) : null}
                       </div>
+
+                      {showItemEvidenceSection ? (
+                        <section className="rounded-[22px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-4">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                              <p className="text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Evidencias del activo</p>
+                              <p className="mt-1 text-sm font-semibold text-[var(--text-primary)]">Registro fotografico</p>
+                              <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                                Puedes adjuntar multiples imagenes para este activo. Cada una debe llevar una glosa descriptiva.
+                              </p>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-3">
+                              {!readOnly ? (
+                                <label className="inline-flex cursor-pointer items-center gap-2 rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-2 text-sm font-semibold text-[var(--text-primary)]">
+                                  <Icon name="paperclip" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                                  Agregar imagenes
+                                  <input
+                                    type="file"
+                                    accept="image/png,image/jpeg,image/webp"
+                                    multiple
+                                    className="hidden"
+                                    onChange={(event) => {
+                                      addItemEvidenceFiles(assetId, event.target.files);
+                                      event.target.value = "";
+                                    }}
+                                  />
+                                </label>
+                              ) : null}
+                              <CollapseToggleButton
+                                isCollapsed={Boolean(collapsedEvidences[assetId])}
+                                onClick={() => toggleEvidenceSection(assetId)}
+                                collapsedLabel={`Expandir evidencias de ${item.asset?.code || "activo"}`}
+                                expandedLabel={`Contraer evidencias de ${item.asset?.code || "activo"}`}
+                              />
+                            </div>
+                          </div>
+
+                          <div
+                            className={`grid transition-[grid-template-rows,opacity,margin-top] duration-300 ease-out ${collapsedEvidences[assetId] ? "overflow-hidden" : "overflow-visible"}`}
+                            style={{
+                              gridTemplateRows: collapsedEvidences[assetId] ? "0fr" : "1fr",
+                              opacity: collapsedEvidences[assetId] ? 0 : 1,
+                              marginTop: collapsedEvidences[assetId] ? 0 : 16,
+                            }}
+                          >
+                            <div className="min-h-0">
+                              <div className={`grid gap-3 ${collapsedEvidences[assetId] ? "pointer-events-none" : ""}`}>
+                                {item.evidences?.length ? (
+                                  <div className="grid gap-3 xl:grid-cols-2">
+                                    {item.evidences.map((evidence) => (
+                                      <div key={evidence.id || evidence.storedName || evidence.originalName} className="grid gap-3 rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] p-3">
+                                        <div className="overflow-hidden rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-panel)]">
+                                          {evidence.previewUrl ? (
+                                            <img src={evidence.previewUrl} alt={evidence.caption || evidence.originalName || evidence.name || "Evidencia"} className="h-[220px] w-full object-cover" />
+                                          ) : (
+                                            <div className="flex h-[220px] items-center justify-center px-4 text-center text-xs text-[var(--text-muted)]">
+                                              {evidence.originalName || evidence.name || evidence.storedName || "Imagen registrada"}
+                                            </div>
+                                          )}
+                                        </div>
+                                        <div className="grid gap-3">
+                                          <div className="flex flex-wrap items-start justify-between gap-3">
+                                            <div className="min-w-0">
+                                              <p className="truncate text-sm font-semibold text-[var(--text-primary)]">{evidence.originalName || evidence.name || evidence.storedName || "Imagen del activo"}</p>
+                                              <p className="mt-1 text-xs text-[var(--text-muted)]">{evidence.mimeType || "image/*"}</p>
+                                            </div>
+                                            {!readOnly ? (
+                                              <Button size="sm" variant="secondary" onClick={() => removeItemEvidence(assetId, evidence.id)}>
+                                                <Icon name="xmark" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                                                Quitar
+                                              </Button>
+                                            ) : null}
+                                          </div>
+
+                                          <Field label="Glosa de la imagen">
+                                            {readOnly
+                                              ? <ReadOnlyValue value={evidence.caption} placeholder="Sin glosa registrada" />
+                                              : <textarea rows="3" value={evidence.caption || ""} onChange={(event) => updateItemEvidenceCaption(assetId, evidence.id, event.target.value)} className={TEXTAREA_CLASS_NAME} placeholder="Describe lo observado en la imagen" />
+                                            }
+                                          </Field>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <MessageBanner>Este activo aun no tiene imagenes asociadas.</MessageBanner>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </section>
+                      ) : null}
 
                       {item.checklists.length ? (
                         <div className="grid gap-4">

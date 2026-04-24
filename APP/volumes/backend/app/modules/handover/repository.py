@@ -5,6 +5,16 @@ from typing import Any
 from infrastructure.db import get_db_connection
 
 
+def _is_unknown_usage_type_error(exc: Exception) -> bool:
+    args = getattr(exc, "args", ()) or ()
+    return bool(args and args[0] == 1054 and "usage_type" in str(args[-1]))
+
+
+def _is_missing_item_evidence_table_error(exc: Exception) -> bool:
+    args = getattr(exc, "args", ()) or ()
+    return bool(args and args[0] == 1146 and "hub_handover_item_evidences" in str(args[-1]))
+
+
 def fetch_handover_document_rows(
     query: str = "",
     status: str = "",
@@ -193,6 +203,37 @@ def fetch_handover_item_checklist_rows(document_id: int) -> list[dict[str, Any]]
     """
     with get_db_connection() as connection:
         with connection.cursor() as cursor:
+            try:
+                cursor.execute(query, (document_id,))
+            except Exception as exc:
+                if not _is_missing_item_evidence_table_error(exc):
+                    raise
+                return []
+            return cursor.fetchall()
+
+
+def fetch_handover_item_evidence_rows(document_id: int) -> list[dict[str, Any]]:
+    query = """
+        SELECT
+            e.id,
+            e.item_id,
+            e.original_name,
+            e.stored_name,
+            e.mime_type,
+            e.file_size,
+            e.caption,
+            e.source,
+            e.sort_order,
+            i.document_id,
+            i.asset_itop_id
+        FROM hub_handover_item_evidences e
+        INNER JOIN hub_handover_document_items i
+            ON i.id = e.item_id
+        WHERE i.document_id = %s
+        ORDER BY i.sort_order ASC, e.sort_order ASC, e.id ASC
+    """
+    with get_db_connection() as connection:
+        with connection.cursor() as cursor:
             cursor.execute(query, (document_id,))
             return cursor.fetchall()
 
@@ -226,15 +267,24 @@ def fetch_handover_checklist_answer_rows(document_id: int) -> list[dict[str, Any
             return cursor.fetchall()
 
 
-def fetch_handover_template_rows(include_inactive: bool = False) -> list[dict[str, Any]]:
+def fetch_handover_template_rows(
+    include_inactive: bool = False,
+    usage_types: list[str] | None = None,
+) -> list[dict[str, Any]]:
     filters = ["module_code = 'handover'"]
+    params: list[object] = []
     if not include_inactive:
         filters.append("status = 'active'")
+    if usage_types:
+        placeholders = ", ".join(["%s"] * len(usage_types))
+        filters.append(f"(usage_type IN ({placeholders}) OR usage_type IS NULL OR usage_type = '')")
+        params.extend(usage_types)
 
     query = f"""
         SELECT
             id,
             module_code,
+            usage_type,
             name,
             description,
             status,
@@ -244,9 +294,28 @@ def fetch_handover_template_rows(include_inactive: bool = False) -> list[dict[st
         WHERE {' AND '.join(filters)}
         ORDER BY sort_order ASC, id ASC
     """
+    legacy_query = f"""
+        SELECT
+            id,
+            module_code,
+            '' AS usage_type,
+            name,
+            description,
+            status,
+            cmdb_class_label,
+            sort_order
+        FROM hub_checklist_templates
+        WHERE {' AND '.join(filter_value for filter_value in filters if 'usage_type' not in filter_value)}
+        ORDER BY sort_order ASC, id ASC
+    """
     with get_db_connection() as connection:
         with connection.cursor() as cursor:
-            cursor.execute(query)
+            try:
+                cursor.execute(query, params)
+            except Exception as exc:
+                if not _is_unknown_usage_type_error(exc):
+                    raise
+                cursor.execute(legacy_query, params[:0])
             return cursor.fetchall()
 
 
@@ -502,6 +571,84 @@ def save_handover_document(
 
             connection.commit()
             return saved_document_id
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.autocommit(True)
+
+
+def replace_handover_item_evidences(
+    document_id: int,
+    evidences_by_asset: dict[int, list[dict[str, Any]]],
+) -> None:
+    has_any_evidence = any(evidences for evidences in (evidences_by_asset or {}).values())
+    delete_query = """
+        DELETE e
+        FROM hub_handover_item_evidences e
+        INNER JOIN hub_handover_document_items i
+            ON i.id = e.item_id
+        WHERE i.document_id = %s
+    """
+    select_item_query = """
+        SELECT id, asset_itop_id
+        FROM hub_handover_document_items
+        WHERE document_id = %s
+    """
+    insert_query = """
+        INSERT INTO hub_handover_item_evidences (
+            item_id,
+            original_name,
+            stored_name,
+            mime_type,
+            file_size,
+            caption,
+            source,
+            sort_order
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+    """
+
+    with get_db_connection() as connection:
+        connection.autocommit(False)
+        try:
+            with connection.cursor() as cursor:
+                try:
+                    cursor.execute(delete_query, (document_id,))
+                except Exception as exc:
+                    if _is_missing_item_evidence_table_error(exc):
+                        if has_any_evidence:
+                            raise
+                        connection.rollback()
+                        return
+                    raise
+                cursor.execute(select_item_query, (document_id,))
+                item_rows = cursor.fetchall() or []
+                item_ids_by_asset = {
+                    int(row["asset_itop_id"]): int(row["id"])
+                    for row in item_rows
+                    if int(row.get("asset_itop_id") or 0) > 0 and int(row.get("id") or 0) > 0
+                }
+
+                for asset_id, evidences in (evidences_by_asset or {}).items():
+                    item_id = item_ids_by_asset.get(int(asset_id))
+                    if not item_id:
+                        continue
+                    for index, evidence in enumerate(evidences or [], start=1):
+                        cursor.execute(
+                            insert_query,
+                            (
+                                item_id,
+                                evidence.get("original_name"),
+                                evidence.get("stored_name"),
+                                evidence.get("mime_type"),
+                                evidence.get("file_size"),
+                                evidence.get("caption"),
+                                evidence.get("source"),
+                                index * 10,
+                            ),
+                        )
+            connection.commit()
         except Exception:
             connection.rollback()
             raise

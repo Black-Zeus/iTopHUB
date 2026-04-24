@@ -22,6 +22,7 @@ import {
   getAssetAssignmentRestriction,
   matchesTemplateCmdbClass,
 } from "./handover-editor-shared";
+import { getHandoverModuleConfig } from "./handover-module-config";
 
 const SECONDARY_ROLE_OPTIONS = ["Contraturno", "Referente de area", "Respaldo operativo", "Testigo"];
 
@@ -70,11 +71,151 @@ function ResolveReceiverConflictModalContent({
   );
 }
 
-export function HandoverDocumentPage() {
+function ReturnAssetSelectionModalContent({
+  receiver,
+  selectedAssetIds,
+  enforceSingleAssignment = false,
+  onLoad,
+  onSelectAsset,
+  onCancel,
+}) {
+  const [filter, setFilter] = useState("");
+  const [allItems, setAllItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [localSelectedAssetIds, setLocalSelectedAssetIds] = useState(() => new Set(Array.from(selectedAssetIds || [])));
+
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      setLoading(true);
+      setError("");
+      try {
+        const nextItems = await onLoad();
+        if (!cancelled) {
+          setAllItems(nextItems);
+        }
+      } catch (loadError) {
+        if (!cancelled) {
+          setAllItems([]);
+          setError(loadError.message || "No fue posible cargar los activos del responsable. Revisa la conexion con iTop.");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+    run();
+    return () => { cancelled = true; };
+  }, [onLoad]);
+
+  const normalizedFilter = filter.trim().toLowerCase();
+  const filteredItems = normalizedFilter
+    ? allItems.filter((asset) => {
+        const haystack = [asset.code, asset.name, asset.className, asset.serial, asset.organization, asset.location]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return normalizedFilter.split(/\s+/).every((token) => haystack.includes(token));
+      })
+    : allItems;
+
+  return (
+    <div className="grid gap-4">
+      <div className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] p-4">
+        <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Responsable</p>
+        <p className="mt-2 text-sm font-semibold text-[var(--text-primary)]">{receiver?.name || "Sin responsable"}</p>
+        <p className="mt-1 text-sm text-[var(--text-secondary)]">
+          {[receiver?.code, receiver?.email].filter(Boolean).join(" / ") || "Sin informacion adicional."}
+        </p>
+        <p className="mt-2 text-xs text-[var(--text-muted)]">
+          Esta lista se carga desde iTop solo con los activos actualmente asociados a este responsable.
+        </p>
+      </div>
+
+      {!loading && allItems.length > 0 ? (
+        <label className="grid gap-2">
+          <span className="text-sm font-semibold text-[var(--text-primary)]">Filtrar activos</span>
+          <input
+            type="search"
+            value={filter}
+            onChange={(event) => setFilter(event.target.value)}
+            className="h-[50px] rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 text-sm text-[var(--text-primary)] outline-none"
+            placeholder="Codigo, nombre, tipo o ubicacion..."
+            autoFocus
+          />
+        </label>
+      ) : null}
+
+      {error ? <MessageBanner tone="danger">{error}</MessageBanner> : null}
+
+      {loading ? (
+        <MessageBanner>Cargando activos del responsable desde iTop...</MessageBanner>
+      ) : null}
+
+      {!loading && !error && allItems.length === 0 ? (
+        <MessageBanner>Este responsable no tiene activos asociados actualmente en iTop.</MessageBanner>
+      ) : null}
+
+      {!loading && !error && allItems.length > 0 && filteredItems.length === 0 ? (
+        <MessageBanner>No hay activos que coincidan con el filtro ingresado.</MessageBanner>
+      ) : null}
+
+      <div className="grid gap-3 max-h-[min(420px,calc(100vh-20rem))] overflow-y-auto pr-1">
+        {filteredItems.map((asset) => {
+          const restrictionMessage = getAssetAssignmentRestriction(asset, {
+            assetSelectionMode: "assigned_to_receiver",
+            receiver,
+            enforceSingleAssignment,
+          });
+          const alreadySelected = localSelectedAssetIds.has(Number(asset.id));
+
+          return (
+            <div key={asset.id} className="flex flex-wrap items-start justify-between gap-3 rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-4">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold text-[var(--text-primary)]">{asset.code} / {asset.name}</p>
+                <p className="mt-1 text-sm text-[var(--text-secondary)]">{[asset.className, asset.serial].filter(Boolean).join(" / ")}</p>
+                {(asset.organization || asset.location) ? (
+                  <p className="mt-1 text-xs text-[var(--text-muted)]">{[asset.organization, asset.location].filter(Boolean).join(" / ")}</p>
+                ) : null}
+                <p className="mt-1 text-xs text-[var(--text-muted)]">{[asset.status, restrictionMessage].filter(Boolean).join(" — ")}</p>
+              </div>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => {
+                  onSelectAsset(asset);
+                  setLocalSelectedAssetIds((current) => new Set([...current, Number(asset.id)]));
+                }}
+                disabled={alreadySelected || Boolean(restrictionMessage)}
+              >
+                {alreadySelected ? "Ya agregado" : "Vincular"}
+              </Button>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="flex items-center justify-between">
+        {!loading && allItems.length > 0 ? (
+          <span className="text-xs text-[var(--text-muted)]">
+            {filteredItems.length} de {allItems.length} {allItems.length === 1 ? "activo" : "activos"}
+          </span>
+        ) : <span />}
+        <Button variant="secondary" onClick={onCancel}>Cerrar</Button>
+      </div>
+    </div>
+  );
+}
+
+export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
   const navigate = useNavigate();
   const { slug } = useParams();
   const isCreateMode = slug === "nueva";
   const { add } = useToast();
+  const moduleConfig = getHandoverModuleConfig(moduleVariant);
+  const isReturnFlow = moduleConfig.key === "return";
 
   const [bootstrap, setBootstrap] = useState(null);
   const [bootstrapLoading, setBootstrapLoading] = useState(true);
@@ -82,7 +223,7 @@ export function HandoverDocumentPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [form, setForm] = useState(createEmptyForm(null));
+  const [form, setForm] = useState(createEmptyForm(null, { moduleVariant, defaultHandoverType: moduleConfig.handoverType }));
   const isReadOnly = !isCreateMode && ["Confirmada", "Anulada"].includes(form.status);
   const [personSearchQuery, setPersonSearchQuery] = useState("");
   const [peopleResults, setPeopleResults] = useState([]);
@@ -101,9 +242,15 @@ export function HandoverDocumentPage() {
   const receiverSelectionEndRef = useRef(null);
   const itopPeopleWarningShownRef = useRef(false);
   const pageRootRef = useRef(null);
+  const formRef = useRef(form);
 
   const statusOptions = bootstrap?.statusOptions || [];
-  const activeTemplates = bootstrap?.checklistTemplates || [];
+  const activeTemplates = useMemo(() => (
+    (bootstrap?.checklistTemplates || []).filter((template) => {
+      const usageType = String(template?.usageType || "delivery").trim().toLowerCase();
+      return usageType === String(moduleConfig.checklistUsageType || "delivery").trim().toLowerCase();
+    })
+  ), [bootstrap?.checklistTemplates, moduleConfig.checklistUsageType]);
   const minCharsPeople = bootstrap?.searchHints?.minCharsPeople || 2;
   const minCharsAssets = bootstrap?.searchHints?.minCharsAssets || 2;
   const templateOptionsById = useMemo(() => {
@@ -113,6 +260,10 @@ export function HandoverDocumentPage() {
     });
     return index;
   }, [activeTemplates]);
+
+  useEffect(() => {
+    formRef.current = form;
+  }, [form]);
 
   const toggleSection = (sectionKey) => {
     setCollapsedSections((current) => ({
@@ -179,7 +330,7 @@ export function HandoverDocumentPage() {
         }
         setBootstrap(payload);
         if (isCreateMode) {
-          setForm(createEmptyForm(payload));
+          setForm(createEmptyForm(payload, { moduleVariant, defaultHandoverType: moduleConfig.handoverType }));
         }
       } catch (loadError) {
         if (!cancelled) {
@@ -202,7 +353,7 @@ export function HandoverDocumentPage() {
   useEffect(() => {
     if (!bootstrap || isCreateMode) {
       if (isCreateMode && bootstrap) {
-        setForm(createEmptyForm(bootstrap));
+        setForm(createEmptyForm(bootstrap, { moduleVariant, defaultHandoverType: moduleConfig.handoverType }));
       }
       return;
     }
@@ -286,6 +437,12 @@ export function HandoverDocumentPage() {
   }, [minCharsPeople, personSearchQuery]);
 
   useEffect(() => {
+    if (isReturnFlow) {
+      setAssetResults([]);
+      setAssetLoading(false);
+      return undefined;
+    }
+
     let cancelled = false;
     const query = assetSearchQuery.trim();
 
@@ -321,10 +478,15 @@ export function HandoverDocumentPage() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [assetSearchQuery, minCharsAssets]);
+  }, [assetSearchQuery, isReturnFlow, minCharsAssets]);
 
-  const addAssetToForm = (asset) => {
-    const restrictionMessage = getAssetAssignmentRestriction(asset);
+  const addAssetToForm = (asset, receiverOverride = null) => {
+    const resolvedReceiver = receiverOverride || form.receiver;
+    const restrictionMessage = getAssetAssignmentRestriction(asset, {
+      assetSelectionMode: isReturnFlow ? "assigned_to_receiver" : "stock_unassigned",
+      receiver: resolvedReceiver,
+      enforceSingleAssignment: isReturnFlow,
+    });
     if (restrictionMessage) {
       setError(restrictionMessage);
       resetAssetSearch();
@@ -348,6 +510,7 @@ export function HandoverDocumentPage() {
         {
           asset,
           notes: "",
+          evidences: [],
           checklists: applicableTemplates.length === 1 ? [cloneTemplate(applicableTemplates[0])] : [],
         },
       ],
@@ -365,6 +528,11 @@ export function HandoverDocumentPage() {
   };
 
   const addAdditionalReceiver = (person) => {
+    if (isReturnFlow) {
+      setNotice("Las actas de devolucion solo permiten un responsable.");
+      return;
+    }
+
     if (form.receiver?.id === person.id) {
       setNotice("La persona principal no puede repetirse como contacto adicional.");
       return;
@@ -475,14 +643,21 @@ export function HandoverDocumentPage() {
   };
 
   const removePrimaryReceiver = () => {
-    setForm((current) => ({ ...current, receiver: null }));
+    setForm((current) => ({
+      ...current,
+      receiver: null,
+      additionalReceivers: isReturnFlow ? [] : current.additionalReceivers,
+      items: isReturnFlow ? [] : current.items,
+    }));
   };
 
   const requestRemovePrimaryReceiver = async () => {
     const confirmed = await ModalManager.confirm({
       title: "Quitar persona principal",
       message: `Se quitara ${form.receiver?.name || "la persona principal"} de esta acta.`,
-      content: "Confirma para eliminar la persona principal actualmente seleccionada.",
+      content: isReturnFlow
+        ? "Confirma para eliminar el responsable actual. Los activos seleccionados tambien se quitaran porque dependen de ese responsable."
+        : "Confirma para eliminar la persona principal actualmente seleccionada.",
       buttons: { cancel: "Cancelar", confirm: "Quitar" },
     });
 
@@ -496,6 +671,39 @@ export function HandoverDocumentPage() {
   };
 
   const selectPrimaryReceiver = (person) => {
+    if (isReturnFlow && form.receiver?.id && form.receiver.id !== person.id) {
+      const replaceResponsible = async () => {
+        const confirmed = await ModalManager.confirm({
+          title: "Cambiar responsable",
+          message: `Se reemplazara a ${form.receiver?.name || "el responsable actual"} por ${person.name}.`,
+          content: form.items.length
+            ? "Los activos seleccionados se quitaran para evitar mezclar equipos de responsables distintos."
+            : "Confirma para continuar con el nuevo responsable.",
+          buttons: { cancel: "Cancelar", confirm: "Cambiar" },
+        });
+        if (!confirmed) {
+          return;
+        }
+        setForm((current) => ({
+          ...current,
+          receiver: person,
+          additionalReceivers: [],
+          items: [],
+        }));
+        resetPeopleSearch();
+        resetAssetSearch();
+        setNotice("");
+        setError("");
+        scrollToReceiverSelection();
+        focusPersonSearchInput();
+        window.requestAnimationFrame(() => {
+          openReturnAssetSelector(person, { revertReceiverOnEmptyClose: true });
+        });
+      };
+      void replaceResponsible();
+      return;
+    }
+
     if (form.receiver?.id && form.receiver.id !== person.id) {
       openPrimaryReceiverConflictModal(person);
       return;
@@ -504,13 +712,23 @@ export function HandoverDocumentPage() {
     setForm((current) => ({
       ...current,
       receiver: person,
-      additionalReceivers: (current.additionalReceivers || []).filter((item) => item.id !== person.id),
+      additionalReceivers: isReturnFlow
+        ? []
+        : (current.additionalReceivers || []).filter((item) => item.id !== person.id),
     }));
     resetPeopleSearch();
+    if (isReturnFlow) {
+      resetAssetSearch();
+    }
     setNotice("");
     setError("");
     scrollToReceiverSelection();
     focusPersonSearchInput();
+    if (isReturnFlow) {
+      window.requestAnimationFrame(() => {
+        openReturnAssetSelector(person, { revertReceiverOnEmptyClose: true });
+      });
+    }
   };
 
   const removeAdditionalReceiver = (personId) => {
@@ -546,10 +764,18 @@ export function HandoverDocumentPage() {
   };
 
   const removeAssetFromForm = (assetId) => {
-    setForm((current) => ({
-      ...current,
-      items: current.items.filter((item) => item.asset?.id !== assetId),
-    }));
+    setForm((current) => {
+      const removedItem = current.items.find((item) => item.asset?.id === assetId);
+      (removedItem?.evidences || []).forEach((evidence) => {
+        if (evidence?.previewUrl) {
+          URL.revokeObjectURL(evidence.previewUrl);
+        }
+      });
+      return {
+        ...current,
+        items: current.items.filter((item) => item.asset?.id !== assetId),
+      };
+    });
   };
 
   const requestRemoveAssetFromForm = async (asset) => {
@@ -573,6 +799,79 @@ export function HandoverDocumentPage() {
     setForm((current) => ({
       ...current,
       items: current.items.map((item) => item.asset?.id === assetId ? { ...item, notes: value } : item),
+    }));
+  };
+
+  const addItemEvidenceFiles = (assetId, files) => {
+    const incomingFiles = Array.from(files || []).filter((file) => String(file?.type || "").startsWith("image/"));
+    if (!incomingFiles.length) {
+      setError("Solo puedes adjuntar imagenes por activo en esta seccion.");
+      return;
+    }
+
+    setForm((current) => ({
+      ...current,
+      items: current.items.map((item) => {
+        if (item.asset?.id !== assetId) {
+          return item;
+        }
+        const nextEvidences = [...(item.evidences || [])];
+        incomingFiles.forEach((file) => {
+          nextEvidences.push({
+            id: window.crypto?.randomUUID?.() || `${assetId}-${Date.now()}-${Math.random()}`,
+            name: file.name,
+            originalName: file.name,
+            storedName: "",
+            mimeType: file.type || "image/png",
+            fileSize: file.size || 0,
+            caption: "",
+            source: "",
+            previewUrl: URL.createObjectURL(file),
+            file,
+          });
+        });
+        return {
+          ...item,
+          evidences: nextEvidences,
+        };
+      }),
+    }));
+    setError("");
+  };
+
+  const updateItemEvidenceCaption = (assetId, evidenceId, value) => {
+    setForm((current) => ({
+      ...current,
+      items: current.items.map((item) => {
+        if (item.asset?.id !== assetId) {
+          return item;
+        }
+        return {
+          ...item,
+          evidences: (item.evidences || []).map((evidence) => (
+            evidence.id === evidenceId ? { ...evidence, caption: value } : evidence
+          )),
+        };
+      }),
+    }));
+  };
+
+  const removeItemEvidence = (assetId, evidenceId) => {
+    setForm((current) => ({
+      ...current,
+      items: current.items.map((item) => {
+        if (item.asset?.id !== assetId) {
+          return item;
+        }
+        const evidenceToRemove = (item.evidences || []).find((evidence) => evidence.id === evidenceId);
+        if (evidenceToRemove?.previewUrl) {
+          URL.revokeObjectURL(evidenceToRemove.previewUrl);
+        }
+        return {
+          ...item,
+          evidences: (item.evidences || []).filter((evidence) => evidence.id !== evidenceId),
+        };
+      }),
     }));
   };
 
@@ -668,13 +967,81 @@ export function HandoverDocumentPage() {
     }));
   };
 
+  const openReturnAssetSelector = (receiverOverride = null, options = {}) => {
+    const resolvedReceiver = receiverOverride || form.receiver;
+    if (!resolvedReceiver?.id) {
+      setError("Debes seleccionar primero al responsable para buscar los activos asociados.");
+      return;
+    }
+
+    const receiverId = resolvedReceiver.id;
+    const revertReceiverOnEmptyClose = Boolean(options?.revertReceiverOnEmptyClose);
+    let assetLinked = false;
+    let modalId = null;
+    const selectedAssetIds = new Set((form.items || []).map((item) => Number(item.asset?.id || 0)));
+    modalId = ModalManager.custom({
+      title: `Seleccionar activos asociados${resolvedReceiver?.name ? ` · ${resolvedReceiver.name}` : ""}`,
+      size: "personDetail",
+      showFooter: false,
+      onClose: () => {
+        if (!revertReceiverOnEmptyClose || assetLinked) {
+          return;
+        }
+        const latestForm = formRef.current;
+        const currentReceiverId = Number(latestForm?.receiver?.id || 0);
+        const hasLinkedItems = Array.isArray(latestForm?.items) && latestForm.items.length > 0;
+        if (currentReceiverId === Number(receiverId) && !hasLinkedItems) {
+          setForm((current) => {
+            if (Number(current?.receiver?.id || 0) !== Number(receiverId) || (current.items || []).length > 0) {
+              return current;
+            }
+            return {
+              ...current,
+              receiver: null,
+              additionalReceivers: [],
+              items: [],
+            };
+          });
+          setNotice("");
+          setError("");
+        }
+      },
+      content: (
+        <ReturnAssetSelectionModalContent
+          receiver={resolvedReceiver}
+          selectedAssetIds={selectedAssetIds}
+          enforceSingleAssignment
+          onLoad={() => searchHandoverAssets({
+            query: "",
+            assignedPersonId: receiverId,
+          })}
+          onSelectAsset={(asset) => {
+            assetLinked = true;
+            addAssetToForm(asset, resolvedReceiver);
+          }}
+          onCancel={() => ModalManager.close(modalId)}
+        />
+      ),
+    });
+  };
+
   const handleSave = async () => {
     setError("");
     setNotice("");
 
     if (!form.reason.trim()) {
-      setError("Debes indicar el motivo de entrega.");
+      setError(moduleConfig.reasonValidationMessage);
       return;
+    }
+    if (isReturnFlow) {
+      const invalidEvidence = (form.items || []).find((item) => (
+        (item.evidences || []).some((evidence) => !String(evidence?.caption || "").trim())
+      ));
+      if (invalidEvidence) {
+        const assetLabel = invalidEvidence.asset?.name || invalidEvidence.asset?.code || "seleccionado";
+        setError(`Cada imagen del activo ${assetLabel} debe incluir una glosa.`);
+        return;
+      }
     }
 
     setSaving(true);
@@ -687,7 +1054,7 @@ export function HandoverDocumentPage() {
       generatedDocuments: form.generatedDocuments || [],
       evidenceAttachments: form.evidenceAttachments || [],
       status: form.status,
-      handoverType: form.handoverType,
+      handoverType: form.handoverType || moduleConfig.handoverType,
       reason: form.reason,
       notes: form.notes,
       receiver: form.receiver || {},
@@ -695,10 +1062,18 @@ export function HandoverDocumentPage() {
       items: form.items,
     };
 
-    const invalidAsset = form.items.find((item) => getAssetAssignmentRestriction(item.asset));
+    const invalidAsset = form.items.find((item) => getAssetAssignmentRestriction(item.asset, {
+      assetSelectionMode: isReturnFlow ? "assigned_to_receiver" : "stock_unassigned",
+      receiver: form.receiver,
+      enforceSingleAssignment: isReturnFlow,
+    }));
     if (invalidAsset) {
       setSaving(false);
-      setError(getAssetAssignmentRestriction(invalidAsset.asset));
+      setError(getAssetAssignmentRestriction(invalidAsset.asset, {
+        assetSelectionMode: isReturnFlow ? "assigned_to_receiver" : "stock_unassigned",
+        receiver: form.receiver,
+        enforceSingleAssignment: isReturnFlow,
+      }));
       return;
     }
 
@@ -713,7 +1088,7 @@ export function HandoverDocumentPage() {
         tone: "success",
       });
 
-      navigate("/handover");
+      navigate(moduleConfig.basePath);
     } catch (saveError) {
       setError(saveError.message || "No fue posible guardar el acta.");
     } finally {
@@ -730,7 +1105,7 @@ export function HandoverDocumentPage() {
             <div>
               <div className="flex flex-wrap items-center gap-3">
                 <h1 className="text-2xl font-semibold text-[var(--text-primary)]">
-                  {isCreateMode ? "Nueva acta de entrega" : isReadOnly ? "Detalle de acta de entrega" : "Edicion de acta de entrega"}
+                  {isCreateMode ? moduleConfig.createTitle : isReadOnly ? moduleConfig.detailTitle : moduleConfig.editTitle}
                 </h1>
                 {!isCreateMode && form.documentNumber ? (
                   <span className="inline-flex min-h-8 items-center rounded-full border border-[var(--border-color)] bg-[var(--bg-app)] px-3 text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-secondary)]">
@@ -745,7 +1120,7 @@ export function HandoverDocumentPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-3 xl:justify-end">
-            <Button variant="secondary" onClick={() => navigate("/handover")}>
+            <Button variant="secondary" onClick={() => navigate(moduleConfig.basePath)}>
               <Icon name="arrowLeft" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
               Volver al listado
             </Button>
@@ -794,7 +1169,6 @@ export function HandoverDocumentPage() {
           collapsedSections={collapsedSections}
           toggleSection={toggleSection}
           isCreateMode={isCreateMode}
-          notesPlaceholder={bootstrap?.defaults?.notesPlaceholder || ""}
           minCharsPeople={minCharsPeople}
           minCharsAssets={minCharsAssets}
           selectPrimaryReceiver={selectPrimaryReceiver}
@@ -807,6 +1181,25 @@ export function HandoverDocumentPage() {
           readOnly={isReadOnly}
           documentId={isCreateMode ? null : slug}
           itopIntegrationUrl={String(bootstrap?.itopIntegrationUrl || "").replace(/\/+$/, "")}
+          reasonLabel={moduleConfig.reasonLabel}
+          notesPlaceholder={bootstrap?.defaults?.notesPlaceholder || moduleConfig.notesPlaceholder}
+          receiverSectionTitle={moduleConfig.receiverSectionTitle}
+          receiverSectionHelper={moduleConfig.receiverSectionHelper}
+          receiverSearchLabel={moduleConfig.receiverSearchLabel}
+          primaryReceiverLabel={moduleConfig.primaryReceiverLabel}
+          emptyPrimaryReceiverMessage={moduleConfig.emptyPrimaryReceiverMessage}
+          allowAdditionalReceivers={moduleConfig.allowAdditionalReceivers}
+          addSecondaryLabel={moduleConfig.addSecondaryLabel}
+          assetSectionTitle={moduleConfig.assetSectionTitle}
+          assetSelectionMode={moduleConfig.assetSelectionMode}
+          assetSearchLabel={moduleConfig.assetSearchLabel}
+          assetSearchPlaceholder={moduleConfig.assetSearchPlaceholder}
+          enforceSingleAssignment={isReturnFlow}
+          onOpenAssetSelector={isReturnFlow ? openReturnAssetSelector : null}
+          showItemEvidenceSection={isReturnFlow}
+          addItemEvidenceFiles={addItemEvidenceFiles}
+          updateItemEvidenceCaption={updateItemEvidenceCaption}
+          removeItemEvidence={removeItemEvidence}
         />
       )}
     </div>

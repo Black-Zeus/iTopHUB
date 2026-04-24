@@ -175,6 +175,8 @@ def _build_asset_row(item, enabled_labels: list[str], assigned_contacts: list[di
             if part
         ),
         "serial": _normalize_space(item.get("serialnumber")),
+        "organization": _normalize_space(item.get("org_id_friendlyname") or item.get("organization_name")),
+        "location": _normalize_space(item.get("location_id_friendlyname") or item.get("location_name")),
         "assignedUser": normalized_assigned_user or "Sin asignar",
         "assignedUsers": contact_items,
         "warrantyDate": warranty_end or "Sin dato",
@@ -501,6 +503,56 @@ def _iter_query_classes(enabled_labels: list[str]) -> list[str]:
     return classes
 
 
+def _iter_all_query_classes() -> list[str]:
+    """Return all known CMDB query classes, regardless of enabledAssetTypes config."""
+    classes: list[str] = []
+    for query_class_list in CMDB_QUERY_MAP.values():
+        for query_class in query_class_list:
+            if query_class not in classes:
+                classes.append(query_class)
+    return classes
+
+
+def _search_assets_by_person(
+    connector: iTopCMDBConnector,
+    person_id: int,
+    normalized_query: str,
+    show_obsolete_assets: bool,
+    show_implementation_assets: bool,
+    enabled_labels: list[str],
+) -> list:
+    """
+    Fetch assets assigned to a specific person using an OQL JOIN query.
+
+    Queries ALL known asset classes (not filtered by enabledAssetTypes) so that
+    peripherals, docking stations, monitors, etc. are always included regardless
+    of hub catalog configuration.  The JOIN filters at the iTop level, avoiding
+    the N+1 pattern of fetching the full inventory and post-filtering.
+    """
+    enriched_items = []
+    for query_class in _iter_all_query_classes():
+        oql = (
+            f"SELECT {query_class} AS ci "
+            f"JOIN lnkContactToFunctionalCI AS lnk ON lnk.functionalci_id = ci.id "
+            f"WHERE lnk.contact_id = {person_id}"
+        )
+        try:
+            items = connector.oql(oql, output_fields=ASSET_SEARCH_OUTPUT_FIELDS)
+            enriched_items.extend(items)
+        except Exception:
+            # Some iTop classes may not support this JOIN; skip gracefully.
+            pass
+
+    return [
+        item
+        for item in enriched_items
+        if (
+            _matches_asset_query(item, normalized_query)
+            and is_visible_ci_status(item.get("status"), show_obsolete_assets, show_implementation_assets)
+        )
+    ]
+
+
 def _find_asset_by_id(connector: iTopCMDBConnector, asset_id: int, enabled_labels: list[str]):
     for query_class in _iter_query_classes(enabled_labels):
         item = connector.get_ci(query_class, asset_id, output_fields="*")
@@ -509,7 +561,12 @@ def _find_asset_by_id(connector: iTopCMDBConnector, asset_id: int, enabled_label
     return None
 
 
-def search_itop_assets(query: str, runtime_token: str, limit: int = 200) -> list[dict[str, str | int]]:
+def search_itop_assets(
+    query: str,
+    runtime_token: str,
+    limit: int = 200,
+    assigned_person_id: int | None = None,
+) -> list[dict[str, str | int]]:
     from modules.settings.service import get_settings_panel
 
     normalized_query = " ".join(query.strip().split())
@@ -531,6 +588,31 @@ def search_itop_assets(query: str, runtime_token: str, limit: int = 200) -> list
     )
 
     try:
+        if assigned_person_id:
+            # Fast path: use OQL JOIN to fetch only assets assigned to this person.
+            # Queries all known CMDB classes (ignores enabledAssetTypes filter) so that
+            # peripherals, monitors, docking stations, etc. are always included.
+            person_id_int = int(assigned_person_id)
+            filtered_items = _search_assets_by_person(
+                connector,
+                person_id_int,
+                normalized_query,
+                show_obsolete_assets,
+                show_implementation_assets,
+                enabled_labels,
+            )
+            # Load contacts only for the small set of matching assets (no N+1 at scale).
+            assigned_users_by_asset = _load_asset_assigned_users(
+                connector, [int(item.id) for item in filtered_items]
+            )
+            rows = []
+            for item in filtered_items:
+                assigned_contacts = assigned_users_by_asset.get(int(item.id), [])
+                rows.append(_build_asset_row(item, enabled_labels, assigned_contacts))
+            rows.sort(key=lambda row: (str(row["className"]).lower(), str(row["name"]).lower(), str(row["code"]).lower()))
+            return rows[:limit]
+
+        # Standard path: search across enabled asset types without person filter.
         enriched_items = []
         for query_class in _iter_query_classes(enabled_labels):
             oql = f"SELECT {query_class}"
@@ -547,6 +629,7 @@ def search_itop_assets(query: str, runtime_token: str, limit: int = 200) -> list
             for query_class in _iter_query_classes(enabled_labels):
                 query_items = connector.oql(f"SELECT {query_class}", output_fields=ASSET_SEARCH_OUTPUT_FIELDS)
                 enriched_items.extend(query_items)
+
         filtered_items = [
             item
             for item in enriched_items
@@ -558,10 +641,10 @@ def search_itop_assets(query: str, runtime_token: str, limit: int = 200) -> list
         ]
 
         assigned_users_by_asset = _load_asset_assigned_users(connector, [int(item.id) for item in filtered_items])
-        rows = [
-            _build_asset_row(item, enabled_labels, assigned_users_by_asset.get(int(item.id), []))
-            for item in filtered_items
-        ]
+        rows = []
+        for item in filtered_items:
+            assigned_contacts = assigned_users_by_asset.get(int(item.id), [])
+            rows.append(_build_asset_row(item, enabled_labels, assigned_contacts))
         rows.sort(key=lambda row: (str(row["className"]).lower(), str(row["name"]).lower(), str(row["code"]).lower()))
         return rows[:limit]
     except ConnectionError as exc:

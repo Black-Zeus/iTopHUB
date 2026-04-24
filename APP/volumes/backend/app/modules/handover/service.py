@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
-import unicodedata
+import logging
 from base64 import b64decode, b64encode
 from datetime import datetime
+from html import escape
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -13,11 +14,35 @@ from fastapi import HTTPException
 from core.config import settings
 from integrations.itop_cmdb_connector import iTopCMDBConnector, iTopObject
 from integrations.itop_runtime import get_itop_runtime_config
-from infrastructure.job_manager import create_job, get_job
+from infrastructure.job_manager import create_job
+from modules.handover.document_templates import build_detail_document_number
+from modules.handover.document_type_registry import (
+    build_missing_document_type_error_message,
+    resolve_required_document_type_id_for_handover_type,
+)
+from modules.handover.handover_types import (
+    find_handover_type_definition,
+    get_handover_type_definition,
+    list_handover_type_options,
+    resolve_handover_prefix,
+    serialize_handover_type_catalog,
+)
+from modules.handover.payloads import (
+    build_document_payload_from_detail as _build_document_payload_from_detail,
+    build_item_payloads_from_detail as _build_item_payloads_from_detail,
+    deserialize_additional_receivers as _deserialize_additional_receivers,
+    deserialize_evidence_attachments as _deserialize_evidence_attachments,
+    deserialize_generated_documents as _deserialize_generated_documents,
+    normalize_additional_receivers as _normalize_additional_receivers,
+    normalize_evidence_attachments as _normalize_evidence_attachments,
+    normalize_evidence_document_type as _normalize_evidence_document_type,
+    normalize_generated_at as _normalize_generated_at,
+    normalize_generated_documents as _normalize_generated_documents,
+    normalize_itop_ticket_summary as _normalize_itop_ticket_summary,
+    normalize_optional_datetime as _normalize_optional_datetime,
+    normalize_receiver as _normalize_receiver,
+)
 from modules.handover.pdf_pipeline import (
-    HANDOVER_DOCUMENT_ROOT,
-    build_detail_document_number,
-    generate_handover_documents,
     remove_generated_handover_documents,
     remove_generated_handover_documents_by_names,
 )
@@ -25,78 +50,43 @@ from modules.handover.repository import (
     fetch_handover_checklist_answer_rows,
     fetch_handover_document_row,
     fetch_handover_document_rows,
+    fetch_handover_item_evidence_rows,
     fetch_handover_item_checklist_rows,
     fetch_handover_item_rows,
     fetch_handover_template_item_rows,
     fetch_handover_template_rows,
     get_next_handover_sequence,
+    replace_handover_item_evidences,
     save_handover_document,
 )
-from modules.settings.service import get_settings_panel
+from modules.handover.shared import (
+    DEFAULT_EVIDENCE_ALLOWED_EXTENSIONS,
+    EVIDENCE_DOCUMENT_TYPE_TO_GENERATED_KIND,
+    GENERATED_DOCUMENT_KINDS,
+    INPUT_TYPE_DB_TO_UI,
+    MAX_HANDOVER_DOCUMENT_FILES,
+    STATUS_DB_TO_UI,
+    STATUS_UI_TO_DB,
+    coerce_str as _coerce_str,
+    normalize_comparison_text as _normalize_comparison_text,
+)
+from modules.settings.service import (
+    get_requirement_initial_status,
+    get_settings_panel,
+    is_requirement_ticket_enabled,
+)
+from modules.handover.storage_paths import (
+    HANDOVER_DOCUMENT_ROOT,
+    HANDOVER_EVIDENCE_ROOT,
+    HANDOVER_ITEM_EVIDENCE_ROOT,
+    build_handover_storage_directory,
+    build_handover_storage_source,
+    resolve_existing_handover_storage_directory,
+    resolve_existing_handover_storage_file,
+)
 
 
-STATUS_DB_TO_UI = {
-    "draft": "En creacion",
-    "issued": "Emitida",
-    "confirmed": "Confirmada",
-    "cancelled": "Anulada",
-}
-
-STATUS_UI_TO_DB = {value: key for key, value in STATUS_DB_TO_UI.items()}
-
-TYPE_DB_TO_UI = {
-    "initial_assignment": "Entrega inicial",
-    "reassignment": "Reasignacion",
-    "replacement": "Reposicion",
-}
-
-TYPE_UI_TO_DB = {value: key for key, value in TYPE_DB_TO_UI.items()}
-
-SECONDARY_RECEIVER_ROLE_ALIASES = {
-    "Apoyo": "Respaldo operativo",
-}
-
-SECONDARY_RECEIVER_ROLE_OPTIONS = {
-    "Contraturno",
-    "Referente de area",
-    "Respaldo operativo",
-    "Testigo",
-}
-
-INPUT_TYPE_DB_TO_UI = {
-    "input_text": "Input text",
-    "text_area": "Text area",
-    "check": "Check",
-    "radio": "Option / Radio",
-}
-INPUT_TYPE_UI_TO_DB = {value: key for key, value in INPUT_TYPE_DB_TO_UI.items()}
-HANDOVER_EVIDENCE_ROOT = Path("/app/data/handover_evidence")
-DEFAULT_EVIDENCE_ALLOWED_EXTENSIONS = {"pdf", "doc", "docx"}
-GENERATED_DOCUMENT_KINDS = {"main", "detail"}
-MAX_HANDOVER_DOCUMENT_FILES = 2
-EVIDENCE_DOCUMENT_TYPE_TO_GENERATED_KIND = {
-    "acta": "main",
-    "detalle": "detail",
-}
-
-
-def _coerce_str(value: Any, default: str = "") -> str:
-    if value is None:
-        return default
-    return str(value).strip()
-
-
-def _normalize_comparison_text(value: Any) -> str:
-    text = _coerce_str(value)
-    if not text:
-        return ""
-    return (
-        unicodedata.normalize("NFD", text)
-        .encode("ascii", "ignore")
-        .decode("ascii")
-        .strip()
-        .lower()
-    )
+logger = logging.getLogger(__name__)
 
 
 def _sanitize_attachment_filename(value: Any) -> str:
@@ -144,6 +134,69 @@ def _normalize_itop_level(value: Any) -> str:
     return mapping.get(normalized, normalized if normalized in {"1", "2", "3", "4"} else "")
 
 
+def _format_itop_ticket_description_html(value: Any) -> str:
+    text = _coerce_str(value)
+    if not text:
+        return ""
+
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    blocks: list[str] = []
+    paragraph_lines: list[str] = []
+    list_items: list[str] = []
+    list_kind = ""
+
+    def flush_paragraph() -> None:
+        if not paragraph_lines:
+            return
+        blocks.append("<p>" + "<br/>".join(escape(line) for line in paragraph_lines) + "</p>")
+        paragraph_lines.clear()
+
+    def flush_list() -> None:
+        nonlocal list_kind
+        if not list_items or list_kind not in {"ul", "ol"}:
+            list_items.clear()
+            list_kind = ""
+            return
+        blocks.append(f"<{list_kind}>" + "".join(f"<li>{escape(item)}</li>" for item in list_items) + f"</{list_kind}>")
+        list_items.clear()
+        list_kind = ""
+
+    for raw_line in lines:
+        stripped = raw_line.strip()
+        if not stripped:
+            flush_paragraph()
+            flush_list()
+            continue
+
+        candidate = raw_line.lstrip()
+        next_list_kind = ""
+        list_value = ""
+
+        if candidate.startswith("* ") or candidate.startswith("- "):
+            next_list_kind = "ul"
+            list_value = candidate[2:].strip()
+        else:
+            dot_index = candidate.find(". ")
+            if dot_index > 0 and candidate[:dot_index].isdigit():
+                next_list_kind = "ol"
+                list_value = candidate[dot_index + 2 :].strip()
+
+        if next_list_kind and list_value:
+            flush_paragraph()
+            if list_kind and list_kind != next_list_kind:
+                flush_list()
+            list_kind = next_list_kind
+            list_items.append(list_value)
+            continue
+
+        flush_list()
+        paragraph_lines.append(stripped)
+
+    flush_paragraph()
+    flush_list()
+    return "".join(blocks) or f"<p>{escape(text)}</p>"
+
+
 def _build_itop_connector(runtime_token: str) -> iTopCMDBConnector:
     itop_config = get_itop_runtime_config()
     return iTopCMDBConnector(
@@ -166,57 +219,6 @@ def _get_allowed_evidence_extensions() -> set[str]:
     return allowed or set(DEFAULT_EVIDENCE_ALLOWED_EXTENSIONS)
 
 
-def _normalize_evidence_document_type(value: Any, *, allow_blank: bool = False) -> str:
-    normalized = _normalize_comparison_text(value)
-    if not normalized:
-        if allow_blank:
-            return ""
-        raise HTTPException(status_code=422, detail="Debes indicar si el adjunto corresponde a Acta o Detalle.")
-
-    if normalized in {"acta", "main", "principal"}:
-        return "acta"
-    if normalized in {"detalle", "detail"}:
-        return "detalle"
-
-    if allow_blank:
-        return ""
-    raise HTTPException(status_code=422, detail="Uno de los adjuntos no tiene un tipo de documento valido.")
-
-
-def _normalize_itop_ticket_summary(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        return {}
-
-    return {
-        "id": _coerce_str(value.get("id")),
-        "number": _coerce_str(value.get("number") or value.get("ref")),
-        "className": _coerce_str(value.get("className") or value.get("ticketClass")),
-        "status": _coerce_str(value.get("status")),
-        "subject": _coerce_str(value.get("subject")),
-        "description": _coerce_str(value.get("description")),
-        "requesterId": _coerce_str(value.get("requesterId")),
-        "requester": _coerce_str(value.get("requester")),
-        "orgId": _coerce_str(value.get("orgId")),
-        "groupId": _coerce_str(value.get("groupId")),
-        "groupName": _coerce_str(value.get("groupName")),
-        "analystId": _coerce_str(value.get("analystId")),
-        "analystName": _coerce_str(value.get("analystName")),
-        "origin": _coerce_str(value.get("origin")),
-        "originLabel": _coerce_str(value.get("originLabel")),
-        "impact": _coerce_str(value.get("impact")),
-        "impactLabel": _coerce_str(value.get("impactLabel")),
-        "urgency": _coerce_str(value.get("urgency")),
-        "urgencyLabel": _coerce_str(value.get("urgencyLabel")),
-        "priority": _coerce_str(value.get("priority")),
-        "priorityLabel": _coerce_str(value.get("priorityLabel")),
-        "category": _coerce_str(value.get("category")),
-        "categoryLabel": _coerce_str(value.get("categoryLabel")),
-        "subcategory": _coerce_str(value.get("subcategory")),
-        "subcategoryLabel": _coerce_str(value.get("subcategoryLabel")),
-        "createdAt": _coerce_str(value.get("createdAt")),
-    }
-
-
 def _extract_itop_ticket_from_attachments(attachments: list[dict[str, Any]]) -> dict[str, Any]:
     for attachment in attachments:
         ticket = _normalize_itop_ticket_summary(attachment.get("itopTicket"))
@@ -233,16 +235,286 @@ def _build_evidence_document_code(document_number: Any, document_type: str) -> s
     return base_code
 
 
-def _remove_evidence_attachment_files(document_id: int, stored_names: list[str]) -> None:
-    storage_directory = HANDOVER_EVIDENCE_ROOT / f"document_{document_id}"
-    if not storage_directory.exists():
-        return
+def _remove_evidence_attachment_files(
+    document_id: int,
+    stored_names: list[str],
+    *,
+    handover_type: Any | None = None,
+) -> None:
+    storage_directories = [
+        path
+        for path in (
+            resolve_existing_handover_storage_directory(
+                "evidence",
+                document_id,
+                handover_type,
+                include_legacy=True,
+            ),
+            build_handover_storage_directory("evidence", document_id, handover_type) if handover_type is not None else None,
+        )
+        if isinstance(path, Path)
+    ]
 
     for stored_name in stored_names:
         safe_name = Path(_coerce_str(stored_name)).name
         if not safe_name:
             continue
-        (storage_directory / safe_name).unlink(missing_ok=True)
+        for storage_directory in storage_directories:
+            (storage_directory / safe_name).unlink(missing_ok=True)
+
+
+def _remove_item_evidence_files(
+    document_id: int,
+    stored_names: list[str],
+    *,
+    handover_type: Any | None = None,
+) -> None:
+    storage_directories = [
+        path
+        for path in (
+            resolve_existing_handover_storage_directory(
+                "item_evidence",
+                document_id,
+                handover_type,
+                include_legacy=True,
+            ),
+            build_handover_storage_directory("item_evidence", document_id, handover_type) if handover_type is not None else None,
+        )
+        if isinstance(path, Path)
+    ]
+
+    for stored_name in stored_names:
+        safe_name = Path(_coerce_str(stored_name)).name
+        if not safe_name:
+            continue
+        for storage_directory in storage_directories:
+            (storage_directory / safe_name).unlink(missing_ok=True)
+
+
+def _normalize_item_evidence_entries(payload: Any, *, asset_label: str) -> list[dict[str, Any]]:
+    if not payload:
+        return []
+    if not isinstance(payload, list):
+        raise HTTPException(
+            status_code=422,
+            detail=f"Las evidencias del activo '{asset_label}' no tienen un formato valido.",
+        )
+
+    normalized: list[dict[str, Any]] = []
+    for index, evidence in enumerate(payload, start=1):
+        if not isinstance(evidence, dict):
+            raise HTTPException(
+                status_code=422,
+                detail=f"Una evidencia del activo '{asset_label}' no tiene un formato valido.",
+            )
+
+        caption = _coerce_str(evidence.get("caption"))
+        if not caption:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Cada imagen del activo '{asset_label}' debe incluir una glosa obligatoria.",
+            )
+
+        original_name = _sanitize_attachment_filename(
+            evidence.get("originalName") or evidence.get("name") or evidence.get("storedName")
+        )
+        mime_type = _coerce_str(evidence.get("mimeType")).lower()
+        file_extension = Path(original_name).suffix.lower().lstrip(".")
+        if file_extension not in {"png", "jpg", "jpeg", "webp"}:
+            raise HTTPException(
+                status_code=422,
+                detail=f"La evidencia {index} del activo '{asset_label}' debe ser una imagen PNG, JPG o WEBP.",
+            )
+        if mime_type and not mime_type.startswith("image/"):
+            raise HTTPException(
+                status_code=422,
+                detail=f"La evidencia {index} del activo '{asset_label}' no corresponde a una imagen valida.",
+            )
+
+        content_base64 = _coerce_str(evidence.get("contentBase64"))
+        stored_name = Path(_coerce_str(evidence.get("storedName"))).name
+        source = _coerce_str(evidence.get("source"))
+        if not content_base64 and not stored_name:
+            raise HTTPException(
+                status_code=422,
+                detail=f"La evidencia {index} del activo '{asset_label}' no contiene archivo valido.",
+            )
+
+        file_size_raw = evidence.get("fileSize") if evidence.get("fileSize") not in (None, "") else evidence.get("size")
+        try:
+            file_size = int(file_size_raw) if file_size_raw not in (None, "") else None
+        except (TypeError, ValueError):
+            file_size = None
+
+        normalized.append(
+            {
+                "original_name": original_name,
+                "stored_name": stored_name,
+                "mime_type": mime_type or None,
+                "file_size": file_size,
+                "caption": caption,
+                "source": source,
+                "content_base64": content_base64,
+            }
+        )
+    return normalized
+
+
+def _persist_handover_item_evidences(
+    document_id: int,
+    items: list[dict[str, Any]],
+    *,
+    previous_detail: dict[str, Any] | None = None,
+    handover_type: Any | None = None,
+) -> None:
+    resolved_handover_type = (
+        _coerce_str(handover_type)
+        or
+        _coerce_str((previous_detail or {}).get("handoverTypeCode"))
+        or _coerce_str((previous_detail or {}).get("handoverType"))
+        or "initial_assignment"
+    )
+    storage_directory = build_handover_storage_directory(
+        "item_evidence",
+        document_id,
+        resolved_handover_type,
+    )
+    storage_directory.mkdir(parents=True, exist_ok=True)
+    logger.info(
+        "Usando directorio de evidencias por activo para acta %s (%s): %s",
+        document_id,
+        resolved_handover_type,
+        storage_directory,
+    )
+
+    previous_stored_names = {
+        Path(_coerce_str(evidence.get("storedName"))).name
+        for item in (previous_detail or {}).get("items") or []
+        for evidence in item.get("evidences") or []
+        if Path(_coerce_str(evidence.get("storedName"))).name
+    }
+    next_stored_names: set[str] = set()
+    pending_files: list[tuple[Path, Path]] = []
+    created_paths: list[Path] = []
+    moved_final_paths: list[Path] = []
+    evidences_by_asset: dict[int, list[dict[str, Any]]] = {}
+
+    try:
+        for item in items:
+            asset_id = int(item.get("asset_itop_id") or 0)
+            if asset_id <= 0:
+                continue
+            evidence_rows: list[dict[str, Any]] = []
+            for evidence_index, evidence in enumerate(item.get("evidences") or [], start=1):
+                original_name = _sanitize_attachment_filename(evidence.get("original_name"))
+                mime_type = _coerce_str(evidence.get("mime_type")) or "image/png"
+                content_base64 = _coerce_str(evidence.get("content_base64"))
+                stored_name = Path(_coerce_str(evidence.get("stored_name"))).name
+
+                if content_base64:
+                    try:
+                        content = b64decode(content_base64, validate=True)
+                    except Exception as exc:
+                        raise HTTPException(
+                            status_code=422,
+                            detail=f"Una imagen del activo '{_coerce_str(item.get('asset_code')) or asset_id}' no tiene un base64 valido.",
+                        ) from exc
+                    if not content:
+                        raise HTTPException(
+                            status_code=422,
+                            detail=f"Una imagen del activo '{_coerce_str(item.get('asset_code')) or asset_id}' no contiene datos validos.",
+                        )
+                    suffix = Path(original_name).suffix.lower() or ".png"
+                    stored_name = f"asset_{asset_id}_{uuid4().hex}{suffix}"
+                    temporary_path = storage_directory / f".upload_{uuid4().hex}{suffix}"
+                    temporary_path.write_bytes(content)
+                    created_paths.append(temporary_path)
+                    pending_files.append((temporary_path, storage_directory / stored_name))
+                    file_size = len(content)
+                else:
+                    if not stored_name:
+                        raise HTTPException(
+                            status_code=422,
+                            detail=f"Una imagen del activo '{_coerce_str(item.get('asset_code')) or asset_id}' no tiene referencia almacenada.",
+                        )
+                    current_path = storage_directory / stored_name
+                    if not current_path.exists():
+                        raise HTTPException(
+                            status_code=422,
+                            detail=f"No fue posible recuperar la imagen '{original_name}' del activo '{_coerce_str(item.get('asset_code')) or asset_id}'.",
+                        )
+                    try:
+                        file_size = int(evidence.get("file_size")) if evidence.get("file_size") is not None else current_path.stat().st_size
+                    except (TypeError, ValueError, OSError):
+                        file_size = None
+
+                next_stored_names.add(stored_name)
+                evidence_rows.append(
+                    {
+                        "original_name": original_name,
+                        "stored_name": stored_name,
+                        "mime_type": mime_type,
+                        "file_size": file_size,
+                        "caption": _coerce_str(evidence.get("caption")),
+                        "source": build_handover_storage_source(
+                            settings.env_name,
+                            "item_evidence",
+                            document_id,
+                            resolved_handover_type,
+                            stored_name,
+                        ),
+                    }
+                )
+            evidences_by_asset[asset_id] = evidence_rows
+
+        for temporary_path, final_path in pending_files:
+            temporary_path.replace(final_path)
+            moved_final_paths.append(final_path)
+        replace_handover_item_evidences(document_id, evidences_by_asset)
+        _remove_item_evidence_files(
+            document_id,
+            sorted(previous_stored_names.difference(next_stored_names)),
+            handover_type=resolved_handover_type,
+        )
+    except Exception as exc:
+        for path in created_paths:
+            try:
+                if path.exists():
+                    path.unlink()
+            except OSError:
+                continue
+        for path in moved_final_paths:
+            try:
+                if path.exists():
+                    path.unlink()
+            except OSError:
+                continue
+        args = getattr(exc, "args", ()) or ()
+        if args and args[0] == 1146 and "hub_handover_item_evidences" in str(args[-1]):
+            raise HTTPException(
+                status_code=500,
+                detail="La base de datos aun no tiene habilitado el almacenamiento de evidencias por activo. Solicita aplicar la actualizacion del esquema Hub antes de continuar.",
+            ) from exc
+        raise
+
+
+def _read_item_evidence_data_url(
+    document_id: int,
+    stored_name: str,
+    mime_type: str,
+    handover_type: Any | None = None,
+) -> str:
+    file_path = resolve_existing_handover_storage_file(
+        "item_evidence",
+        document_id,
+        stored_name,
+        handover_type=handover_type,
+        include_legacy=True,
+    )
+    if file_path is None:
+        return ""
+    encoded = b64encode(file_path.read_bytes()).decode("ascii")
+    return f"data:{_coerce_str(mime_type) or 'image/png'};base64,{encoded}"
 
 
 def _get_asset_assignment_restriction(asset: dict[str, Any]) -> str:
@@ -292,8 +564,38 @@ def _format_asset_summary(first_asset_name: str, asset_count: int) -> str:
     return f"{base_name} + {asset_count - 1} mas"
 
 
-def _serialize_template_catalog(include_inactive: bool = False) -> list[dict[str, Any]]:
-    template_rows = fetch_handover_template_rows(include_inactive=include_inactive)
+def _resolve_handover_checklist_usage_types(type_definition: Any) -> tuple[str, ...]:
+    code = _coerce_str(getattr(type_definition, "code", "")).lower()
+    if code == "return":
+        return ("return",)
+    if code == "reassignment":
+        return ("reassignment",)
+    if code == "normalization":
+        return ("normalization",)
+    return ("delivery",)
+
+
+def _resolve_handover_template_usage_type(row: dict[str, Any]) -> str:
+    usage_type = _coerce_str(row.get("usage_type")).lower()
+    if usage_type:
+        return usage_type
+    template_name = _coerce_str(row.get("name")).lower()
+    if template_name.startswith("devolucion") or template_name.startswith("checklist devolucion"):
+        return "return"
+    if template_name.startswith("normalizacion") or template_name.startswith("checklist normalizacion"):
+        return "normalization"
+    return "delivery"
+
+
+def _serialize_template_catalog(
+    include_inactive: bool = False,
+    *,
+    usage_types: list[str] | tuple[str, ...] | None = None,
+) -> list[dict[str, Any]]:
+    template_rows = fetch_handover_template_rows(
+        include_inactive=include_inactive,
+        usage_types=list(usage_types or []),
+    )
     template_ids = [int(row["id"]) for row in template_rows]
     item_rows = fetch_handover_template_item_rows(template_ids)
     items_by_template: dict[int, list[dict[str, Any]]] = {template_id: [] for template_id in template_ids}
@@ -320,6 +622,7 @@ def _serialize_template_catalog(include_inactive: bool = False) -> list[dict[str
                 "name": row["name"],
                 "description": row["description"],
                 "status": row["status"],
+                "usageType": _resolve_handover_template_usage_type(row),
                 "cmdbClassLabel": row.get("cmdb_class_label") or "",
                 "checks": items_by_template.get(template_id, []),
             }
@@ -425,6 +728,18 @@ def enrich_handover_detail_for_pdf(
                 **item,
                 "asset": enriched_asset,
                 "itopAssetDetail": itop_asset_detail,
+                "evidences": [
+                    {
+                        **evidence,
+                        "dataUrl": _read_item_evidence_data_url(
+                            int(detail.get("id") or 0),
+                            _coerce_str(evidence.get("storedName")),
+                            _coerce_str(evidence.get("mimeType")),
+                            detail.get("handoverTypeCode") or detail.get("handoverType"),
+                        ),
+                    }
+                    for evidence in item.get("evidences") or []
+                ],
             }
         )
 
@@ -436,7 +751,9 @@ def enrich_handover_detail_for_pdf(
 
 def get_handover_bootstrap(session_user: dict[str, Any], runtime_token: str) -> dict[str, Any]:
     docs_settings = get_settings_panel("docs")
+    default_type = get_handover_type_definition("initial_assignment")
     allowed_evidence_extensions = sorted(_get_allowed_evidence_extensions())
+    ticket_rules = _resolve_handover_ticket_rules(docs_settings)
     return {
         "sessionUser": {
             "id": session_user["id"],
@@ -451,21 +768,21 @@ def get_handover_bootstrap(session_user: dict[str, Any], runtime_token: str) -> 
             "evidenceAttachments": [],
             "notes": "",
             "notesPlaceholder": "",
-            "prefix": docs_settings.get("handoverPrefix") or "ENT",
+            "handoverType": default_type.label,
+            "handoverTypeCode": default_type.code,
+            "prefix": resolve_handover_prefix(docs_settings, default_type.code),
         },
         "actions": {
             "allowEvidenceUpload": bool(docs_settings.get("allowEvidenceUpload", True)),
             "evidenceAllowedExtensions": allowed_evidence_extensions,
+            "requirementTicketEnabled": ticket_rules["enabled"],
         },
         "statusOptions": [
             {"value": value, "label": label}
             for value, label in STATUS_DB_TO_UI.items()
         ],
-        "typeOptions": [
-            {"value": value, "label": label}
-            for value, label in TYPE_DB_TO_UI.items()
-            if value != "reassignment"
-        ],
+        "typeOptions": list_handover_type_options(include_internal=False),
+        "typeCatalog": serialize_handover_type_catalog(docs_settings, include_internal=True),
         "checklistTemplates": _serialize_template_catalog(include_inactive=False),
         "searchHints": {
             "minCharsPeople": 2,
@@ -486,8 +803,11 @@ def list_handover_documents(
 
     if normalized_status and normalized_status not in STATUS_DB_TO_UI:
         raise HTTPException(status_code=422, detail="El estado de acta no es valido.")
-    if normalized_type and normalized_type not in TYPE_DB_TO_UI:
-        raise HTTPException(status_code=422, detail="El tipo de entrega no es valido.")
+    if normalized_type:
+        type_definition = find_handover_type_definition(normalized_type)
+        if type_definition is None:
+            raise HTTPException(status_code=422, detail="El tipo de acta no es valido.")
+        normalized_type = type_definition.code
 
     rows = fetch_handover_document_rows(
         query=_coerce_str(query),
@@ -496,6 +816,7 @@ def list_handover_documents(
     )
 
     def _build_list_item(row: dict[str, Any]) -> dict[str, Any]:
+        type_definition = get_handover_type_definition(row["handover_type"])
         itop_ticket = _extract_itop_ticket_from_attachments(
             _deserialize_evidence_attachments(row.get("evidence_attachments"))
         )
@@ -514,7 +835,8 @@ def list_handover_documents(
             "date": _serialize_date(row.get("generated_at")),
             "generatedAt": _serialize_datetime(row.get("generated_at")),
             "status": STATUS_DB_TO_UI.get(row["status"], row["status"]),
-            "handoverType": TYPE_DB_TO_UI.get(row["handover_type"], row["handover_type"]),
+            "handoverType": type_definition.label,
+            "handoverTypeCode": type_definition.code,
             "ownerName": row.get("owner_name") or "",
             "itopTicketNumber": itop_ticket.get("number") or "",
             "itopTicketId": itop_ticket.get("id") or "",
@@ -528,11 +850,14 @@ def list_handover_documents(
 def get_handover_document_detail(document_id: int) -> dict[str, Any]:
     document_row = fetch_handover_document_row(document_id)
     if not document_row:
-        raise HTTPException(status_code=404, detail="Acta de entrega no encontrada.")
+        raise HTTPException(status_code=404, detail="Acta no encontrada.")
+
+    type_definition = get_handover_type_definition(document_row["handover_type"])
 
     item_rows = fetch_handover_item_rows(document_id)
     checklist_rows = fetch_handover_item_checklist_rows(document_id)
     answer_rows = fetch_handover_checklist_answer_rows(document_id)
+    evidence_rows = fetch_handover_item_evidence_rows(document_id)
 
     items_by_id: dict[int, dict[str, Any]] = {}
     for row in item_rows:
@@ -551,6 +876,7 @@ def get_handover_document_detail(document_id: int) -> dict[str, Any]:
                 "assignedUser": row.get("assigned_user_name") or "",
             },
             "notes": row.get("notes") or "",
+            "evidences": [],
             "checklists": [],
         }
 
@@ -593,6 +919,24 @@ def get_handover_document_detail(document_id: int) -> dict[str, Any]:
             }
         )
 
+    for row in evidence_rows:
+        item_id = int(row["item_id"])
+        item_payload = items_by_id.get(item_id)
+        if item_payload is None:
+            continue
+        item_payload["evidences"].append(
+            {
+                "id": int(row["id"]),
+                "name": row.get("original_name") or row.get("stored_name") or "",
+                "originalName": row.get("original_name") or "",
+                "storedName": row.get("stored_name") or "",
+                "mimeType": row.get("mime_type") or "",
+                "fileSize": int(row.get("file_size") or 0) if row.get("file_size") not in (None, "") else None,
+                "caption": row.get("caption") or "",
+                "source": row.get("source") or "",
+            }
+        )
+
     generated_documents = _deserialize_generated_documents(document_row.get("generated_documents"))
     evidence_attachments = _deserialize_evidence_attachments(document_row.get("evidence_attachments"))
 
@@ -607,7 +951,8 @@ def get_handover_document_detail(document_id: int) -> dict[str, Any]:
         "evidenceAttachments": evidence_attachments,
         "itopTicket": _extract_itop_ticket_from_attachments(evidence_attachments),
         "status": STATUS_DB_TO_UI.get(document_row["status"], document_row["status"]),
-        "handoverType": TYPE_DB_TO_UI.get(document_row["handover_type"], document_row["handover_type"]),
+        "handoverType": type_definition.label,
+        "handoverTypeCode": type_definition.code,
         "reason": document_row["reason"],
         "notes": document_row.get("notes") or "",
         "owner": {
@@ -626,32 +971,6 @@ def get_handover_document_detail(document_id: int) -> dict[str, Any]:
         "additionalReceivers": _deserialize_additional_receivers(document_row.get("additional_receivers")),
         "items": list(items_by_id.values()),
     }
-
-
-def _normalize_generated_at(value: Any) -> datetime:
-    text = _coerce_str(value)
-    if not text:
-        return datetime.now()
-
-    for fmt in ("%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
-        try:
-            return datetime.strptime(text, fmt)
-        except ValueError:
-            continue
-    raise HTTPException(status_code=422, detail="La fecha de emision no es valida.")
-
-
-def _normalize_optional_datetime(value: Any) -> datetime | None:
-    text = _coerce_str(value)
-    if not text:
-        return None
-
-    for fmt in ("%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
-        try:
-            return datetime.strptime(text, fmt)
-        except ValueError:
-            continue
-    raise HTTPException(status_code=422, detail="Una de las fechas del acta no es valida.")
 
 
 def _normalize_response_value(answer: dict[str, Any], template_item: dict[str, Any]) -> str | None:
@@ -679,204 +998,353 @@ def _is_answer_completed(answer: dict[str, Any]) -> bool:
     return bool(_coerce_str(response_value))
 
 
+def _build_asset_label(item: dict[str, Any]) -> str:
+    asset = item.get("asset") or {}
+    return _coerce_str(asset.get("code")) or _coerce_str(asset.get("name")) or "sin codigo"
+
+
+def _validate_required_checklists(
+    items: list[dict[str, Any]],
+    *,
+    action_label: str,
+) -> None:
+    for item in items:
+        asset_label = _build_asset_label(item)
+        checklists = item.get("checklists") or []
+        if not checklists:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Debes seleccionar al menos un checklist para el activo '{asset_label}' antes de {action_label}.",
+            )
+
+        for checklist in checklists:
+            answers = checklist.get("answers") or []
+            if not answers:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"El checklist '{checklist.get('templateName') or checklist.get('template_name') or 'sin nombre'}' del activo '{asset_label}' no contiene checks para validar.",
+                )
+
+            incomplete_answer = next(
+                (
+                    answer for answer in answers if not _is_answer_completed(
+                        {
+                            "input_type": {
+                                "Input text": "input_text",
+                                "Text area": "text_area",
+                                "Check": "check",
+                                "Option / Radio": "radio",
+                            }.get(answer.get("type"), answer.get("input_type") or "input_text"),
+                            "response_value": (
+                                "1"
+                                if answer.get("type") == "Check" and bool(answer.get("value"))
+                                else ("0" if answer.get("type") == "Check" else _coerce_str(answer.get("value")))
+                            )
+                            if "type" in answer
+                            else answer.get("response_value"),
+                        }
+                    )
+                ),
+                None,
+            )
+            if incomplete_answer is not None:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Debes completar el check '{incomplete_answer['name'] if 'name' in incomplete_answer else incomplete_answer.get('check_name') or 'sin nombre'}' del activo '{asset_label}' antes de {action_label}.",
+                )
+
+
+def _validate_handover_items_ready_for_workflow(
+    detail: dict[str, Any],
+    *,
+    action_label: str,
+) -> None:
+    items = detail.get("items") or []
+    if not items:
+        raise HTTPException(status_code=422, detail=f"Debes agregar al menos un activo antes de {action_label}.")
+    _validate_required_checklists(items, action_label=action_label)
+
+
+def _get_receiver_person_id(detail: dict[str, Any], *, action_label: str) -> int:
+    receiver = detail.get("receiver") or {}
+    try:
+        person_id = int(receiver.get("id") or 0)
+    except (TypeError, ValueError):
+        person_id = 0
+    if person_id <= 0:
+        raise HTTPException(status_code=422, detail=f"Debes seleccionar el responsable antes de {action_label}.")
+    return person_id
+
+
+def _validate_handover_receiver_rules(
+    detail: dict[str, Any],
+    *,
+    type_definition: Any,
+    action_label: str,
+) -> int:
+    person_id = _get_receiver_person_id(detail, action_label=action_label)
+    additional_receivers = detail.get("additionalReceivers") or []
+    if not type_definition.allow_additional_receivers and additional_receivers:
+        raise HTTPException(
+            status_code=422,
+            detail=f"El tipo de acta '{type_definition.label}' solo permite un responsable para {action_label}.",
+        )
+    return person_id
+
+
+def _list_handover_contact_people(detail: dict[str, Any]) -> list[dict[str, Any]]:
+    contacts: list[dict[str, Any]] = []
+    seen_ids: set[int] = set()
+
+    def append_person(raw_person: Any) -> None:
+        if not isinstance(raw_person, dict):
+            return
+        try:
+            person_id = int(raw_person.get("id") or 0)
+        except (TypeError, ValueError):
+            person_id = 0
+        if person_id <= 0 or person_id in seen_ids:
+            return
+        seen_ids.add(person_id)
+        contacts.append(
+            {
+                "id": person_id,
+                "name": _coerce_str(raw_person.get("name")) or f"Persona {person_id}",
+                "code": _coerce_str(raw_person.get("code")),
+                "email": _coerce_str(raw_person.get("email")),
+                "role": _coerce_str(raw_person.get("role")),
+            }
+        )
+
+    append_person(detail.get("receiver") or {})
+    for person in detail.get("additionalReceivers") or []:
+        append_person(person)
+    return contacts
+
+
+def _get_handover_contact_ids(detail: dict[str, Any]) -> list[int]:
+    return [int(person["id"]) for person in _list_handover_contact_people(detail)]
+
+
+def _load_ci_assigned_contacts(connector: iTopCMDBConnector, asset_id: int) -> list[dict[str, Any]]:
+    contacts = connector.oql(
+        (
+            "SELECT Contact AS c "
+            "JOIN lnkContactToFunctionalCI AS l ON l.contact_id = c.id "
+            f"WHERE l.functionalci_id = {asset_id}"
+        ),
+        output_fields="id,name,friendlyname,email,function,status,finalclass",
+    )
+    normalized: list[dict[str, Any]] = []
+    for contact in contacts:
+        contact_id = int(contact.id)
+        contact_name = _coerce_str(contact.get("friendlyname") or contact.get("name") or f"Persona {contact_id}")
+        if any(int(item.get("id") or 0) == contact_id for item in normalized):
+            continue
+        normalized.append({"id": contact_id, "name": contact_name})
+    return normalized
+
+
+def _is_ci_assigned_to_contact(connector: iTopCMDBConnector, asset_id: int, contact_id: int) -> bool:
+    if asset_id <= 0 or contact_id <= 0:
+        return False
+    relation_rows = connector.get(
+        "lnkContactToFunctionalCI",
+        (
+            "SELECT lnkContactToFunctionalCI "
+            f"WHERE functionalci_id = {int(asset_id)} AND contact_id = {int(contact_id)}"
+        ),
+        output_fields="id",
+    ).items()
+    return bool(relation_rows)
+
+
+def _requires_exclusive_receiver_assignment(type_definition: Any) -> bool:
+    return _coerce_str(getattr(type_definition, "code", "")).lower() == "return"
+
+
+def _validate_ci_receiver_alignment(
+    connector: iTopCMDBConnector,
+    *,
+    asset_id: int,
+    receiver_id: int,
+    receiver_name: str,
+    asset_label: str,
+    type_definition: Any,
+    action_label: str,
+    stage: str,
+) -> None:
+    assigned_contacts = _load_ci_assigned_contacts(connector, asset_id)
+    assigned_contact_ids = {
+        int(contact.get("id") or 0)
+        for contact in assigned_contacts
+        if int(contact.get("id") or 0) > 0
+    }
+
+    if receiver_id not in assigned_contact_ids:
+        if stage == "draft":
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"El activo '{asset_label}' no esta asociado a {receiver_name} en iTop "
+                    "y no puede ser incluido en esta devolucion."
+                ),
+            )
+        raise HTTPException(
+            status_code=422,
+            detail=f"El activo '{asset_label}' ya no esta asociado a {receiver_name} en iTop, por lo que no se puede {action_label}.",
+        )
+
+    if not _requires_exclusive_receiver_assignment(type_definition):
+        return
+
+    extra_contacts = [
+        _coerce_str(contact.get("name")) or f"Persona {int(contact.get('id') or 0)}"
+        for contact in assigned_contacts
+        if int(contact.get("id") or 0) != receiver_id
+    ]
+    if not extra_contacts:
+        return
+
+    assigned_names = ", ".join([receiver_name, *extra_contacts])
+    if stage == "draft":
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"El activo '{asset_label}' esta asociado a mas de una persona en iTop ({assigned_names}) "
+                "y no puede ser incluido en esta devolucion."
+            ),
+        )
+    raise HTTPException(
+        status_code=422,
+        detail=(
+            f"El activo '{asset_label}' esta asociado a mas de una persona en iTop ({assigned_names}), "
+            f"por lo que no se puede {action_label}."
+        ),
+    )
+
+
+def _validate_assets_match_receiver_assignment(
+    detail: dict[str, Any],
+    *,
+    runtime_token: str,
+    type_definition: Any,
+    action_label: str,
+) -> None:
+    if getattr(type_definition, "asset_selection_mode", "stock_unassigned") != "assigned_to_receiver":
+        return
+
+    receiver_id = _validate_handover_receiver_rules(detail, type_definition=type_definition, action_label=action_label)
+    receiver = detail.get("receiver") or {}
+    receiver_name = _coerce_str(receiver.get("name")) or "el responsable seleccionado"
+    connector = _build_itop_connector(runtime_token)
+    try:
+        for item in detail.get("items") or []:
+            asset = item.get("asset") or {}
+            try:
+                asset_id = int(asset.get("id") or 0)
+            except (TypeError, ValueError):
+                asset_id = 0
+            if asset_id <= 0:
+                continue
+
+            asset_label = _build_asset_label(item)
+            _validate_ci_receiver_alignment(
+                connector,
+                asset_id=asset_id,
+                receiver_id=receiver_id,
+                receiver_name=receiver_name,
+                asset_label=asset_label,
+                type_definition=type_definition,
+                action_label=action_label,
+                stage="workflow",
+            )
+    finally:
+        connector.close()
+
+
+def _validate_draft_assets_ownership(
+    payload: dict[str, Any],
+    *,
+    runtime_token: str,
+    type_definition: Any,
+) -> None:
+    """
+    Lightweight ownership check at draft save (create/update) time.
+
+    Only runs when:
+    - The handover type uses "assigned_to_receiver" mode (return, reassignment).
+    - Both a receiver ID and at least one asset item are present in the payload.
+    This prevents saving drafts with assets belonging to a different person
+    without blocking partially-filled forms where receiver or items are missing.
+    """
+    if getattr(type_definition, "asset_selection_mode", "stock_unassigned") != "assigned_to_receiver":
+        return
+
+    receiver = payload.get("receiver") or {}
+    try:
+        receiver_id = int(receiver.get("id") or 0)
+    except (TypeError, ValueError):
+        receiver_id = 0
+
+    items = payload.get("items") or []
+    if not receiver_id or not items:
+        return
+
+    receiver_name = _coerce_str(receiver.get("name")) or "el responsable seleccionado"
+    connector = _build_itop_connector(runtime_token)
+    try:
+        for item in items:
+            asset = item.get("asset") or {}
+            try:
+                asset_id = int(asset.get("id") or 0)
+            except (TypeError, ValueError):
+                asset_id = 0
+            if asset_id <= 0:
+                continue
+            asset_label = _build_asset_label(item)
+            _validate_ci_receiver_alignment(
+                connector,
+                asset_id=asset_id,
+                receiver_id=receiver_id,
+                receiver_name=receiver_name,
+                asset_label=asset_label,
+                type_definition=type_definition,
+                action_label="guardar el borrador",
+                stage="draft",
+            )
+    finally:
+        connector.close()
+
+
+def _validate_generated_documents_ready_for_confirmation(detail: dict[str, Any]) -> None:
+    generated_documents = detail.get("generatedDocuments") or []
+    available_kinds = {
+        _coerce_str(item.get("kind"))
+        for item in generated_documents
+        if _coerce_str(item.get("kind")) in GENERATED_DOCUMENT_KINDS and _coerce_str(item.get("storedName"))
+    }
+    missing_kinds = sorted(GENERATED_DOCUMENT_KINDS.difference(available_kinds))
+    if missing_kinds:
+        raise HTTPException(
+            status_code=422,
+            detail="Debes generar correctamente el PDF principal y el detalle antes de confirmar el acta.",
+        )
+
+
+def _resolve_handover_ticket_rules(docs_settings: dict[str, Any] | None = None) -> dict[str, Any]:
+    resolved_settings = docs_settings if docs_settings is not None else get_settings_panel("docs")
+    return {
+        "enabled": is_requirement_ticket_enabled(resolved_settings),
+        "initialStatus": get_requirement_initial_status(resolved_settings),
+    }
+
+
 def _build_template_catalog_by_id() -> dict[int, dict[str, Any]]:
     template_map: dict[int, dict[str, Any]] = {}
     for template in _serialize_template_catalog(include_inactive=True):
         template_map[int(template["id"])] = template
     return template_map
-
-
-def _normalize_receiver(payload: dict[str, Any]) -> dict[str, Any]:
-    receiver_id = payload.get("id")
-    name = _coerce_str(payload.get("name"))
-    if receiver_id in (None, ""):
-        raise HTTPException(status_code=422, detail="Debes seleccionar la persona destino.")
-    if not name:
-        raise HTTPException(status_code=422, detail="La persona destino no es valida.")
-
-    try:
-        parsed_receiver_id = int(receiver_id)
-    except (TypeError, ValueError) as exc:
-        raise HTTPException(status_code=422, detail="La persona destino no es valida.") from exc
-
-    return {
-        "receiver_person_id": parsed_receiver_id,
-        "receiver_code": _coerce_str(payload.get("code")),
-        "receiver_name": name,
-        "receiver_email": _coerce_str(payload.get("email")),
-        "receiver_phone": _coerce_str(payload.get("phone")),
-        "receiver_role": _coerce_str(payload.get("role")),
-        "receiver_status": _coerce_str(payload.get("status")),
-    }
-
-
-def _deserialize_additional_receivers(raw_value: Any) -> list[dict[str, Any]]:
-    text = _coerce_str(raw_value)
-    if not text:
-        return []
-
-    try:
-        payload = json.loads(text)
-    except (TypeError, ValueError, json.JSONDecodeError):
-        return []
-
-    if not isinstance(payload, list):
-        return []
-
-    normalized: list[dict[str, Any]] = []
-    for item in payload:
-        if not isinstance(item, dict):
-            continue
-        normalized.append(
-            {
-                "id": item.get("id"),
-                "code": _coerce_str(item.get("code")),
-                "name": _coerce_str(item.get("name")),
-                "email": _coerce_str(item.get("email")),
-                "phone": _coerce_str(item.get("phone")),
-                "role": _coerce_str(item.get("role")),
-                "status": _coerce_str(item.get("status")),
-                "assignmentRole": SECONDARY_RECEIVER_ROLE_ALIASES.get(
-                    _coerce_str(item.get("assignmentRole")),
-                    _coerce_str(item.get("assignmentRole")),
-                ),
-            }
-        )
-    return normalized
-
-
-def _deserialize_evidence_attachments(raw_value: Any) -> list[dict[str, Any]]:
-    text = _coerce_str(raw_value)
-    if not text:
-        return []
-
-    try:
-        payload = json.loads(text)
-    except (TypeError, ValueError, json.JSONDecodeError):
-        return []
-
-    if not isinstance(payload, list):
-        return []
-
-    normalized: list[dict[str, Any]] = []
-    for item in payload:
-        if not isinstance(item, dict):
-            continue
-        stored_name = _coerce_str(item.get("storedName")) or Path(_coerce_str(item.get("source"))).name or _coerce_str(item.get("name"))
-        normalized.append(
-            {
-                "name": _coerce_str(item.get("name")),
-                "size": _coerce_str(item.get("size")),
-                "mimeType": _coerce_str(item.get("mimeType")),
-                "source": _coerce_str(item.get("source")),
-                "storedName": stored_name,
-                "uploadedAt": _coerce_str(item.get("uploadedAt")),
-                "documentType": _normalize_evidence_document_type(item.get("documentType"), allow_blank=True),
-                "observation": _coerce_str(item.get("observation")),
-                "itopTicket": _normalize_itop_ticket_summary(item.get("itopTicket")),
-                "itopAssignment": item.get("itopAssignment") if isinstance(item.get("itopAssignment"), list) else [],
-                "itopAttachments": item.get("itopAttachments") if isinstance(item.get("itopAttachments"), dict) else {},
-            }
-        )
-    return normalized
-
-
-def _deserialize_generated_documents(raw_value: Any) -> list[dict[str, Any]]:
-    text = _coerce_str(raw_value)
-    if not text:
-        return []
-
-    try:
-        payload = json.loads(text)
-    except (TypeError, ValueError, json.JSONDecodeError):
-        return []
-
-    if not isinstance(payload, list):
-        return []
-
-    normalized: list[dict[str, Any]] = []
-    for item in payload:
-        if not isinstance(item, dict):
-            continue
-        kind = _coerce_str(item.get("kind"))
-        if kind not in GENERATED_DOCUMENT_KINDS:
-            continue
-        normalized.append(
-            {
-                "kind": kind,
-                "title": _coerce_str(item.get("title")),
-                "code": _coerce_str(item.get("code")),
-                "name": _coerce_str(item.get("name")),
-                "storedName": _coerce_str(item.get("storedName")),
-                "mimeType": _coerce_str(item.get("mimeType")),
-                "size": _coerce_str(item.get("size")),
-                "source": _coerce_str(item.get("source")),
-                "uploadedAt": _coerce_str(item.get("uploadedAt")),
-            }
-        )
-    return normalized
-
-
-def _normalize_evidence_attachments(payload: Any) -> str:
-    if not payload:
-        return ""
-    if not isinstance(payload, list):
-        raise HTTPException(status_code=422, detail="La evidencia adjunta no tiene un formato valido.")
-
-    normalized: list[dict[str, Any]] = []
-    for item in payload:
-        if not isinstance(item, dict):
-            raise HTTPException(status_code=422, detail="La evidencia adjunta no tiene un formato valido.")
-        stored_name = _coerce_str(item.get("storedName")) or Path(_coerce_str(item.get("source"))).name or _coerce_str(item.get("name"))
-        normalized.append(
-            {
-                "name": _coerce_str(item.get("name")),
-                "size": _coerce_str(item.get("size")),
-                "mimeType": _coerce_str(item.get("mimeType")),
-                "source": _coerce_str(item.get("source")),
-                "storedName": stored_name,
-                "uploadedAt": _coerce_str(item.get("uploadedAt")),
-                "documentType": _normalize_evidence_document_type(item.get("documentType"), allow_blank=True),
-                "observation": _coerce_str(item.get("observation")),
-                "itopTicket": _normalize_itop_ticket_summary(item.get("itopTicket")),
-                "itopAssignment": item.get("itopAssignment") if isinstance(item.get("itopAssignment"), list) else [],
-                "itopAttachments": item.get("itopAttachments") if isinstance(item.get("itopAttachments"), dict) else {},
-            }
-        )
-    return json.dumps(normalized, ensure_ascii=True)
-
-
-def _normalize_generated_documents(payload: Any) -> str:
-    if not payload:
-        return ""
-    if not isinstance(payload, list):
-        raise HTTPException(status_code=422, detail="Los documentos generados no tienen un formato valido.")
-
-    normalized: list[dict[str, Any]] = []
-    seen_kinds: set[str] = set()
-    for item in payload:
-        if not isinstance(item, dict):
-            raise HTTPException(status_code=422, detail="Los documentos generados no tienen un formato valido.")
-        kind = _coerce_str(item.get("kind"))
-        if kind not in GENERATED_DOCUMENT_KINDS:
-            raise HTTPException(status_code=422, detail="Uno de los documentos generados no es valido.")
-        if kind in seen_kinds:
-            raise HTTPException(status_code=422, detail="No se puede repetir el tipo de PDF generado.")
-        seen_kinds.add(kind)
-        normalized.append(
-            {
-                "kind": kind,
-                "title": _coerce_str(item.get("title")),
-                "code": _coerce_str(item.get("code")),
-                "name": _coerce_str(item.get("name")),
-                "storedName": _coerce_str(item.get("storedName")),
-                "mimeType": _coerce_str(item.get("mimeType")),
-                "size": _coerce_str(item.get("size")),
-                "source": _coerce_str(item.get("source")),
-                "uploadedAt": _coerce_str(item.get("uploadedAt")),
-            }
-        )
-    return json.dumps(normalized, ensure_ascii=True)
 
 
 def _get_requester_org_id(connector: iTopCMDBConnector, requester_id: str) -> str:
@@ -907,8 +1375,16 @@ def _ensure_itop_ticket_assignment(
     assignment_fields: dict[str, int],
     document_number: str,
 ) -> iTopObject | None:
-    if not assignment_fields:
-        return None
+    missing_required_fields = [
+        field_name
+        for field_name in ("team_id", "agent_id")
+        if not isinstance(assignment_fields.get(field_name), int) or assignment_fields.get(field_name, 0) <= 0
+    ]
+    if missing_required_fields:
+        raise HTTPException(
+            status_code=422,
+            detail="La configuracion del ticket iTop exige dejarlo Asignado, por lo que debes indicar equipo y analista.",
+        )
 
     try:
         response = connector.get(ticket_class, ticket_id, output_fields=ITOP_HANDOVER_TICKET_OUTPUT_FIELDS)
@@ -921,7 +1397,7 @@ def _ensure_itop_ticket_assignment(
 
     status = _coerce_str(item.get("status")).lower()
     missing_assignment = any(not _normalize_ticket_id(item.get(field_name)) for field_name in assignment_fields)
-    if status not in {"new", "created"} and not missing_assignment:
+    if status == "assigned" and not missing_assignment:
         return item
 
     comment = f"Asignacion sincronizada desde acta {document_number}".strip()
@@ -947,16 +1423,25 @@ def _ensure_itop_ticket_assignment(
             comment=comment,
         )
         if stimulus_response.ok and stimulus_response.first() is not None:
-            return stimulus_response.first()
+            assigned_item = stimulus_response.first()
+            if _coerce_str(assigned_item.get("status")).lower() == "assigned":
+                return assigned_item
 
     refresh_response = connector.get(ticket_class, ticket_id, output_fields=ITOP_HANDOVER_TICKET_OUTPUT_FIELDS)
-    return refresh_response.first()
+    refreshed_item = refresh_response.first()
+    if refreshed_item is None:
+        return None
+    if _coerce_str(refreshed_item.get("status")).lower() != "assigned":
+        raise HTTPException(status_code=502, detail="No fue posible dejar el ticket iTop en estado Asignado.")
+    return refreshed_item
 
 
 def _create_itop_handover_ticket(
     current_detail: dict[str, Any],
     ticket_payload: dict[str, Any] | None,
     runtime_token: str,
+    *,
+    contact_ids: list[int] | None = None,
 ) -> dict[str, Any]:
     payload = _normalize_itop_ticket_summary(ticket_payload)
     if not payload:
@@ -967,10 +1452,12 @@ def _create_itop_handover_ticket(
     analyst_id = _normalize_ticket_id(payload.get("analystId"))
     subject = _coerce_str(payload.get("subject"))
     description = _coerce_str(payload.get("description"))
+    description_html = _format_itop_ticket_description_html(description)
     if not requester_id or not subject or not description:
         raise HTTPException(status_code=422, detail="El ticket iTop requiere solicitante, asunto y descripcion.")
 
     docs_settings = get_settings_panel("docs")
+    ticket_rules = _resolve_handover_ticket_rules(docs_settings)
     organization_settings = get_settings_panel("organization")
     ticket_class = _coerce_str(docs_settings.get("requirementTicketClass"), "UserRequest") or "UserRequest"
 
@@ -984,7 +1471,7 @@ def _create_itop_handover_ticket(
             "org_id": int(org_id),
             "caller_id": int(requester_id),
             "title": subject,
-            "description": description,
+            "description": description_html,
         }
 
         for field_name, field_value in {
@@ -1025,22 +1512,36 @@ def _create_itop_handover_ticket(
         if item is None:
             raise HTTPException(status_code=502, detail="iTop no retorno el ticket creado.")
 
-        assigned_item = _ensure_itop_ticket_assignment(
-            connector,
-            ticket_class,
-            item.id,
-            {
-                field_name: field_value
-                for field_name, field_value in {
-                    "team_id": fields.get("team_id"),
-                    "agent_id": fields.get("agent_id"),
-                }.items()
-                if isinstance(field_value, int)
-            },
-            _coerce_str(current_detail.get("documentNumber")),
+        if ticket_rules["initialStatus"] == "assigned":
+            assigned_item = _ensure_itop_ticket_assignment(
+                connector,
+                ticket_class,
+                item.id,
+                {
+                    field_name: field_value
+                    for field_name, field_value in {
+                        "team_id": fields.get("team_id"),
+                        "agent_id": fields.get("agent_id"),
+                    }.items()
+                    if isinstance(field_value, int)
+                },
+                _coerce_str(current_detail.get("documentNumber")),
+            )
+            if assigned_item is not None:
+                item = assigned_item
+
+        resolved_contact_ids = (
+            sorted({int(contact_id) for contact_id in (contact_ids or []) if int(contact_id) > 0})
+            if contact_ids is not None
+            else _get_handover_contact_ids(current_detail)
         )
-        if assigned_item is not None:
-            item = assigned_item
+        if resolved_contact_ids:
+            contact_link_response = connector.link_contacts_to_ticket(ticket_class, item.id, resolved_contact_ids)
+            if not contact_link_response.ok:
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"No fue posible registrar todos los contactos del acta en el ticket iTop: {contact_link_response.message}",
+                )
     except HTTPException:
         raise
     except Exception as exc:
@@ -1095,18 +1596,26 @@ def _resolve_asset_itop_class(connector: iTopCMDBConnector, asset_id: int) -> st
     return _coerce_str(item.itop_class if item else "") or "FunctionalCI"
 
 
+def _get_return_asset_target_status() -> str:
+    cmdb_settings = get_settings_panel("cmdb")
+    configured_status = _coerce_str(cmdb_settings.get("handoverReturnAssetStatus")).lower()
+    return configured_status or "stock"
+
+
 def _apply_itop_handover_assignment(
     current_detail: dict[str, Any],
     runtime_token: str,
     ticket_id: str = "",
 ) -> list[dict[str, Any]]:
-    receiver = current_detail.get("receiver") or {}
-    try:
-        person_id = int(receiver.get("id") or 0)
-    except (TypeError, ValueError):
-        person_id = 0
-    if person_id <= 0:
-        raise HTTPException(status_code=422, detail="La persona principal del acta no tiene un identificador iTop valido.")
+    type_definition = get_handover_type_definition(
+        current_detail.get("handoverTypeCode") or current_detail.get("handoverType")
+    )
+    person_id = _validate_handover_receiver_rules(
+        current_detail,
+        type_definition=type_definition,
+        action_label="sincronizar el acta",
+    )
+    target_status = _get_return_asset_target_status() if type_definition.evidence_sync_mode == "return_to_inventory" else "production"
 
     connector = _build_itop_connector(runtime_token)
     results: list[dict[str, Any]] = []
@@ -1125,30 +1634,50 @@ def _apply_itop_handover_assignment(
                 "assetId": str(asset_id),
                 "assetClass": asset_class,
                 "contactLinked": False,
+                "contactUnlinked": False,
                 "statusUpdated": False,
                 "statusUpdateError": "",
                 "ticketLinked": False,
             }
 
-            link_response = connector.link_contact_to_ci(
-                asset_class,
-                asset_id,
-                person_id,
-            )
-            if not link_response.ok:
-                raise HTTPException(status_code=502, detail=f"No fue posible relacionar el EC {asset_id} con la persona: {link_response.message}")
-            asset_result["contactLinked"] = True
+            if type_definition.evidence_sync_mode == "assign_to_receiver":
+                link_response = connector.link_contact_to_ci(
+                    asset_class,
+                    asset_id,
+                    person_id,
+                )
+                if not link_response.ok:
+                    raise HTTPException(status_code=502, detail=f"No fue posible relacionar el EC {asset_id} con la persona: {link_response.message}")
+                asset_result["contactLinked"] = True
 
-            status_response = connector.update_ci_status(
-                asset_class,
-                asset_id,
-                "production",
-                comment=f"Asignado desde acta {current_detail.get('documentNumber') or ''}".strip(),
-            )
-            if status_response.ok:
+                status_response = connector.update_ci_status(
+                    asset_class,
+                    asset_id,
+                    target_status,
+                    comment=f"Asignado desde acta {current_detail.get('documentNumber') or ''}".strip(),
+                )
+                if status_response.ok:
+                    asset_result["statusUpdated"] = True
+                else:
+                    asset_result["statusUpdateError"] = status_response.message
+            elif type_definition.evidence_sync_mode == "return_to_inventory":
+                unlink_response = connector.unlink_contact_from_ci(asset_id, person_id)
+                if not unlink_response.ok:
+                    raise HTTPException(status_code=502, detail=f"No fue posible desvincular el EC {asset_id} del responsable: {unlink_response.message}")
+                asset_result["contactUnlinked"] = True
+
+                status_response = connector.update_ci_status(
+                    asset_class,
+                    asset_id,
+                    target_status,
+                    comment=f"Devuelto desde acta {current_detail.get('documentNumber') or ''}".strip(),
+                )
+                if not status_response.ok:
+                    raise HTTPException(
+                        status_code=502,
+                        detail=f"No fue posible dejar el EC {asset_id} en estado '{target_status}': {status_response.message}",
+                    )
                 asset_result["statusUpdated"] = True
-            else:
-                asset_result["statusUpdateError"] = status_response.message
 
             if _normalize_ticket_id(ticket_id):
                 ticket_link_response = connector.create(
@@ -1194,6 +1723,7 @@ def _resolve_itop_object_org_id(connector: iTopCMDBConnector, item_class: str, i
 
 def _build_itop_handover_document_files(
     document_id: int,
+    handover_type: Any,
     generated_documents: list[dict[str, Any]],
     evidence_attachments: list[dict[str, Any]],
     pending_files: list[dict[str, Any]],
@@ -1215,7 +1745,14 @@ def _build_itop_handover_document_files(
                 "name": _coerce_str(document.get("name")) or stored_name,
                 "storedName": stored_name,
                 "mimeType": _coerce_str(document.get("mimeType")) or "application/pdf",
-                "path": HANDOVER_DOCUMENT_ROOT / f"document_{document_id}" / stored_name,
+                "path": resolve_existing_handover_storage_file(
+                    "documents",
+                    document_id,
+                    stored_name,
+                    handover_type=handover_type,
+                    include_legacy=True,
+                )
+                or (build_handover_storage_directory("documents", document_id, handover_type) / stored_name),
             }
         )
 
@@ -1224,7 +1761,20 @@ def _build_itop_handover_document_files(
         if not stored_name:
             continue
         pending_file = pending_by_name.get(stored_name)
-        file_path = pending_file.get("temporary") if pending_file else HANDOVER_EVIDENCE_ROOT / f"document_{document_id}" / stored_name
+        file_path = (
+            pending_file.get("temporary")
+            if pending_file
+            else (
+                resolve_existing_handover_storage_file(
+                    "evidence",
+                    document_id,
+                    stored_name,
+                    handover_type=handover_type,
+                    include_legacy=True,
+                )
+                or (build_handover_storage_directory("evidence", document_id, handover_type) / stored_name)
+            )
+        )
         documents.append(
             {
                 "documentType": _normalize_evidence_document_type(attachment.get("documentType"), allow_blank=True),
@@ -1286,26 +1836,33 @@ def _create_itop_attachment(
     }
 
 
-def _resolve_itop_document_type_id(connector: iTopCMDBConnector) -> str:
+def _resolve_itop_document_type_id(
+    connector: iTopCMDBConnector,
+    type_definition,
+) -> str:
     docs_settings = get_settings_panel("docs")
-    configured_document_type_id = _normalize_ticket_id(
-        docs_settings.get("handoverDocumentTypeId")
-        or docs_settings.get("itopAssetDocumentTypeId")
-        or docs_settings.get("documentTypeId")
+    try:
+        return resolve_required_document_type_id_for_handover_type(connector, docs_settings, type_definition)
+    except ValueError:
+        configured_document_type_id = _normalize_ticket_id(
+            docs_settings.get("handoverDocumentTypeId")
+            or docs_settings.get("itopAssetDocumentTypeId")
+            or docs_settings.get("documentTypeId")
+        )
+        if configured_document_type_id:
+            response = connector.get(
+                "DocumentType",
+                f"SELECT DocumentType WHERE id = {int(configured_document_type_id)}",
+                output_fields="id,name",
+            )
+            item = response.first()
+            if item is not None:
+                return str(item.id)
+
+    raise HTTPException(
+        status_code=422,
+        detail=build_missing_document_type_error_message(docs_settings, type_definition),
     )
-    if configured_document_type_id:
-        return configured_document_type_id
-
-    for document_type_name in ("Acta de Entrega", "Acta", "Aprobacion Equipos"):
-        escaped_name = document_type_name.replace("\\", "\\\\").replace("'", "\\'")
-        response = connector.get("DocumentType", f"SELECT DocumentType WHERE name = '{escaped_name}'", output_fields="id,name")
-        item = response.first()
-        if item is not None:
-            return str(item.id)
-
-    response = connector.get("DocumentType", "SELECT DocumentType", output_fields="id,name")
-    item = response.first()
-    return str(item.id) if item is not None else ""
 
 
 def _create_itop_document_file(
@@ -1322,11 +1879,12 @@ def _create_itop_document_file(
         raise HTTPException(status_code=502, detail=f"No fue posible crear documento iTop '{document.get('name') or 'documento'}': el archivo local no existe.")
 
     document_name = _coerce_str(document.get("name")) or file_path.name
+    escaped_document_name = document_name.replace("\\", "\\\\").replace("'", "\\'")
     existing_link_response = connector.get(
         "lnkDocumentToFunctionalCI",
         (
             "SELECT lnkDocumentToFunctionalCI "
-            f"WHERE functionalci_id = {target_id} AND document_name = '{document_name.replace('\\', '\\\\').replace("'", "\\'")}'"
+            f"WHERE functionalci_id = {target_id} AND document_name = '{escaped_document_name}'"
         ),
         output_fields="id,functionalci_id,document_id,document_id_friendlyname",
     )
@@ -1402,6 +1960,9 @@ def _attach_handover_documents_to_itop_targets(
     connector = _build_itop_connector(runtime_token)
     result: dict[str, Any] = {"ticket": [], "assets": [], "person": []}
     document_number = _coerce_str(current_detail.get("documentNumber"))
+    type_definition = get_handover_type_definition(
+        current_detail.get("handoverTypeCode") or current_detail.get("handoverType")
+    )
 
     try:
         ticket_id = _normalize_ticket_id(itop_ticket.get("id"))
@@ -1422,7 +1983,7 @@ def _attach_handover_documents_to_itop_targets(
                     )
                 )
 
-        document_type_id = _resolve_itop_document_type_id(connector)
+        document_type_id = _resolve_itop_document_type_id(connector, type_definition)
         if not document_type_id:
             raise HTTPException(status_code=502, detail="No fue posible determinar el tipo de documento iTop para vincular documentos al EC.")
 
@@ -1483,161 +2044,18 @@ def _attach_handover_documents_to_itop_targets(
     return result
 
 
-def _build_receiver_payload(receiver: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "receiver_person_id": int(receiver["id"]) if receiver.get("id") else None,
-        "receiver_code": _coerce_str(receiver.get("code")) or None,
-        "receiver_name": _coerce_str(receiver.get("name")),
-        "receiver_email": _coerce_str(receiver.get("email")) or None,
-        "receiver_phone": _coerce_str(receiver.get("phone")) or None,
-        "receiver_role": _coerce_str(receiver.get("role")) or None,
-        "receiver_status": _coerce_str(receiver.get("status")) or None,
-    }
-
-
-def _build_item_payloads_from_detail(detail_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    payloads: list[dict[str, Any]] = []
-    for item in detail_items:
-        asset = item.get("asset") or {}
-        checklists: list[dict[str, Any]] = []
-        for checklist in item.get("checklists") or []:
-            answers: list[dict[str, Any]] = []
-            for answer in checklist.get("answers") or []:
-                input_type = INPUT_TYPE_UI_TO_DB.get(_coerce_str(answer.get("type")), "input_text")
-                value = answer.get("value")
-                response_value = "1" if input_type == "check" and bool(value) else ("0" if input_type == "check" else _coerce_str(value))
-                answers.append(
-                    {
-                        "checklist_item_id": int(answer["checklistItemId"]),
-                        "check_name": _coerce_str(answer.get("name")),
-                        "check_description": _coerce_str(answer.get("description")),
-                        "input_type": input_type,
-                        "option_a": _coerce_str(answer.get("optionA")) or None,
-                        "option_b": _coerce_str(answer.get("optionB")) or None,
-                        "response_value": response_value,
-                    }
-                )
-
-            checklists.append(
-                {
-                    "template_id": int(checklist["templateId"]),
-                    "template_name": _coerce_str(checklist.get("templateName")),
-                    "template_description": _coerce_str(checklist.get("templateDescription")) or None,
-                    "answers": answers,
-                }
-            )
-
-        payloads.append(
-            {
-                "asset_itop_id": int(asset["id"]),
-                "asset_code": _coerce_str(asset.get("code")),
-                "asset_name": _coerce_str(asset.get("name")),
-                "asset_class_name": _coerce_str(asset.get("className")) or None,
-                "asset_brand": _coerce_str(asset.get("brand")) or None,
-                "asset_model": _coerce_str(asset.get("model")) or None,
-                "asset_serial": _coerce_str(asset.get("serial")) or None,
-                "asset_status": _coerce_str(asset.get("status")) or None,
-                "assigned_user_name": _coerce_str(asset.get("assignedUser")) or None,
-                "notes": _coerce_str(item.get("notes")) or None,
-                "checklists": checklists,
-            }
-        )
-    return payloads
-
-
-def _build_document_payload_from_detail(
-    current_detail: dict[str, Any],
-    existing_document: dict[str, Any],
+def _normalize_items(
+    payload_items: list[dict[str, Any]],
+    template_catalog: dict[int, dict[str, Any]],
     *,
-    status_ui: str,
-    assignment_date: str,
-    evidence_date: str,
-    generated_documents: list[dict[str, Any]],
-    evidence_attachments: list[dict[str, Any]],
-) -> dict[str, Any]:
-    creation_at = _normalize_generated_at(current_detail.get("creationDate") or current_detail.get("generatedAt"))
-    assignment_at = _normalize_optional_datetime(assignment_date)
-    evidence_at = _normalize_optional_datetime(evidence_date)
-    additional_receivers = _normalize_additional_receivers(
-        current_detail.get("additionalReceivers") or [],
-        int(current_detail.get("receiver", {}).get("id")) if current_detail.get("receiver", {}).get("id") else 0,
-    )
-
-    return {
-        "document_number": existing_document["document_number"],
-        "generated_at": creation_at.strftime("%Y-%m-%d %H:%M:%S"),
-        "creation_date": creation_at.strftime("%Y-%m-%d %H:%M:%S"),
-        "assignment_date": assignment_at.strftime("%Y-%m-%d %H:%M:%S") if assignment_at else None,
-        "evidence_date": evidence_at.strftime("%Y-%m-%d %H:%M:%S") if evidence_at else None,
-        "owner_user_id": int(existing_document["owner_user_id"]),
-        "owner_name": existing_document["owner_name"],
-        "status": STATUS_UI_TO_DB[status_ui],
-        "handover_type": TYPE_UI_TO_DB[_coerce_str(current_detail.get("handoverType"), "Entrega inicial")],
-        "reason": _coerce_str(current_detail.get("reason")),
-        "notes": _coerce_str(current_detail.get("notes")) or None,
-        "additional_receivers": additional_receivers or None,
-        "generated_documents": _normalize_generated_documents(generated_documents) or None,
-        "evidence_attachments": _normalize_evidence_attachments(evidence_attachments) or None,
-        **_build_receiver_payload(current_detail.get("receiver") or {}),
-    }
-
-
-def _normalize_additional_receivers(payload: Any, primary_receiver_id: int) -> str:
-    if not payload:
-        return ""
-    if not isinstance(payload, list):
-        raise HTTPException(status_code=422, detail="Los contactos adicionales no tienen un formato valido.")
-
-    normalized: list[dict[str, Any]] = []
-    seen_ids: set[int] = set()
-    for item in payload:
-        if not isinstance(item, dict):
-            raise HTTPException(status_code=422, detail="Los contactos adicionales no tienen un formato valido.")
-
-        try:
-            parsed_id = int(item.get("id"))
-        except (TypeError, ValueError) as exc:
-            raise HTTPException(status_code=422, detail="Uno de los contactos adicionales no es valido.") from exc
-
-        if parsed_id == primary_receiver_id:
-            raise HTTPException(status_code=422, detail="La persona principal no puede repetirse como contacto adicional.")
-        if parsed_id in seen_ids:
-            raise HTTPException(status_code=422, detail="No se puede repetir un mismo contacto adicional.")
-
-        name = _coerce_str(item.get("name"))
-        if not name:
-            raise HTTPException(status_code=422, detail="Uno de los contactos adicionales no es valido.")
-
-        assignment_role = SECONDARY_RECEIVER_ROLE_ALIASES.get(
-            _coerce_str(item.get("assignmentRole"), "Contraturno"),
-            _coerce_str(item.get("assignmentRole"), "Contraturno"),
-        )
-        if assignment_role not in SECONDARY_RECEIVER_ROLE_OPTIONS:
-            raise HTTPException(status_code=422, detail="El rol de un contacto adicional no es valido.")
-
-        seen_ids.add(parsed_id)
-        normalized.append(
-            {
-                "id": parsed_id,
-                "code": _coerce_str(item.get("code")),
-                "name": name,
-                "email": _coerce_str(item.get("email")),
-                "phone": _coerce_str(item.get("phone")),
-                "role": _coerce_str(item.get("role")),
-                "status": _coerce_str(item.get("status")),
-                "assignmentRole": assignment_role,
-            }
-        )
-
-    return json.dumps(normalized, ensure_ascii=True)
-
-
-def _normalize_items(payload_items: list[dict[str, Any]], template_catalog: dict[int, dict[str, Any]]) -> list[dict[str, Any]]:
+    type_definition,
+) -> list[dict[str, Any]]:
     if not isinstance(payload_items, list) or not payload_items:
         raise HTTPException(status_code=422, detail="Debes agregar al menos un activo al acta.")
 
     normalized_items: list[dict[str, Any]] = []
     seen_asset_ids: set[int] = set()
+    expected_usage_types = set(_resolve_handover_checklist_usage_types(type_definition))
 
     for item in payload_items:
         asset = item.get("asset") or {}
@@ -1655,12 +2073,17 @@ def _normalize_items(payload_items: list[dict[str, Any]], template_catalog: dict
         if not asset_name or not asset_code:
             raise HTTPException(status_code=422, detail="Uno de los activos seleccionados no es valido.")
 
-        restriction_message = _get_asset_assignment_restriction(asset)
-        if restriction_message:
-            raise HTTPException(status_code=422, detail=restriction_message)
+        if type_definition.requires_stock_assignment:
+            restriction_message = _get_asset_assignment_restriction(asset)
+            if restriction_message:
+                raise HTTPException(status_code=422, detail=restriction_message)
 
         seen_asset_ids.add(parsed_asset_id)
 
+        normalized_evidences = _normalize_item_evidence_entries(
+            item.get("evidences") or [],
+            asset_label=asset_code or asset_name or str(parsed_asset_id),
+        )
         checklist_payloads = item.get("checklists") or []
         if not isinstance(checklist_payloads, list):
             raise HTTPException(status_code=422, detail="La estructura de checklists del activo no es valida.")
@@ -1680,6 +2103,11 @@ def _normalize_items(payload_items: list[dict[str, Any]], template_catalog: dict
                 raise HTTPException(status_code=422, detail="Uno de los checklists seleccionados ya no existe.")
             if parsed_template_id in seen_template_ids:
                 raise HTTPException(status_code=422, detail="No se puede repetir una misma plantilla en el mismo activo.")
+            if expected_usage_types and _coerce_str(template.get("usageType")) not in expected_usage_types:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"El checklist '{template['name']}' no corresponde al tipo de acta '{type_definition.label}'.",
+                )
             if not _matches_template_cmdb_class(asset.get("className"), template.get("cmdbClassLabel")):
                 raise HTTPException(
                     status_code=422,
@@ -1739,6 +2167,7 @@ def _normalize_items(payload_items: list[dict[str, Any]], template_catalog: dict
                 "asset_status": _coerce_str(asset.get("status")),
                 "assigned_user_name": _coerce_str(asset.get("assignedUser")),
                 "notes": _coerce_str(item.get("notes")),
+                "evidences": normalized_evidences,
                 "checklists": normalized_checklists,
             }
         )
@@ -1756,24 +2185,45 @@ def _normalize_handover_payload(
     assignment_at = _normalize_optional_datetime(payload.get("assignmentDate"))
     evidence_at = _normalize_optional_datetime(payload.get("evidenceDate"))
     status_ui = _coerce_str(payload.get("status"), "En creacion")
-    handover_type_ui = _coerce_str(payload.get("handoverType"), "Entrega inicial")
+    raw_handover_type = payload.get("handoverTypeCode") or payload.get("handoverType") or "initial_assignment"
     reason = _coerce_str(payload.get("reason"))
     notes = _coerce_str(payload.get("notes"))
 
     if status_ui not in STATUS_UI_TO_DB:
         raise HTTPException(status_code=422, detail="El estado del acta no es valido.")
-    if handover_type_ui not in TYPE_UI_TO_DB:
-        raise HTTPException(status_code=422, detail="El tipo de entrega no es valido.")
+    type_definition = find_handover_type_definition(raw_handover_type)
+    if type_definition is None:
+        raise HTTPException(status_code=422, detail="El tipo de acta no es valido.")
 
     template_catalog = _build_template_catalog_by_id()
     receiver = _normalize_receiver(payload.get("receiver") or {})
     additional_receivers = _normalize_additional_receivers(payload.get("additionalReceivers") or [], receiver["receiver_person_id"])
     generated_documents = _normalize_generated_documents(payload.get("generatedDocuments") or [])
     evidence_attachments = _normalize_evidence_attachments(payload.get("evidenceAttachments") or [])
-    items = _normalize_items(payload.get("items") or [], template_catalog)
+    items = _normalize_items(payload.get("items") or [], template_catalog, type_definition=type_definition)
+
+    if not type_definition.allow_additional_receivers and additional_receivers:
+        raise HTTPException(
+            status_code=422,
+            detail=f"El tipo de acta '{type_definition.label}' solo permite un responsable.",
+        )
 
     if not reason:
-        raise HTTPException(status_code=422, detail="Debes indicar el motivo de entrega.")
+        raise HTTPException(status_code=422, detail=f"Debes indicar el {type_definition.main_reason_label.lower()}.")
+    if status_ui in {"Emitida", "Confirmada"}:
+        _validate_required_checklists(
+            [
+                {
+                    "asset": {
+                        "code": item.get("asset_code"),
+                        "name": item.get("asset_name"),
+                    },
+                    "checklists": item.get("checklists") or [],
+                }
+                for item in items
+            ],
+            action_label="guardar el acta en ese estado",
+        )
 
     owner_user_id = int(existing_document["owner_user_id"]) if existing_document else int(session_user["id"])
     owner_name = existing_document["owner_name"] if existing_document else session_user["name"]
@@ -1787,7 +2237,7 @@ def _normalize_handover_payload(
         "owner_user_id": owner_user_id,
         "owner_name": owner_name,
         "status": STATUS_UI_TO_DB[status_ui],
-        "handover_type": TYPE_UI_TO_DB[handover_type_ui],
+        "handover_type": type_definition.code,
         "reason": reason,
         "notes": notes or None,
         "additional_receivers": additional_receivers or None,
@@ -1798,172 +2248,75 @@ def _normalize_handover_payload(
     return document_payload, items
 
 
-def _generate_document_number(generated_at: datetime) -> str:
+def _generate_document_number(generated_at: datetime, handover_type: Any) -> str:
     docs_settings = get_settings_panel("docs")
-    prefix = _coerce_str(docs_settings.get("handoverPrefix"), "ENT") or "ENT"
+    prefix = resolve_handover_prefix(docs_settings, handover_type)
     year = generated_at.year
     sequence = get_next_handover_sequence(prefix, year)
     return f"{prefix}-{year}-{sequence:04d}"
 
 
-def create_handover_document(payload: dict[str, Any], session_user: dict[str, Any]) -> dict[str, Any]:
-    creation_at = _normalize_generated_at(payload.get("creationDate") or payload.get("generatedAt"))
-    document_number = _generate_document_number(creation_at)
-    document_payload, item_payloads = _normalize_handover_payload(
-        {**payload, "creationDate": creation_at.strftime("%Y-%m-%dT%H:%M"), "generatedAt": creation_at.strftime("%Y-%m-%dT%H:%M")},
+def _resolve_handover_service(handover_type: Any):
+    from modules.handover.services import resolve_handover_service
+
+    return resolve_handover_service(handover_type)
+
+
+def create_handover_document(
+    payload: dict[str, Any],
+    session_user: dict[str, Any],
+    runtime_token: str | None = None,
+) -> dict[str, Any]:
+    handover_type = payload.get("handoverTypeCode") or payload.get("handoverType") or "initial_assignment"
+    return _resolve_handover_service(handover_type).create_handover_document(
+        payload,
         session_user,
-        document_number=document_number,
-        existing_document=None,
+        runtime_token=runtime_token,
     )
-    saved_document_id = save_handover_document(None, document_payload, item_payloads)
-    return get_handover_document_detail(saved_document_id)
 
 
 def update_handover_document(
     document_id: int,
     payload: dict[str, Any],
     session_user: dict[str, Any],
+    runtime_token: str | None = None,
 ) -> dict[str, Any]:
     existing_document = fetch_handover_document_row(document_id)
     if not existing_document:
-        raise HTTPException(status_code=404, detail="Acta de entrega no encontrada.")
+        raise HTTPException(status_code=404, detail="Acta no encontrada.")
 
-    document_payload, item_payloads = _normalize_handover_payload(
+    handover_type = (
+        payload.get("handoverTypeCode") or payload.get("handoverType")
+        or existing_document.get("handover_type_code") or existing_document.get("handover_type")
+    )
+    return _resolve_handover_service(handover_type).update_handover_document(
+        document_id,
         payload,
         session_user,
-        document_number=existing_document["document_number"],
-        existing_document=existing_document,
+        runtime_token=runtime_token,
     )
-    target_status = _coerce_str(payload.get("status"))
-    if target_status == "Anulada":
-        document_payload["generated_documents"] = None
-    save_handover_document(document_id, document_payload, item_payloads)
-    if target_status == "Anulada":
-        remove_generated_handover_documents(document_id)
-    return get_handover_document_detail(document_id)
 
 
 def emit_handover_document(document_id: int, session_user: dict[str, Any], session_id: str) -> dict[str, Any]:
     existing_document = fetch_handover_document_row(document_id)
     if not existing_document:
-        raise HTTPException(status_code=404, detail="Acta de entrega no encontrada.")
+        raise HTTPException(status_code=404, detail="Acta no encontrada.")
 
-    current_status = STATUS_DB_TO_UI.get(existing_document["status"], existing_document["status"])
-    if current_status != "En creacion":
-        raise HTTPException(status_code=422, detail="Solo se puede emitir un acta en estado En creacion.")
-
-    current_detail = get_handover_document_detail(document_id)
-    if not current_detail.get("receiver", {}).get("id"):
-        raise HTTPException(status_code=422, detail="Debes seleccionar la persona destino antes de emitir el acta.")
-    if not current_detail.get("items"):
-        raise HTTPException(status_code=422, detail="Debes agregar al menos un activo antes de emitir el acta.")
-
-    for item in current_detail["items"]:
-        for checklist in item.get("checklists") or []:
-            incomplete_answer = next(
-                (answer for answer in checklist.get("answers") or [] if not _is_answer_completed({
-                    "input_type": {
-                        "Input text": "input_text",
-                        "Text area": "text_area",
-                        "Check": "check",
-                        "Option / Radio": "radio",
-                    }.get(answer.get("type"), "input_text"),
-                    "response_value": "1" if answer.get("type") == "Check" and bool(answer.get("value")) else (
-                        "0" if answer.get("type") == "Check" else _coerce_str(answer.get("value"))
-                    ),
-                })),
-                None,
-            )
-            if incomplete_answer is not None:
-                raise HTTPException(
-                    status_code=422,
-                    detail=f"Debes completar el check '{incomplete_answer['name']}' del activo '{item['asset'].get('code') or item['asset'].get('name') or 'sin codigo'}' antes de emitir.",
-                )
-
-    job_id = create_job(
+    handover_type = existing_document.get("handover_type_code") or existing_document.get("handover_type")
+    return _resolve_handover_service(handover_type).emit_handover_document(
         document_id,
-        "handover_emit",
-        {
-            "document_id": document_id,
-        },
-        session_id=session_id,
-        owner_user_id=int(session_user["id"]),
-        owner_name=str(session_user["name"]),
-        module_code="handover",
-        resource_type="handover_document",
+        session_user,
+        session_id,
     )
-
-    return {
-        "jobId": job_id,
-        "status": "pending",
-    }
-
-
-def _process_handover_emit_job(job_id: str, document_id: int) -> dict[str, Any]:
-    from core.errors import get_user_error
-
-    try:
-        current_detail = get_handover_document_detail(document_id)
-        assignment_at = datetime.now().strftime("%Y-%m-%dT%H:%M")
-        detail_for_pdf = {
-            **current_detail,
-            "assignmentDate": assignment_at,
-            "status": "Emitida",
-        }
-        generated_documents = generate_handover_documents(document_id, detail_for_pdf)
-        existing_document = fetch_handover_document_row(document_id)
-        document_payload = _build_document_payload_from_detail(
-            detail_for_pdf,
-            existing_document,
-            status_ui="Emitida",
-            assignment_date=assignment_at,
-            evidence_date=current_detail.get("evidenceDate") or "",
-            generated_documents=generated_documents,
-            evidence_attachments=current_detail.get("evidenceAttachments") or [],
-        )
-        item_payloads = _build_item_payloads_from_detail(current_detail.get("items") or [])
-        try:
-            save_handover_document(document_id, document_payload, item_payloads)
-        except Exception:
-            remove_generated_handover_documents(document_id)
-            raise
-        return get_handover_document_detail(document_id)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=get_user_error("PDF_GENERATION_FAILED")) from exc
 
 
 def rollback_handover_document(document_id: int, session_user: dict[str, Any]) -> dict[str, Any]:
-    del session_user
-
     existing_document = fetch_handover_document_row(document_id)
     if not existing_document:
-        raise HTTPException(status_code=404, detail="Acta de entrega no encontrada.")
+        raise HTTPException(status_code=404, detail="Acta no encontrada.")
 
-    current_status = STATUS_DB_TO_UI.get(existing_document["status"], existing_document["status"])
-    if current_status != "Emitida":
-        raise HTTPException(status_code=422, detail="Solo se puede cancelar la emision de un acta en estado Emitida.")
-
-    current_detail = get_handover_document_detail(document_id)
-    payload = {
-        "generatedAt": current_detail.get("generatedAt") or current_detail.get("creationDate") or "",
-        "creationDate": current_detail.get("creationDate") or current_detail.get("generatedAt") or "",
-        "assignmentDate": "",
-        "evidenceDate": current_detail.get("evidenceDate") or "",
-        "generatedDocuments": [],
-        "evidenceAttachments": current_detail.get("evidenceAttachments") or [],
-        "status": "En creacion",
-        "handoverType": current_detail.get("handoverType") or "Entrega inicial",
-        "reason": current_detail.get("reason") or "",
-        "notes": current_detail.get("notes") or "",
-        "receiver": current_detail.get("receiver") or {},
-        "additionalReceivers": current_detail.get("additionalReceivers") or [],
-        "items": current_detail.get("items") or [],
-    }
-    updated_document = update_handover_document(document_id, payload, {"id": existing_document["owner_user_id"], "name": existing_document["owner_name"]})
-    remove_generated_handover_documents(document_id)
-    return updated_document
+    handover_type = existing_document.get("handover_type_code") or existing_document.get("handover_type")
+    return _resolve_handover_service(handover_type).rollback_handover_document(document_id, session_user)
 
 
 def attach_handover_document_evidence(
@@ -1973,186 +2326,15 @@ def attach_handover_document_evidence(
     runtime_token: str,
     ticket_payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    del session_user
-
     existing_document = fetch_handover_document_row(document_id)
     if not existing_document:
-        raise HTTPException(status_code=404, detail="Acta de entrega no encontrada.")
+        raise HTTPException(status_code=404, detail="Acta no encontrada.")
 
-    current_status = STATUS_DB_TO_UI.get(existing_document["status"], existing_document["status"])
-    if current_status not in {"Emitida", "Confirmada"}:
-        raise HTTPException(status_code=422, detail="Solo se puede cargar evidencia sobre actas emitidas o confirmadas.")
-    if not attachments:
-        raise HTTPException(status_code=422, detail="Debes adjuntar al menos una evidencia.")
-    if len(attachments) > MAX_HANDOVER_DOCUMENT_FILES:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Solo se permiten {MAX_HANDOVER_DOCUMENT_FILES} archivos por carga entre Acta y Detalle.",
-        )
-
-    storage_directory = HANDOVER_EVIDENCE_ROOT / f"document_{document_id}"
-    storage_directory.mkdir(parents=True, exist_ok=True)
-
-    created_paths: list[Path] = []
-    current_detail = get_handover_document_detail(document_id)
-    now = datetime.now()
-    evidence_at = now.strftime("%Y-%m-%dT%H:%M")
-    document_number = _coerce_str(current_detail.get("documentNumber"))
-    if not document_number:
-        raise HTTPException(status_code=422, detail="El acta no tiene un numero documental valido.")
-
-    next_generated_documents = list(current_detail.get("generatedDocuments") or [])
-    next_evidence_attachments = list(current_detail.get("evidenceAttachments") or [])
-    existing_ticket = _extract_itop_ticket_from_attachments(next_evidence_attachments)
-    itop_ticket = existing_ticket or _create_itop_handover_ticket(current_detail, ticket_payload, runtime_token)
-    if not _normalize_ticket_id(itop_ticket.get("id") if itop_ticket else ""):
-        raise HTTPException(status_code=422, detail="No fue posible determinar el ticket iTop para registrar los adjuntos del acta.")
-    assignment_updates = _apply_itop_handover_assignment(
-        current_detail,
+    handover_type = existing_document.get("handover_type_code") or existing_document.get("handover_type")
+    return _resolve_handover_service(handover_type).confirm_handover_document(
+        document_id,
+        attachments,
+        session_user,
         runtime_token,
-        ticket_id=_coerce_str(itop_ticket.get("id") if itop_ticket else ""),
+        ticket_payload=ticket_payload,
     )
-    pending_files: list[dict[str, Path]] = []
-    evidence_stored_names_to_delete: list[str] = []
-    generated_stored_names_to_delete: list[str] = []
-    processed_document_types: set[str] = set()
-    allowed_extensions = _get_allowed_evidence_extensions()
-
-    try:
-        for attachment in attachments:
-            document_type = _normalize_evidence_document_type(attachment.get("documentType"))
-            if document_type in processed_document_types:
-                raise HTTPException(
-                    status_code=422,
-                    detail="Solo puedes cargar un archivo por tipo de documento entre Acta y Detalle.",
-                )
-            processed_document_types.add(document_type)
-
-            original_name = _sanitize_attachment_filename(attachment.get("name"))
-            file_extension = Path(original_name).suffix.lower().lstrip(".")
-            if file_extension not in allowed_extensions:
-                allowed_label = ", ".join(f".{item}" for item in sorted(allowed_extensions))
-                raise HTTPException(
-                    status_code=422,
-                    detail=f"El archivo '{original_name}' no es valido para evidencia. Tipos permitidos: {allowed_label}.",
-                )
-            raw_content = _coerce_str(attachment.get("contentBase64"))
-            try:
-                content = b64decode(raw_content, validate=True) if raw_content else b""
-            except Exception as exc:
-                raise HTTPException(status_code=422, detail="Una de las evidencias adjuntas no tiene un formato valido.") from exc
-            if not content:
-                raise HTTPException(status_code=422, detail="Una de las evidencias adjuntas no contiene datos validos.")
-
-            suffix = Path(original_name).suffix
-            stored_name = f"{_build_evidence_document_code(document_number, document_type)}{suffix}"
-            temporary_path = storage_directory / f".upload_{uuid4().hex}{suffix}"
-            temporary_path.write_bytes(bytes(content))
-            created_paths.append(temporary_path)
-            pending_files.append(
-                {
-                    "temporary": temporary_path,
-                    "final": storage_directory / stored_name,
-                }
-            )
-
-            replaced_generated_documents = [
-                item for item in next_generated_documents if _coerce_str(item.get("kind")) == EVIDENCE_DOCUMENT_TYPE_TO_GENERATED_KIND[document_type]
-            ]
-            next_generated_documents = [
-                item for item in next_generated_documents if _coerce_str(item.get("kind")) != EVIDENCE_DOCUMENT_TYPE_TO_GENERATED_KIND[document_type]
-            ]
-            generated_stored_names_to_delete.extend(
-                [
-                    _coerce_str(item.get("storedName"))
-                    for item in replaced_generated_documents
-                    if _coerce_str(item.get("storedName"))
-                ]
-            )
-
-            replaced_evidence_attachments = [
-                item
-                for item in next_evidence_attachments
-                if _normalize_evidence_document_type(item.get("documentType"), allow_blank=True) == document_type
-            ]
-            next_evidence_attachments = [
-                item
-                for item in next_evidence_attachments
-                if _normalize_evidence_document_type(item.get("documentType"), allow_blank=True) != document_type
-            ]
-            evidence_stored_names_to_delete.extend(
-                [
-                    _coerce_str(item.get("storedName"))
-                    for item in replaced_evidence_attachments
-                    if _coerce_str(item.get("storedName")) and Path(_coerce_str(item.get("storedName"))).name != stored_name
-                ]
-            )
-
-            next_evidence_attachments.append(
-                {
-                    "name": stored_name,
-                    "size": _format_attachment_size(len(content)),
-                    "mimeType": _coerce_str(attachment.get("mimeType")) or "application/octet-stream",
-                    "source": f"{settings.env_name}/handover_evidence/document_{document_id}/{stored_name}",
-                    "storedName": stored_name,
-                    "uploadedAt": evidence_at,
-                    "documentType": document_type,
-                    "observation": "",
-                    "itopTicket": itop_ticket,
-                    "itopAssignment": assignment_updates,
-                }
-            )
-
-        if len(next_generated_documents) + len(next_evidence_attachments) > MAX_HANDOVER_DOCUMENT_FILES:
-            raise HTTPException(
-                status_code=422,
-                detail="El acta solo puede conservar un maximo total de 2 documentos entre generados y adjuntos.",
-            )
-
-        itop_documents = _build_itop_handover_document_files(
-            document_id,
-            next_generated_documents,
-            next_evidence_attachments,
-            pending_files,
-        )
-        itop_attachment_updates = _attach_handover_documents_to_itop_targets(
-            current_detail,
-            runtime_token,
-            itop_ticket,
-            itop_documents,
-        )
-        next_evidence_attachments = [
-            {
-                **item,
-                "itopAttachments": itop_attachment_updates,
-            }
-            for item in next_evidence_attachments
-        ]
-
-        document_payload = _build_document_payload_from_detail(
-            current_detail,
-            existing_document,
-            status_ui="Confirmada",
-            assignment_date=current_detail.get("assignmentDate") or evidence_at,
-            evidence_date=evidence_at,
-            generated_documents=next_generated_documents,
-            evidence_attachments=next_evidence_attachments,
-        )
-        item_payloads = _build_item_payloads_from_detail(current_detail.get("items") or [])
-        save_handover_document(document_id, document_payload, item_payloads)
-
-        for pending_file in pending_files:
-            pending_file["temporary"].replace(pending_file["final"])
-
-        remove_generated_handover_documents_by_names(document_id, generated_stored_names_to_delete)
-        _remove_evidence_attachment_files(document_id, evidence_stored_names_to_delete)
-    except Exception:
-        for path in created_paths:
-            try:
-                if path.exists():
-                    path.unlink()
-            except OSError:
-                continue
-        raise
-
-    return get_handover_document_detail(document_id)

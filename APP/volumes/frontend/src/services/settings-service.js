@@ -61,6 +61,22 @@ export async function testPdqSettings(config) {
   });
 }
 
+export async function validateItopDocumentTypes(config) {
+  return apiRequest("/v1/settings/docs/itop-document-types/validate", {
+    method: "POST",
+    body: JSON.stringify({ config }),
+    fallbackMessage: "No fue posible validar los tipos documentales en iTop.",
+  });
+}
+
+export async function createItopDocumentTypes(config) {
+  return apiRequest("/v1/settings/docs/itop-document-types/create", {
+    method: "POST",
+    body: JSON.stringify({ config }),
+    fallbackMessage: "No fue posible crear los tipos documentales en iTop.",
+  });
+}
+
 export async function getSettingsProfiles() {
   const payload = await apiRequest("/v1/settings/profiles", {
     fallbackMessage: "No fue posible cargar los perfiles.",

@@ -18,6 +18,23 @@ function readFileAsBase64(file) {
 }
 
 
+async function serializeHandoverItems(items = []) {
+  return Promise.all((items || []).map(async (item) => ({
+    ...item,
+    evidences: await Promise.all((item?.evidences || []).map(async (evidence) => ({
+      name: evidence?.name || evidence?.originalName || evidence?.storedName || evidence?.file?.name || "",
+      originalName: evidence?.originalName || evidence?.name || evidence?.storedName || evidence?.file?.name || "",
+      storedName: evidence?.storedName || "",
+      mimeType: evidence?.mimeType || evidence?.file?.type || "",
+      fileSize: evidence?.fileSize ?? evidence?.size ?? evidence?.file?.size ?? null,
+      caption: evidence?.caption || "",
+      source: evidence?.source || "",
+      contentBase64: evidence?.file ? await readFileAsBase64(evidence.file) : "",
+    }))),
+  })));
+}
+
+
 export async function getHandoverBootstrap() {
   return apiRequest("/v1/handover/bootstrap", {
     fallbackMessage: "No fue posible preparar el modulo de entrega.",
@@ -57,9 +74,13 @@ export async function getHandoverDocument(documentId) {
 
 
 export async function createHandoverDocument(payload) {
+  const serializedItems = await serializeHandoverItems(payload?.items || []);
   const response = await apiRequest("/v1/handover/documents", {
     method: "POST",
-    body: JSON.stringify(payload),
+    body: JSON.stringify({
+      ...payload,
+      items: serializedItems,
+    }),
     fallbackMessage: "No fue posible crear el acta de entrega.",
     retryOnRevalidate: true,
   });
@@ -68,9 +89,13 @@ export async function createHandoverDocument(payload) {
 
 
 export async function updateHandoverDocument(documentId, payload) {
+  const serializedItems = await serializeHandoverItems(payload?.items || []);
   const response = await apiRequest(`/v1/handover/documents/${documentId}`, {
     method: "PUT",
-    body: JSON.stringify(payload),
+    body: JSON.stringify({
+      ...payload,
+      items: serializedItems,
+    }),
     fallbackMessage: "No fue posible actualizar el acta de entrega.",
     retryOnRevalidate: true,
   });
@@ -171,6 +196,6 @@ export async function searchHandoverPeople({ query = "" } = {}) {
 }
 
 
-export async function searchHandoverAssets({ query = "" } = {}) {
-  return searchItopAssets({ query });
+export async function searchHandoverAssets({ query = "", assignedPersonId = "" } = {}) {
+  return searchItopAssets({ query, assignedPersonId });
 }

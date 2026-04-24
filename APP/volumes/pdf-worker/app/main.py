@@ -40,9 +40,9 @@ def _render_pdf(html: str, header_html: str | None = None, footer_html: str | No
     if not html.strip():
         raise HTTPException(status_code=422, detail="El HTML para renderizar esta vacio.")
 
-    html_filename = (filename or "").strip().replace(".pdf", ".html") or "index.html"
     files = [
-        ("files", (html_filename, html.encode("utf-8"), "text/html; charset=utf-8")),
+        # Gotenberg Chromium expects the main document to be uploaded specifically as index.html.
+        ("files", ("index.html", html.encode("utf-8"), "text/html; charset=utf-8")),
     ]
     if (header_html or "").strip():
         files.append(("files", ("header.html", header_html.encode("utf-8"), "text/html; charset=utf-8")))
@@ -67,6 +67,13 @@ def _render_pdf(html: str, header_html: str | None = None, footer_html: str | No
         raise HTTPException(status_code=502, detail=f"No fue posible conectar con gotenberg: {exc}") from exc
 
     if response.status_code >= 400:
+        error_detail = response.text.strip()
+        if error_detail:
+            error_detail = error_detail[:300]
+            raise HTTPException(
+                status_code=502,
+                detail=f"Gotenberg respondio con error {response.status_code}: {error_detail}",
+            )
         raise HTTPException(status_code=502, detail=f"Gotenberg respondio con error {response.status_code}.")
     if not response.content:
         raise HTTPException(status_code=502, detail="Gotenberg no devolvio contenido PDF.")

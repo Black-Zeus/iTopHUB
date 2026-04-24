@@ -38,8 +38,8 @@ export async function getItopPersonDetail(personId) {
 }
 
 
-export async function searchItopAssets({ query = "" } = {}) {
-  const payload = await apiRequest(`/v1/itop/assets/search${buildSearchSuffix(query)}`, {
+export async function searchItopAssets({ query = "", assignedPersonId = "" } = {}) {
+  const payload = await apiRequest(`/v1/itop/assets/search${buildSearchSuffix(query, { assigned_person_id: assignedPersonId })}`, {
     fallbackMessage: "No fue posible buscar activos en iTop.",
     retryOnRevalidate: true,
   });

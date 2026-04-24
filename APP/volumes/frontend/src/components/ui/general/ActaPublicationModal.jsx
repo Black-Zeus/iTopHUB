@@ -32,14 +32,25 @@ function removeResponsibleSuffix(subject) {
   return normalizeText(subject).replace(/\s*\/\/\s*.+$/u, "").trim();
 }
 
-function buildResponsibleLabel(requester) {
-  const normalizedRequester = normalizeText(requester);
-  return normalizedRequester ? `${normalizedRequester} // Asignacion de Activo` : "";
+function resolveActaSubjectSuffix(actaType) {
+  const normalizedActaType = normalizeText(actaType).toLowerCase();
+  if (normalizedActaType.includes("devolucion")) {
+    return "Devolucion de Activo";
+  }
+  if (normalizedActaType.includes("normalizacion")) {
+    return "Normalizacion de Activo";
+  }
+  return "Asignacion de Activo";
 }
 
-function ensureSubjectSuffix(subject, requester) {
+function buildResponsibleLabel(requester, actaType) {
+  const normalizedRequester = normalizeText(requester);
+  return normalizedRequester ? `${normalizedRequester} // ${resolveActaSubjectSuffix(actaType)}` : "";
+}
+
+function ensureSubjectSuffix(subject, requester, actaType) {
   const baseSubject = removeResponsibleSuffix(subject);
-  const responsibleLabel = buildResponsibleLabel(requester);
+  const responsibleLabel = buildResponsibleLabel(requester, actaType);
   if (!responsibleLabel) {
     return baseSubject;
   }
@@ -47,16 +58,17 @@ function ensureSubjectSuffix(subject, requester) {
 }
 
 function buildInitialForm(initialValues = {}) {
+  const actaType = normalizeText(initialValues.actaType);
   const requester = normalizeText(initialValues.requester);
   return {
-    actaType: normalizeText(initialValues.actaType),
+    actaType,
     requesterId: normalizeText(initialValues.requesterId),
     requester,
     groupId: normalizeText(initialValues.groupId),
     groupName: normalizeText(initialValues.groupName),
     analystId: normalizeText(initialValues.analystId),
     analystName: normalizeText(initialValues.analystName),
-    subject: ensureSubjectSuffix(initialValues.subject, requester),
+    subject: ensureSubjectSuffix(initialValues.subject, requester, actaType),
     description: normalizeText(initialValues.description),
     origin: normalizeText(initialValues.origin),
     impact: normalizeText(initialValues.impact),
@@ -159,6 +171,14 @@ export function ActaPublicationModalContent({
   const currentAnalystOption = useMemo(() => normalizeOptions(options.currentAnalystOption ? [options.currentAnalystOption] : [])[0] || null, [options.currentAnalystOption]);
   const [dynamicAnalystOptions, setDynamicAnalystOptions] = useState(() => mergeAnalystOptions(options.analystOptions, options.currentAnalystOption));
   const analystOptions = useMemo(() => mergeAnalystOptions(dynamicAnalystOptions, currentAnalystOption), [dynamicAnalystOptions, currentAnalystOption]);
+  const isGroupEditable = groupOptions.length > 1;
+  const analystFieldOptions = useMemo(() => {
+    if (currentAnalystOption) {
+      return [currentAnalystOption];
+    }
+    const selectedAnalyst = analystOptions.find((option) => option.value === form.analystId);
+    return selectedAnalyst ? [selectedAnalyst] : analystOptions;
+  }, [analystOptions, currentAnalystOption, form.analystId]);
   const documentItems = useMemo(() => normalizeDocuments(documents), [documents]);
   const subcategoryOptions = useMemo(() => {
     const allOptions = normalizeOptions(options.subcategoryOptions);
@@ -195,7 +215,7 @@ export function ActaPublicationModalContent({
         ...current,
         requesterId: requesterOptions[0].value,
         requester: requesterOptions[0].label,
-        subject: ensureSubjectSuffix(current.subject, requesterOptions[0].label),
+        subject: ensureSubjectSuffix(current.subject, requesterOptions[0].label, current.actaType),
       }));
     }
   }, [form.requesterId, requesterOptions]);
@@ -224,20 +244,18 @@ export function ActaPublicationModalContent({
     setForm((current) => {
       const next = { ...current, [field]: value };
       if (field === "requester") {
-        next.subject = ensureSubjectSuffix(current.subject, value);
+        next.subject = ensureSubjectSuffix(current.subject, value, current.actaType);
       }
       if (field === "requesterId") {
         const requesterLabel = requesterOptions.find((option) => option.value === value)?.label || "";
         next.requester = requesterLabel;
-        next.subject = ensureSubjectSuffix(current.subject, requesterLabel);
+        next.subject = ensureSubjectSuffix(current.subject, requesterLabel, current.actaType);
       }
       if (field === "category") {
         next.subcategory = "";
       }
       if (field === "groupId") {
         next.groupName = groupOptions.find((option) => option.value === value)?.label || "";
-        next.analystId = "";
-        next.analystName = "";
       }
       if (field === "analystId") {
         next.analystName = analystOptions.find((option) => option.value === value)?.label || "";
@@ -249,15 +267,16 @@ export function ActaPublicationModalContent({
 
   const updateGroup = async (value) => {
     updateField("groupId", value);
+    if (!isGroupEditable) {
+      return;
+    }
     if (!onLoadAnalystOptions || !value) {
-      setDynamicAnalystOptions(mergeAnalystOptions([], currentAnalystOption));
       return;
     }
     try {
       const loadedOptions = await onLoadAnalystOptions(value);
       setDynamicAnalystOptions(mergeAnalystOptions(loadedOptions, currentAnalystOption));
     } catch (loadError) {
-      setDynamicAnalystOptions(mergeAnalystOptions([], currentAnalystOption));
       setError(loadError.message || "No fue posible cargar analistas del grupo seleccionado.");
     }
   };
@@ -268,7 +287,7 @@ export function ActaPublicationModalContent({
       return;
     }
 
-    const subject = ensureSubjectSuffix(form.subject, form.requester);
+    const subject = ensureSubjectSuffix(form.subject, form.requester, form.actaType);
     const findLabel = (items, value) => normalizeOptions(items).find((option) => option.value === normalizeText(value))?.label || "";
     setSubmitting(true);
     try {
@@ -324,13 +343,13 @@ export function ActaPublicationModalContent({
             options={requesterOptions}
             disabled
           />
-          <SelectField label="Grupo" value={form.groupId} onChange={updateGroup} options={groupOptions} />
+          <SelectField label="Grupo" value={form.groupId} onChange={updateGroup} options={groupOptions} disabled={!isGroupEditable} />
           <SelectField
             label="Analista"
             value={form.analystId}
             onChange={(value) => updateField("analystId", value)}
-            options={analystOptions}
-            disabled={!form.groupId}
+            options={analystFieldOptions}
+            disabled
           />
         </Section>
 

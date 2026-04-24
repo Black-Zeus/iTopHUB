@@ -23,6 +23,8 @@ Important:
 - `20-29`: schema alters.
 - `26_schema_checklists.sql`: schema for checklist templates and their configurable items.
 - `27_schema_handover.sql`: schema for handover documents, item snapshots, and checklist answers.
+- `29_alter_checklists_usage_type.sql`: adds checklist usage typing so handover variants can filter delivery vs return vs normalization templates.
+- `30_alter_handover_item_evidences.sql`: adds per-asset photographic evidence storage for return handovers.
 - `30-39`: indexes and performance.
 - `40-49`: triggers, procedures, events.
 - `50-69`: reserved for views, functions, or project-specific migrations.

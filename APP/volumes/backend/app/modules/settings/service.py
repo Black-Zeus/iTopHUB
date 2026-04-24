@@ -11,6 +11,12 @@ from fastapi import HTTPException
 from PIL import Image
 
 from infrastructure.redis_cache import cache_settings_panel, get_cached_settings_panel
+from modules.handover.document_type_registry import (
+    DEFAULT_DOCUMENT_TYPE_BASE_NAME,
+    normalize_document_type_base_name,
+    normalize_document_type_ids,
+    normalize_document_type_strategy,
+)
 from modules.settings.repository import (
     create_profile,
     create_sync_task,
@@ -66,6 +72,7 @@ DEFAULT_REQUIREMENT_TICKET_TEMPLATE = (
     "Se deja registro formal de la asociacion del activo en el marco del proceso corporativo vigente."
     "Solicitamos gestionar la actualizacion correspondiente y mantener trazabilidad del requerimiento asociado."
 )
+DEFAULT_REQUIREMENT_INITIAL_STATUS = "assigned"
 
 PANEL_DEFAULTS: dict[str, dict[str, Any]] = {
     "organization": {
@@ -108,12 +115,17 @@ PANEL_DEFAULTS: dict[str, dict[str, Any]] = {
     },
     "docs": {
         "handoverPrefix": "ENT",
+        "handoverReturnPrefix": "DEV",
+        "handoverReassignmentPrefix": "REA",
+        "handoverReplacementPrefix": "REP",
+        "handoverNormalizationPrefix": "NOR",
+        "handoverLaboratoryPrefix": "LAB",
         "receptionPrefix": "REC",
         "laboratoryPrefix": "LAB",
         "numberingFormat": "AAAA-NNNN",
         "requirementEnabled": False,
         "requirementTicketClass": "UserRequest",
-        "requirementInitialStatus": "created",
+        "requirementInitialStatus": DEFAULT_REQUIREMENT_INITIAL_STATUS,
         "requirementServiceId": "",
         "requirementServiceSubcategoryId": "",
         "requirementOrigin": "",
@@ -136,6 +148,9 @@ PANEL_DEFAULTS: dict[str, dict[str, Any]] = {
         "footerShowPageNumber": True,
         "allowEvidenceUpload": True,
         "evidenceAllowedExtensions": ["pdf", "doc", "docx"],
+        "itopDocumentTypeStrategy": "single",
+        "itopDocumentTypeBaseName": DEFAULT_DOCUMENT_TYPE_BASE_NAME,
+        "itopDocumentTypeIds": {},
         "handoverFooterNote": (
             "El firmante declara haber recibido los activos detallados en la presente acta, en la fecha indicada, "
             "aceptando su asignacion conforme a la informacion registrada. La revision tecnica y de preparacion "
@@ -146,11 +161,8 @@ PANEL_DEFAULTS: dict[str, dict[str, Any]] = {
         "enabledAssetTypes": ["Desktop (PC)", "Laptop (Laptop)"],
         "showObsoleteAssets": False,
         "showImplementationAssets": False,
+        "handoverReturnAssetStatus": "stock",
         "warrantyAlertDays": 30,
-        "supportNote": (
-            "PDQ actua como fuente lateral de visibilidad para inventario tecnico, "
-            "sin reemplazar la CMDB principal."
-        ),
     },
 }
 
@@ -217,6 +229,20 @@ def _normalize_requirement_level(value: Any) -> str:
         "baja": "4",
     }
     return mapping.get(normalized, normalized if normalized in {"1", "2", "3", "4"} else "")
+
+
+def _normalize_requirement_initial_status(value: Any, default: str = DEFAULT_REQUIREMENT_INITIAL_STATUS) -> str:
+    normalized = _coerce_str(value, default).lower()
+    mapping = {
+        "assigned": "assigned",
+        "asignado": "assigned",
+        "assign": "assigned",
+        "created": "created",
+        "creado": "created",
+        "new": "created",
+        "nuevo": "created",
+    }
+    return mapping.get(normalized, default)
 
 
 def _coerce_list(value: Any, default: list[str]) -> list[str]:
@@ -357,9 +383,7 @@ def normalize_panel_config(panel_code: str, config: dict[str, Any]) -> dict[str,
         requirement_ticket_class = _coerce_str(merged.get("requirementTicketClass"), "UserRequest")
         if requirement_ticket_class not in {"UserRequest", "Incident", "NormalChange"}:
             requirement_ticket_class = "UserRequest"
-        requirement_initial_status = _coerce_str(merged.get("requirementInitialStatus"), "created").lower()
-        if requirement_initial_status not in {"created"}:
-            requirement_initial_status = "created"
+        requirement_initial_status = _normalize_requirement_initial_status(merged.get("requirementInitialStatus"))
         requirement_subject = _coerce_str(merged.get("requirementSubject"), DEFAULT_REQUIREMENT_SUBJECT)
         if requirement_subject == LEGACY_REQUIREMENT_SUBJECT:
             requirement_subject = DEFAULT_REQUIREMENT_SUBJECT
@@ -368,6 +392,11 @@ def normalize_panel_config(panel_code: str, config: dict[str, Any]) -> dict[str,
             requirement_ticket_template = DEFAULT_REQUIREMENT_TICKET_TEMPLATE
         return {
             "handoverPrefix": _coerce_str(merged.get("handoverPrefix")),
+            "handoverReturnPrefix": _coerce_str(merged.get("handoverReturnPrefix")),
+            "handoverReassignmentPrefix": _coerce_str(merged.get("handoverReassignmentPrefix")),
+            "handoverReplacementPrefix": _coerce_str(merged.get("handoverReplacementPrefix")),
+            "handoverNormalizationPrefix": _coerce_str(merged.get("handoverNormalizationPrefix")),
+            "handoverLaboratoryPrefix": _coerce_str(merged.get("handoverLaboratoryPrefix")),
             "receptionPrefix": _coerce_str(merged.get("receptionPrefix")),
             "laboratoryPrefix": _coerce_str(merged.get("laboratoryPrefix")),
             "numberingFormat": _coerce_str(merged.get("numberingFormat")),
@@ -395,6 +424,9 @@ def normalize_panel_config(panel_code: str, config: dict[str, Any]) -> dict[str,
             "footerShowFolio": _coerce_bool(merged.get("footerShowFolio"), True),
             "footerShowPageNumber": _coerce_bool(merged.get("footerShowPageNumber"), True),
             "allowEvidenceUpload": _coerce_bool(merged.get("allowEvidenceUpload"), True),
+            "itopDocumentTypeStrategy": normalize_document_type_strategy(merged.get("itopDocumentTypeStrategy")),
+            "itopDocumentTypeBaseName": normalize_document_type_base_name(merged.get("itopDocumentTypeBaseName")),
+            "itopDocumentTypeIds": normalize_document_type_ids(merged.get("itopDocumentTypeIds")),
             "evidenceAllowedExtensions": [
                 item
                 for item in _coerce_list(
@@ -413,8 +445,13 @@ def normalize_panel_config(panel_code: str, config: dict[str, Any]) -> dict[str,
         "enabledAssetTypes": _coerce_list(merged.get("enabledAssetTypes"), PANEL_DEFAULTS["cmdb"]["enabledAssetTypes"]),
         "showObsoleteAssets": _coerce_bool(merged.get("showObsoleteAssets"), False),
         "showImplementationAssets": _coerce_bool(merged.get("showImplementationAssets"), False),
+        "handoverReturnAssetStatus": (
+            _coerce_str(merged.get("handoverReturnAssetStatus"), PANEL_DEFAULTS["cmdb"]["handoverReturnAssetStatus"]).lower()
+            if _coerce_str(merged.get("handoverReturnAssetStatus"), PANEL_DEFAULTS["cmdb"]["handoverReturnAssetStatus"]).lower()
+            in {"stock", "implementation", "production", "obsolete", "test", "inactive"}
+            else PANEL_DEFAULTS["cmdb"]["handoverReturnAssetStatus"]
+        ),
         "warrantyAlertDays": max(1, _coerce_int(merged.get("warrantyAlertDays"), 30)),
-        "supportNote": _coerce_str(merged.get("supportNote")),
     }
 
 
@@ -672,3 +709,13 @@ def update_settings_profile(role_code: str, payload: dict[str, Any]) -> dict[str
     if not updated:
         raise HTTPException(status_code=500, detail="No fue posible actualizar el perfil.")
     return updated
+
+
+def is_requirement_ticket_enabled(docs_settings: dict[str, Any] | None = None) -> bool:
+    resolved_settings = docs_settings if docs_settings is not None else get_settings_panel("docs")
+    return _coerce_bool(resolved_settings.get("requirementEnabled"), False)
+
+
+def get_requirement_initial_status(docs_settings: dict[str, Any] | None = None) -> str:
+    resolved_settings = docs_settings if docs_settings is not None else get_settings_panel("docs")
+    return _normalize_requirement_initial_status(resolved_settings.get("requirementInitialStatus"))
