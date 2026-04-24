@@ -16,6 +16,21 @@ from modules.checklists.repository import (
 
 
 MODULE_CODES = ("lab", "handover", "reassignment", "reception")
+USAGE_TYPE_TO_MODULE = {
+    "laboratory": "lab",
+    "delivery": "handover",
+    "return": "handover",
+    "normalization": "handover",
+    "reassignment": "reassignment",
+    "reception": "reception",
+}
+MODULE_TO_DEFAULT_USAGE_TYPE = {
+    "lab": "laboratory",
+    "handover": "delivery",
+    "reassignment": "reassignment",
+    "reception": "reception",
+}
+USAGE_TYPES = tuple(USAGE_TYPE_TO_MODULE.keys())
 
 ITEM_TYPE_DB_TO_UI = {
     "input_text": "Input text",
@@ -40,10 +55,32 @@ def _coerce_str(value: Any, default: str = "") -> str:
     return str(value).strip()
 
 
+def _resolve_usage_type(usage_type: Any, module_code: Any, name: Any) -> str:
+    normalized_usage_type = _coerce_str(usage_type).lower()
+    if normalized_usage_type in USAGE_TYPES:
+        return normalized_usage_type
+
+    normalized_module = _coerce_str(module_code).lower()
+    normalized_name = _coerce_str(name).lower()
+    if normalized_module == "handover":
+        if normalized_name.startswith("devolucion") or normalized_name.startswith("checklist devolucion"):
+            return "return"
+        if normalized_name.startswith("normalizacion") or normalized_name.startswith("checklist normalizacion"):
+            return "normalization"
+        return "delivery"
+    return MODULE_TO_DEFAULT_USAGE_TYPE.get(normalized_module, "delivery")
+
+
 def _serialize_template(template_row: dict[str, Any], item_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    usage_type = _resolve_usage_type(
+        template_row.get("usage_type"),
+        template_row.get("module_code"),
+        template_row.get("name"),
+    )
     return {
         "id": template_row["id"],
         "moduleCode": template_row["module_code"],
+        "usageType": usage_type,
         "name": template_row["name"],
         "description": template_row["description"],
         "status": STATUS_DB_TO_UI.get(template_row["status"], "Activo"),
@@ -68,10 +105,16 @@ def _serialize_grouped_rows(rows: list[dict[str, Any]]) -> dict[str, list[dict[s
 
     for row in rows:
         template_id = row["template_id"]
+        usage_type = _resolve_usage_type(
+            row.get("usage_type"),
+            row.get("module_code"),
+            row.get("template_name"),
+        )
         if template_id not in grouped:
             grouped[template_id] = {
                 "id": template_id,
                 "moduleCode": row["module_code"],
+                "usageType": usage_type,
                 "name": row["template_name"],
                 "description": row["template_description"],
                 "status": STATUS_DB_TO_UI.get(row["template_status"], "Activo"),
@@ -90,16 +133,24 @@ def _serialize_grouped_rows(rows: list[dict[str, Any]]) -> dict[str, list[dict[s
                 "optionB": row.get("option_b") or "",
             })
 
-    items_by_module: dict[str, list[dict[str, Any]]] = {module_code: [] for module_code in MODULE_CODES}
+    items_by_usage_type: dict[str, list[dict[str, Any]]] = {usage_type: [] for usage_type in USAGE_TYPES}
     for template_id in order:
         template = grouped[template_id]
-        items_by_module.setdefault(template["moduleCode"], []).append(template)
-    return items_by_module
+        items_by_usage_type.setdefault(template["usageType"], []).append(template)
+    return items_by_usage_type
 
 
 def list_checklists_payload() -> dict[str, Any]:
+    items_by_usage_type = _serialize_grouped_rows(fetch_checklist_rows())
+    items_by_module: dict[str, list[dict[str, Any]]] = {module_code: [] for module_code in MODULE_CODES}
+    for usage_type, items in items_by_usage_type.items():
+        module_code = USAGE_TYPE_TO_MODULE.get(usage_type)
+        if not module_code:
+            continue
+        items_by_module.setdefault(module_code, []).extend(items)
     return {
-        "itemsByModule": _serialize_grouped_rows(fetch_checklist_rows()),
+        "itemsByUsageType": items_by_usage_type,
+        "itemsByModule": items_by_module,
     }
 
 
@@ -131,6 +182,7 @@ def _normalize_check_item(item: dict[str, Any], index: int) -> dict[str, Any]:
 
 def _normalize_checklist_payload(payload: dict[str, Any], current_module_code: str | None = None) -> dict[str, Any]:
     module_code = _coerce_str(payload.get("moduleCode"), current_module_code or "")
+    usage_type = _coerce_str(payload.get("usageType")).lower()
     name = _coerce_str(payload.get("name"))
     description = _coerce_str(payload.get("description"))
     status_ui = _coerce_str(payload.get("status"), "Activo")
@@ -139,6 +191,12 @@ def _normalize_checklist_payload(payload: dict[str, Any], current_module_code: s
 
     if module_code not in MODULE_CODES:
         raise HTTPException(status_code=422, detail="El modulo del checklist no es valido.")
+    if not usage_type:
+        usage_type = MODULE_TO_DEFAULT_USAGE_TYPE.get(module_code, "")
+    if usage_type not in USAGE_TYPES:
+        raise HTTPException(status_code=422, detail="El tipo de checklist no es valido.")
+    if USAGE_TYPE_TO_MODULE.get(usage_type) != module_code:
+        raise HTTPException(status_code=422, detail="El tipo de checklist no corresponde al modulo seleccionado.")
     if not name:
         raise HTTPException(status_code=422, detail="El nombre del checklist es obligatorio.")
     if not description:
@@ -152,6 +210,7 @@ def _normalize_checklist_payload(payload: dict[str, Any], current_module_code: s
 
     return {
         "module_code": module_code,
+        "usage_type": usage_type,
         "name": name,
         "description": description,
         "status": STATUS_UI_TO_DB[status_ui],
@@ -172,6 +231,7 @@ def create_checklist(payload: dict[str, Any]) -> dict[str, Any]:
     normalized = _normalize_checklist_payload(payload)
     template_id = create_checklist_template(
         module_code=normalized["module_code"],
+        usage_type=normalized["usage_type"],
         name=normalized["name"],
         description=normalized["description"],
         status=normalized["status"],
@@ -193,6 +253,7 @@ def update_checklist(template_id: int, payload: dict[str, Any]) -> dict[str, Any
 
     update_checklist_template(
         template_id=template_id,
+        usage_type=normalized["usage_type"],
         name=normalized["name"],
         description=normalized["description"],
         status=normalized["status"],

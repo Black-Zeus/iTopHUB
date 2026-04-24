@@ -5,11 +5,38 @@ from typing import Any
 from infrastructure.db import get_db_connection
 
 
+def _is_unknown_usage_type_error(exc: Exception) -> bool:
+    args = getattr(exc, "args", ()) or ()
+    return bool(args and args[0] == 1054 and "usage_type" in str(args[-1]))
+
+
 def fetch_checklist_rows() -> list[dict[str, Any]]:
     query = """
         SELECT
             t.id AS template_id,
             t.module_code,
+            t.usage_type,
+            t.name AS template_name,
+            t.description AS template_description,
+            t.status AS template_status,
+            t.cmdb_class_label,
+            t.sort_order AS template_sort_order,
+            i.id AS item_id,
+            i.name AS item_name,
+            i.description AS item_description,
+            i.input_type,
+            i.option_a,
+            i.option_b,
+            i.sort_order AS item_sort_order
+        FROM hub_checklist_templates t
+        LEFT JOIN hub_checklist_items i ON i.template_id = t.id
+        ORDER BY t.module_code, t.sort_order ASC, t.id ASC, i.sort_order ASC, i.id ASC
+    """
+    legacy_query = """
+        SELECT
+            t.id AS template_id,
+            t.module_code,
+            '' AS usage_type,
             t.name AS template_name,
             t.description AS template_description,
             t.status AS template_status,
@@ -28,7 +55,12 @@ def fetch_checklist_rows() -> list[dict[str, Any]]:
     """
     with get_db_connection() as connection:
         with connection.cursor() as cursor:
-            cursor.execute(query)
+            try:
+                cursor.execute(query)
+            except Exception as exc:
+                if not _is_unknown_usage_type_error(exc):
+                    raise
+                cursor.execute(legacy_query)
             return cursor.fetchall()
 
 
@@ -37,6 +69,23 @@ def fetch_checklist_template_row(template_id: int) -> dict[str, Any] | None:
         SELECT
             id,
             module_code,
+            usage_type,
+            name,
+            description,
+            status,
+            cmdb_class_label,
+            sort_order,
+            created_at,
+            updated_at
+        FROM hub_checklist_templates
+        WHERE id = %s
+        LIMIT 1
+    """
+    legacy_query = """
+        SELECT
+            id,
+            module_code,
+            '' AS usage_type,
             name,
             description,
             status,
@@ -50,7 +99,12 @@ def fetch_checklist_template_row(template_id: int) -> dict[str, Any] | None:
     """
     with get_db_connection() as connection:
         with connection.cursor() as cursor:
-            cursor.execute(query, (template_id,))
+            try:
+                cursor.execute(query, (template_id,))
+            except Exception as exc:
+                if not _is_unknown_usage_type_error(exc):
+                    raise
+                cursor.execute(legacy_query, (template_id,))
             return cursor.fetchone()
 
 
@@ -92,6 +146,7 @@ def get_next_template_sort_order(module_code: str) -> int:
 
 def create_checklist_template(
     module_code: str,
+    usage_type: str | None,
     name: str,
     description: str,
     status: str,
@@ -101,25 +156,27 @@ def create_checklist_template(
     query = """
         INSERT INTO hub_checklist_templates (
             module_code,
+            usage_type,
             name,
             description,
             status,
             cmdb_class_label,
             sort_order
         )
-        VALUES (%s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
     """
     with get_db_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(
                 query,
-                (module_code, name, description, status, cmdb_class_label, sort_order),
+                (module_code, usage_type, name, description, status, cmdb_class_label, sort_order),
             )
             return cursor.lastrowid
 
 
 def update_checklist_template(
     template_id: int,
+    usage_type: str | None,
     name: str,
     description: str,
     status: str,
@@ -128,6 +185,7 @@ def update_checklist_template(
     query = """
         UPDATE hub_checklist_templates
         SET
+            usage_type = %s,
             name = %s,
             description = %s,
             status = %s,
@@ -136,7 +194,7 @@ def update_checklist_template(
     """
     with get_db_connection() as connection:
         with connection.cursor() as cursor:
-            cursor.execute(query, (name, description, status, cmdb_class_label, template_id))
+            cursor.execute(query, (usage_type, name, description, status, cmdb_class_label, template_id))
 
 
 def replace_checklist_items(template_id: int, items: list[dict[str, Any]]) -> None:
