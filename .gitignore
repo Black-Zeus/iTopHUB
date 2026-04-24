@@ -43,6 +43,7 @@ Draft/Database/*.sqlite3
 
 # Local certs
 APP/config/nginx/certs/
+Vm-Itop/
 
 # Generated test artifacts
 APP/volumes/backend/app/assets/test/*.pdf
