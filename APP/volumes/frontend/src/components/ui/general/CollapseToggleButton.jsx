@@ -4,7 +4,7 @@ export function CollapseToggleButton({ isCollapsed, onClick, collapsedLabel, exp
       type="button"
       onClick={onClick}
       className={`inline-flex h-11 w-11 items-center justify-center rounded-[14px] border border-[var(--border-strong)] bg-[var(--bg-panel)] text-[var(--text-primary)] shadow-[var(--shadow-subtle)] transition-transform ${
-        isCollapsed ? "rotate-180" : ""
+        isCollapsed ? "" : "rotate-180"
       }`}
       title={isCollapsed ? collapsedLabel : expandedLabel}
       aria-label={isCollapsed ? collapsedLabel : expandedLabel}
