@@ -1,314 +1,19 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { FilterDateField } from "../../components/ui/general/FilterDateField";
 import { FilterDropdown } from "../../components/ui/general/FilterDropdown";
 import { Panel, PanelHeader } from "../../components/ui/general/Panel";
 import { SoftActionButton } from "../../components/ui/general/SoftActionButton";
 import { CollapseToggleButton } from "../../components/ui/general/CollapseToggleButton";
 import { Button } from "../../ui/Button";
+import { Spinner } from "../../ui/Spinner";
 import ModalManager from "../../components/ui/modal";
-
-const REPORTS = [
-  {
-    id: "report-1",
-    name: "Personas con equipo asignado",
-    category: "Asignacion",
-    frequency: "Semanal",
-    description:
-      "Consolida el parque asignado por colaborador con foco en custodia vigente, fecha de entrega y responsable operativo.",
-    parameters: [
-      { type: "select", label: "Estado de asignacion", key: "assignment", options: ["Vigentes", "Todos"] },
-      { type: "date", label: "Fecha corte", key: "cutoff" },
-      { type: "select", label: "Orden", key: "sort", options: ["Persona", "Fecha asignacion", "Activo"] },
-    ],
-    columns: ["Persona", "Area", "Activo", "Tipo", "Modelo", "Fecha asignacion", "Responsable"],
-    rows: [
-      ["Paula Ferreyra", "Direccion Comercial", "NB-24017", "Notebook", "Latitude 5440", "2026-03-10", "Marina Sosa"],
-      ["Paula Ferreyra", "Direccion Comercial", "DK-19008", "Periferico", "WD19S", "2026-03-10", "Marina Sosa"],
-      ["Carla Rosales", "Finanzas", "MN-11044", "Monitor", "P2423D", "2026-02-01", "Damian Ochoa"],
-    ],
-  },
-  {
-    id: "report-2",
-    name: "Historial de movimientos por activo",
-    category: "Movimientos",
-    frequency: "Bajo demanda",
-    description:
-      "Reconstruye la trazabilidad de un activo, incluyendo cambios de estado, transferencias, ingresos a laboratorio y referencias documentales.",
-    parameters: [
-      { type: "search", label: "Codigo de activo", key: "asset_code", placeholder: "NB-24017" },
-      { type: "date", label: "Desde", key: "from_date" },
-      { type: "date", label: "Hasta", key: "to_date" },
-      { type: "select", label: "Tipo de movimiento", key: "movement", options: ["Todos", "Entrega", "Recepcion", "Reasignacion", "Cambio de estado"] },
-    ],
-    columns: ["Fecha", "Activo", "Movimiento", "Origen", "Destino", "Estado previo", "Estado nuevo", "Acta"],
-    rows: [
-      ["2026-03-10", "NB-24017", "Entrega", "Stock TI", "Paula Ferreyra", "Disponible", "Asignado", "ENT-2026-0317"],
-      ["2026-03-13", "NB-24021", "Recepcion", "Joaquin Herrera", "Laboratorio", "Asignado", "Laboratorio", "REC-2026-0142"],
-      ["2026-02-01", "MN-11044", "Reasignacion", "Administracion", "Carla Rosales", "Asignado", "Asignado", "ENT-2026-0088"],
-    ],
-  },
-  {
-    id: "report-3",
-    name: "Equipos en laboratorio",
-    category: "Laboratorio",
-    frequency: "Diario",
-    description:
-      "Resume la carga vigente del laboratorio con prioridad, tecnico asignado, motivo de ingreso y estado tecnico.",
-    parameters: [
-      { type: "select", label: "Prioridad", key: "priority", options: ["Todas", "Alta", "Media", "Baja"] },
-      { type: "select", label: "Estado", key: "status", options: ["Todos", "En diagnostico", "Pendiente de revision", "Listo para devolucion"] },
-      { type: "select", label: "Tecnico", key: "technician", options: ["Todos", "Natalia Quiroga", "Lucia Vera", "Marina Sosa"] },
-      { type: "date", label: "Fecha de ingreso", key: "entry_date" },
-    ],
-    columns: ["Acta recepcion", "Activo", "Motivo", "Prioridad", "Estado", "Tecnico", "Acta tecnica"],
-    rows: [
-      ["REC-2026-0142", "NB-24021", "Recalentamiento", "Alta", "En diagnostico", "Natalia Quiroga", "LAB-2026-0048"],
-      ["REC-2026-0138", "PR-70031", "Atasco recurrente", "Media", "Pendiente de revision", "Lucia Vera", "LAB-2026-0049"],
-      ["REC-2026-0131", "PC-19077", "Error de disco", "Alta", "Listo para devolucion", "Marina Sosa", "LAB-2026-0045"],
-    ],
-  },
-  {
-    id: "report-4",
-    name: "Actas emitidas por periodo",
-    category: "Documental",
-    frequency: "Mensual",
-    description:
-      "Centraliza la emision documental del periodo para medir volumen de entregas, recepciones y registros tecnicos por responsable.",
-    parameters: [
-      { type: "date", label: "Desde", key: "from_date" },
-      { type: "date", label: "Hasta", key: "to_date" },
-      { type: "select", label: "Tipo documental", key: "document_type", options: ["Todos", "Entrega", "Recepcion", "Laboratorio"] },
-      { type: "select", label: "Responsable", key: "owner", options: ["Todos", "Marina Sosa", "Lucia Vera", "Natalia Quiroga"] },
-    ],
-    columns: ["Tipo", "Numero", "Fecha", "Responsable", "Activo", "Usuario relacionado", "Estado"],
-    rows: [
-      ["Entrega", "ENT-2026-0317", "2026-03-10", "Marina Sosa", "NB-24017", "Paula Ferreyra", "Emitida"],
-      ["Recepcion", "REC-2026-0142", "2026-03-13", "Lucia Vera", "NB-24021", "Joaquin Herrera", "En analisis"],
-      ["Laboratorio", "LAB-2026-0048", "2026-03-13", "Natalia Quiroga", "NB-24021", "Joaquin Herrera", "Diagnostico emitido"],
-    ],
-  },
-  {
-    id: "report-5",
-    name: "Personas sin equipo asignado",
-    category: "Asignacion",
-    frequency: "Semanal",
-    description:
-      "Detecta personas activas sin equipamiento vigente para identificar ingresos recientes o inconsistencias entre operacion y CMDB.",
-    parameters: [
-      { type: "select", label: "Estado persona", key: "person_status", options: ["Activo", "Todos"] },
-      { type: "date", label: "Ingreso desde", key: "entry_from" },
-      { type: "select", label: "Ordenar por", key: "sort", options: ["Nombre", "Fecha de ingreso", "Estado"] },
-    ],
-    columns: ["Persona", "Area", "Cargo", "Correo", "Fecha ingreso", "Estado"],
-    rows: [
-      ["Joaquin Herrera", "Operaciones", "Analista senior", "joaquin.herrera@itophub.local", "2023-09-04", "Activo"],
-      ["Laura Ponce", "Finanzas", "Analista", "laura.ponce@itophub.local", "2026-02-18", "Activo"],
-      ["Tomas Aguero", "Direccion Comercial", "Ejecutivo", "tomas.aguero@itophub.local", "2026-03-01", "Activo"],
-    ],
-  },
-  {
-    id: "report-6",
-    name: "Activos por estado CMDB",
-    category: "Inventario",
-    frequency: "Mensual",
-    description:
-      "Muestra la distribucion actual del inventario por estado CMDB para analizar disponibilidad, uso efectivo y pendientes tecnicos.",
-    parameters: [
-      { type: "select", label: "Tipo de activo", key: "asset_type", options: ["Todos", "Notebook", "Monitor", "Periferico", "Servidor"] },
-      { type: "select", label: "Estado CMDB", key: "cmdb_status", options: ["Todos", "En uso", "En revision", "Mantenimiento"] },
-      { type: "date", label: "Fecha corte", key: "cutoff" },
-      { type: "select", label: "Vista", key: "view", options: ["Resumen", "Detalle"] },
-    ],
-    columns: ["Codigo", "Tipo", "Modelo", "Estado CMDB", "Estado operativo", "Usuario actual"],
-    rows: [
-      ["NB-24017", "Notebook", "Latitude 5440", "En uso", "Operativo", "Paula Ferreyra"],
-      ["NB-24021", "Notebook", "EliteBook 840 G10", "En revision", "No operativo", "Joaquin Herrera"],
-      ["SV-0009", "Servidor", "PowerEdge R650", "Mantenimiento", "Operativo", "Infraestructura"],
-    ],
-  },
-  {
-    id: "report-7",
-    name: "Activos proximos a recambio",
-    category: "Renovacion",
-    frequency: "Mensual",
-    description:
-      "Identifica equipos cercanos al fin de vida util o con antiguedad critica para planificar renovacion y reasignaciones preventivas.",
-    parameters: [
-      { type: "select", label: "Familia de activo", key: "asset_family", options: ["Todas", "Notebook", "Desktop", "Monitor", "Servidor"] },
-      { type: "select", label: "Antiguedad minima", key: "age", options: ["36 meses", "48 meses", "60 meses"] },
-      { type: "date", label: "Fecha corte", key: "cutoff" },
-      { type: "select", label: "Ordenar por", key: "sort", options: ["Antiguedad", "Area", "Modelo"] },
-    ],
-    columns: ["Codigo", "Activo", "Modelo", "Fecha alta", "Antiguedad", "Usuario actual", "Estado"],
-    rows: [
-      ["NB-21003", "Notebook Ejecutiva", "Latitude 7420", "2021-02-16", "49 meses", "Paula Ferreyra", "Operativo"],
-      ["PC-18077", "Desktop Administrativo", "OptiPlex 7090", "2020-11-08", "52 meses", "Laura Ponce", "Operativo"],
-      ["MN-10440", "Monitor Corporativo", "P2419H", "2020-07-22", "56 meses", "Carla Rosales", "Operativo"],
-    ],
-  },
-  {
-    id: "report-8",
-    name: "Recepciones con reparacion requerida",
-    category: "Laboratorio",
-    frequency: "Semanal",
-    description:
-      "Lista recepciones que derivaron en reparacion para medir carga tecnica, identificar causas recurrentes y priorizar repuestos.",
-    parameters: [
-      { type: "date", label: "Desde", key: "from_date" },
-      { type: "date", label: "Hasta", key: "to_date" },
-      { type: "select", label: "Estado del caso", key: "case_status", options: ["Todos", "Pendiente", "En reparacion", "Resuelto"] },
-      { type: "select", label: "Tecnico", key: "technician", options: ["Todos", "Natalia Quiroga", "Lucia Vera", "Marina Sosa"] },
-    ],
-    columns: ["Acta", "Activo", "Falla inicial", "Diagnostico", "Tecnico", "Estado", "Fecha ingreso"],
-    rows: [
-      ["REC-2026-0142", "NB-24021", "Apagado aleatorio", "Bateria degradada", "Natalia Quiroga", "Pendiente", "2026-03-13"],
-      ["REC-2026-0131", "PC-19077", "Error de disco", "SSD con fallas", "Marina Sosa", "En reparacion", "2026-03-11"],
-      ["REC-2026-0127", "NB-23318", "Pantalla intermitente", "Flex danado", "Lucia Vera", "Resuelto", "2026-03-08"],
-    ],
-  },
-  {
-    id: "report-9",
-    name: "Entregas pendientes de confirmacion",
-    category: "Documental",
-    frequency: "Diario",
-    description:
-      "Controla actas de entrega emitidas que aun no tienen validacion final del receptor o cierre documental completo.",
-    parameters: [
-      { type: "date", label: "Desde", key: "from_date" },
-      { type: "date", label: "Hasta", key: "to_date" },
-      { type: "select", label: "Pendiente de", key: "pending_type", options: ["Todos", "Firma", "Envio", "Cierre documental"] },
-      { type: "select", label: "Responsable", key: "owner", options: ["Todos", "Marina Sosa", "Damian Ochoa", "Lucia Vera"] },
-    ],
-    columns: ["Acta", "Fecha", "Activo", "Persona", "Responsable", "Pendiente", "Estado"],
-    rows: [
-      ["ENT-2026-0318", "2026-03-13", "NB-24025", "Ivana Paez", "Marina Sosa", "Firma", "Pendiente"],
-      ["ENT-2026-0315", "2026-03-09", "DK-19018", "Paula Ferreyra", "Marina Sosa", "Envio", "Pendiente"],
-      ["ENT-2026-0309", "2026-03-06", "MN-11201", "Sergio Luna", "Damian Ochoa", "Cierre documental", "Pendiente"],
-    ],
-  },
-  {
-    id: "report-11",
-    name: "Stock disponible por tipo de activo",
-    category: "Inventario",
-    frequency: "Diario",
-    description:
-      "Muestra los activos disponibles en stock, segmentados por familia, modelo y estado operativo para acelerar nuevas asignaciones.",
-    parameters: [
-      { type: "select", label: "Tipo de activo", key: "asset_type", options: ["Todos", "Notebook", "Desktop", "Monitor", "Periferico"] },
-      { type: "select", label: "Estado operativo", key: "asset_state", options: ["Todos", "Operativo", "Pendiente", "En preparacion"] },
-      { type: "date", label: "Fecha corte", key: "cutoff" },
-      { type: "select", label: "Ordenar por", key: "sort", options: ["Tipo", "Modelo", "Cantidad"] },
-    ],
-    columns: ["Codigo", "Activo", "Tipo", "Modelo", "Estado", "Ubicacion logica"],
-    rows: [
-      ["NB-24031", "Notebook Operativa", "Notebook", "Latitude 5450", "Operativo", "Stock TI"],
-      ["MN-11452", "Monitor Corporativo", "Monitor", "P2425H", "Operativo", "Stock TI"],
-      ["DK-19107", "Docking USB-C", "Periferico", "WD19S", "En preparacion", "Almacen"],
-    ],
-  },
-  {
-    id: "report-14",
-    name: "Actas sin respaldo completo",
-    category: "Documental",
-    frequency: "Diario",
-    description:
-      "Detecta documentacion emitida con validaciones, anexos o cierres pendientes para reforzar control y completitud del circuito documental.",
-    parameters: [
-      { type: "date", label: "Desde", key: "from_date" },
-      { type: "date", label: "Hasta", key: "to_date" },
-      { type: "select", label: "Tipo documental", key: "document_type", options: ["Todos", "Entrega", "Recepcion", "Laboratorio"] },
-      { type: "select", label: "Faltante", key: "missing", options: ["Todos", "Firma", "Adjunto", "Cierre"] },
-    ],
-    columns: ["Documento", "Tipo", "Fecha", "Activo", "Responsable", "Faltante", "Estado"],
-    rows: [
-      ["ENT-2026-0318", "Entrega", "2026-03-13", "NB-24025", "Marina Sosa", "Firma", "Pendiente"],
-      ["REC-2026-0140", "Recepcion", "2026-03-12", "PR-70028", "Lucia Vera", "Adjunto", "Pendiente"],
-      ["LAB-2026-0046", "Laboratorio", "2026-03-10", "NB-23318", "Natalia Quiroga", "Cierre", "Pendiente"],
-    ],
-  },
-  {
-    id: "report-15",
-    name: "Modelos fuera de estandar",
-    category: "Renovacion",
-    frequency: "Mensual",
-    description:
-      "Agrupa activos que no pertenecen al catalogo tecnologico vigente para apoyar decisiones de normalizacion y renovacion progresiva.",
-    parameters: [
-      { type: "select", label: "Tipo de activo", key: "asset_type", options: ["Todos", "Notebook", "Desktop", "Monitor"] },
-      { type: "select", label: "Area", key: "business_area", options: ["Todas", "Operaciones", "Finanzas", "Direccion Comercial"] },
-      { type: "date", label: "Fecha corte", key: "cutoff" },
-      { type: "select", label: "Ordenar por", key: "sort", options: ["Modelo", "Antiguedad", "Area"] },
-    ],
-    columns: ["Codigo", "Activo", "Modelo", "Area", "Usuario", "Antiguedad", "Estado"],
-    rows: [
-      ["NB-21003", "Notebook Ejecutiva", "Latitude 7420", "Direccion Comercial", "Paula Ferreyra", "49 meses", "Operativo"],
-      ["PC-18077", "Desktop Administrativo", "OptiPlex 7090", "Finanzas", "Laura Ponce", "52 meses", "Operativo"],
-      ["NB-22018", "Notebook Operativa", "ProBook 440 G8", "Operaciones", "Tomas Aguero", "44 meses", "Operativo"],
-    ],
-  },
-  {
-    id: "report-16",
-    name: "Activos sin usuario o ubicacion",
-    category: "Calidad CMDB",
-    frequency: "Semanal",
-    description:
-      "Detecta registros incompletos en CMDB donde faltan relaciones clave como usuario asignado o ubicacion logica.",
-    parameters: [
-      { type: "select", label: "Dato faltante", key: "missing_data", options: ["Todos", "Usuario", "Ubicacion", "Ambos"] },
-      { type: "select", label: "Tipo de activo", key: "asset_type", options: ["Todos", "Notebook", "Monitor", "Servidor", "Periferico"] },
-      { type: "date", label: "Fecha corte", key: "cutoff" },
-      { type: "select", label: "Ordenar por", key: "sort", options: ["Codigo", "Tipo", "Dato faltante"] },
-    ],
-    columns: ["Codigo", "Activo", "Tipo", "Usuario actual", "Ubicacion", "Dato faltante"],
-    rows: [
-      ["NB-24044", "Notebook Operativa", "Notebook", "-", "Oficina Norte", "Usuario"],
-      ["MN-11502", "Monitor Corporativo", "Monitor", "Carla Rosales", "-", "Ubicacion"],
-      ["DK-19128", "Docking USB-C", "Periferico", "-", "-", "Ambos"],
-    ],
-  },
-  {
-    id: "report-17",
-    name: "Inconsistencias entre CMDB y actas",
-    category: "Calidad CMDB",
-    frequency: "Semanal",
-    description:
-      "Compara la relacion documental con el estado actual de CMDB para encontrar activos con asignacion, estado o custodio que no coinciden con el respaldo emitido.",
-    parameters: [
-      { type: "date", label: "Desde", key: "from_date" },
-      { type: "date", label: "Hasta", key: "to_date" },
-      { type: "select", label: "Tipo de diferencia", key: "difference", options: ["Todos", "Usuario", "Estado", "Documento faltante"] },
-      { type: "select", label: "Prioridad", key: "priority", options: ["Todas", "Alta", "Media", "Baja"] },
-    ],
-    columns: ["Activo", "CMDB actual", "Documento", "Dato observado", "Diferencia", "Prioridad"],
-    rows: [
-      ["NB-24017", "Paula Ferreyra", "ENT-2026-0317", "Usuario", "Sin diferencia", "Baja"],
-      ["NB-24025", "Ivana Paez", "-", "Documento faltante", "Asignacion sin acta", "Alta"],
-      ["PR-70031", "En revision", "REC-2026-0138", "Estado", "CMDB sin actualizar", "Media"],
-    ],
-  },
-  {
-    id: "report-18",
-    name: "Activos por locacion",
-    category: "Inventario",
-    frequency: "Semanal",
-    description:
-      "Distribuye el inventario por sede o ubicacion logica para facilitar control territorial, planificacion de soporte y validacion de presencia operativa.",
-    parameters: [
-      { type: "select", label: "Locacion", key: "location", options: ["Todas", "Oficina Central", "Oficina Norte", "Finanzas", "Mesa de ayuda", "Datacenter San Juan"] },
-      { type: "select", label: "Tipo de activo", key: "asset_type", options: ["Todos", "Notebook", "Desktop", "Monitor", "Periferico", "Servidor"] },
-      { type: "select", label: "Estado", key: "status", options: ["Todos", "Asignado", "Laboratorio", "Pendiente", "Disponible"] },
-      { type: "date", label: "Fecha corte", key: "cutoff" },
-    ],
-    columns: ["Locacion", "Codigo", "Activo", "Tipo", "Modelo", "Estado", "Usuario actual"],
-    rows: [
-      ["Oficina Central", "NB-24017", "Notebook Ejecutiva", "Notebook", "Latitude 5440", "Asignado", "Paula Ferreyra"],
-      ["Finanzas", "MN-11044", "Monitor Corporativo", "Monitor", "P2423D", "Asignado", "Carla Rosales"],
-      ["Mesa de ayuda", "NB-24021", "Notebook Analista", "Notebook", "EliteBook 840 G10", "Laboratorio", "Joaquin Herrera"],
-    ],
-  },
-];
+import { downloadRowsAsCsv } from "../../utils/export-csv";
+import { executeReport, getReportCatalog, getReportDefinition } from "../../services/reports-service";
 
 const CATEGORY_ORDER = ["Inventario", "Asignacion", "Movimientos", "Laboratorio", "Documental", "Renovacion", "Calidad CMDB"];
+
+// Sentinel for "no filter applied" on select filters backed by nullable option values
+const ALL_VALUE = "__all__";
 
 function getDateOffset(days) {
   const date = new Date();
@@ -317,12 +22,28 @@ function getDateOffset(days) {
   return date.toISOString().slice(0, 10);
 }
 
-function buildDefaultParams(report) {
+// Normalizes API filter definitions into the shape expected by ReportParameterField.
+// API:   {name, label, type, options: [{label, value}]}
+// Local: {key, label, type, options: string[], optionValues: any[]}
+function normalizeFilters(apiFilters) {
+  if (!Array.isArray(apiFilters)) return [];
+  return apiFilters.map((f) => ({
+    key: f.name,
+    label: f.label,
+    type: f.type === "text" ? "search" : f.type,
+    required: f.required ?? false,
+    placeholder: f.placeholder,
+    options: Array.isArray(f.options) ? f.options.map((o) => o.label) : [],
+    optionValues: Array.isArray(f.options) ? f.options.map((o) => o.value) : [],
+  }));
+}
+
+function buildDefaultParams(normalizedFilters) {
   const defaults = {};
 
-  for (let index = 0; index < report.parameters.length; index += 1) {
-    const parameter = report.parameters[index];
-    const nextParameter = report.parameters[index + 1];
+  for (let index = 0; index < normalizedFilters.length; index += 1) {
+    const parameter = normalizedFilters[index];
+    const nextParameter = normalizedFilters[index + 1];
 
     if (
       parameter?.type === "date" &&
@@ -336,14 +57,15 @@ function buildDefaultParams(report) {
       continue;
     }
 
-    if (parameter.type === "select") {
-      defaults[parameter.key] = parameter.options[0];
-      continue;
-    }
-
     if (parameter.type === "date") {
       defaults[`${parameter.key}_start`] = getDateOffset(-6);
       defaults[`${parameter.key}_end`] = getDateOffset(0);
+      continue;
+    }
+
+    if (parameter.type === "select") {
+      // Use null for the "all" option (optionValues[0] is typically null for "Todos")
+      defaults[parameter.key] = parameter.optionValues?.[0] ?? null;
       continue;
     }
 
@@ -359,12 +81,12 @@ function getFormColumnClass(parameterCount) {
   return "grid-cols-1";
 }
 
-function getVisibleParameters(parameters) {
+function getVisibleParameters(normalizedFilters) {
   const visibleParameters = [];
 
-  for (let index = 0; index < parameters.length; index += 1) {
-    const current = parameters[index];
-    const next = parameters[index + 1];
+  for (let index = 0; index < normalizedFilters.length; index += 1) {
+    const current = normalizedFilters[index];
+    const next = normalizedFilters[index + 1];
 
     if (
       current?.type === "date" &&
@@ -399,6 +121,20 @@ function getVisibleParameters(parameters) {
 
   return visibleParameters;
 }
+
+// Collects non-null, non-empty filter values to send to the backend.
+// Converts ALL_VALUE sentinel back to null so the engine can skip it.
+function buildApiFilters(params, normalizedFilters) {
+  const result = {};
+  for (const f of normalizedFilters) {
+    const val = params[f.key];
+    if (val === null || val === undefined || val === "" || val === ALL_VALUE) continue;
+    result[f.key] = val;
+  }
+  return result;
+}
+
+// ── Internal components ───────────────────────────────────────────────────────
 
 function ReportIconButton({ title, onClick, disabled = false, children }) {
   return (
@@ -443,22 +179,24 @@ function ReportParameterField({ parameter, value, onChange }) {
     "w-full min-w-0 border-none bg-transparent p-0 text-sm font-semibold text-[var(--text-primary)] outline-none placeholder:text-[var(--text-secondary)]";
 
   if (parameter.type === "select") {
+    // Build option objects: first option (null value) acts as "show all"
+    const optionObjects = parameter.options.map((label, i) => ({
+      value: parameter.optionValues?.[i] == null ? ALL_VALUE : String(parameter.optionValues[i]),
+      label,
+    }));
+    const currentValue = value != null ? String(value) : null;
+    const selectedValues = currentValue && currentValue !== ALL_VALUE ? [currentValue] : [];
+
     return (
       <FilterDropdown
         label={parameter.label}
-        options={[
-          { value: "all", label: parameter.options[0] },
-          ...parameter.options.slice(1).map((option) => ({
-            value: option,
-            label: option,
-          })),
-        ]}
-        selectedValues={value && value !== parameter.options[0] ? [value] : []}
+        options={optionObjects}
+        selectedValues={selectedValues}
         selectionMode="single"
         onToggleOption={(nextValue) =>
-          onChange(parameter.key, nextValue === "all" ? parameter.options[0] : nextValue)
+          onChange(parameter.key, nextValue === ALL_VALUE ? null : nextValue)
         }
-        onClear={() => onChange(parameter.key, parameter.options[0])}
+        onClear={() => onChange(parameter.key, null)}
         title={`Filtrar por ${parameter.label.toLowerCase()}`}
         showTriggerIcon={true}
         triggerClassName="min-h-[66px]"
@@ -476,7 +214,7 @@ function ReportParameterField({ parameter, value, onChange }) {
           </>
         )}
         renderOptionDescription={(option) =>
-          option.value === "all" ? "Sin restriccion aplicada" : "Selecciona un valor"
+          option.value === ALL_VALUE ? "Sin restriccion aplicada" : "Selecciona un valor"
         }
         renderOptionLeading={() => (
           <span className="inline-flex h-2.5 w-2.5 rounded-full bg-current opacity-70" />
@@ -546,33 +284,50 @@ function ReportCategorySection({ category, items, isCollapsed, onToggle, onOpen 
 
       {!isCollapsed ? (
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-          {items.map((report) => (
-            <article
-              key={report.id}
-              className="flex h-full flex-col rounded-[var(--radius-md)] border border-[var(--border-color)] bg-[var(--bg-panel-muted)] p-5"
-            >
-              <div className="mb-4 flex items-start justify-between gap-3">
-                <h4 className="text-base font-semibold text-[var(--text-primary)]">{report.name}</h4>
-                <span className="rounded-full border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 py-1 text-[0.72rem] font-semibold text-[var(--text-secondary)]">
-                  {report.frequency}
-                </span>
-              </div>
-              <p className="text-sm leading-6 text-[var(--text-secondary)]">{report.description}</p>
-              <div className="mt-4 flex justify-center pt-4">
-                <SoftActionButton onClick={() => onOpen(report.id)}>
-                  Ver informe
-                </SoftActionButton>
-              </div>
-            </article>
-          ))}
+          {items.map((report) => {
+            const isAvailable = report.status === "active";
+            return (
+              <article
+                key={report.report_code}
+                className="flex h-full flex-col rounded-[var(--radius-md)] border border-[var(--border-color)] bg-[var(--bg-panel-muted)] p-5"
+              >
+                <div className="mb-4 flex items-start justify-between gap-3">
+                  <h4 className="text-base font-semibold text-[var(--text-primary)]">{report.name}</h4>
+                  {!isAvailable && (
+                    <span className="shrink-0 rounded-full border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 py-1 text-[0.72rem] font-semibold text-[var(--text-muted)]">
+                      No disponible
+                    </span>
+                  )}
+                </div>
+                <p className="text-sm leading-6 text-[var(--text-secondary)]">{report.description}</p>
+                <div className="mt-4 flex justify-center pt-4">
+                  <SoftActionButton
+                    disabled={!isAvailable}
+                    onClick={() => isAvailable && onOpen(report.report_code)}
+                  >
+                    Ver informe
+                  </SoftActionButton>
+                </div>
+              </article>
+            );
+          })}
         </div>
       ) : null}
     </section>
   );
 }
 
+// ── Main page ─────────────────────────────────────────────────────────────────
+
 export function ReportsPage() {
-  const [activeReportId, setActiveReportId] = useState(null);
+  const [catalog, setCatalog] = useState([]);
+  const [isCatalogLoading, setIsCatalogLoading] = useState(true);
+  const [catalogError, setCatalogError] = useState(null);
+
+  const [activeReportCode, setActiveReportCode] = useState(null);
+  const [activeDefinition, setActiveDefinition] = useState(null);
+  const [isDefinitionLoading, setIsDefinitionLoading] = useState(false);
+
   const [collapsedCategories, setCollapsedCategories] = useState(() =>
     CATEGORY_ORDER.reduce((acc, category, index) => {
       acc[category] = index !== 0;
@@ -583,65 +338,107 @@ export function ReportsPage() {
   const [isResultsCollapsed, setIsResultsCollapsed] = useState(true);
   const [reportParams, setReportParams] = useState({});
   const [reportResults, setReportResults] = useState({});
-  const [reportVisibleColumns, setReportVisibleColumns] = useState({});
+  const [reportVisibleFields, setReportVisibleFields] = useState({});
+  const [executeError, setExecuteError] = useState(null);
+
+  // Load catalog on mount
+  useEffect(() => {
+    let cancelled = false;
+    setIsCatalogLoading(true);
+    setCatalogError(null);
+    getReportCatalog(true)
+      .then((items) => {
+        if (!cancelled) {
+          setCatalog(items);
+          setIsCatalogLoading(false);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setCatalogError(err.message || "No fue posible cargar el catalogo de reportes.");
+          setIsCatalogLoading(false);
+        }
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Load definition when a report is opened
+  useEffect(() => {
+    if (!activeReportCode) return;
+    let cancelled = false;
+    setIsDefinitionLoading(true);
+    setActiveDefinition(null);
+    getReportDefinition(activeReportCode)
+      .then((def) => {
+        if (!cancelled) {
+          const normalizedFilters = normalizeFilters(def.filters);
+          setActiveDefinition({ ...def, normalizedFilters });
+          setReportParams((curr) => ({
+            ...curr,
+            [activeReportCode]: curr[activeReportCode] ?? buildDefaultParams(normalizedFilters),
+          }));
+          setReportVisibleFields((curr) => ({
+            ...curr,
+            [activeReportCode]: curr[activeReportCode] ?? new Set(def.columns.filter((c) => c.visible !== false).map((c) => c.field)),
+          }));
+          setIsDefinitionLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setIsDefinitionLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [activeReportCode]);
 
   const groupedReports = useMemo(
     () =>
       CATEGORY_ORDER.map((category) => ({
         category,
-        items: REPORTS.filter((report) => report.category === category),
+        items: catalog.filter((r) => r.category === category),
       })).filter((group) => group.items.length),
-    []
+    [catalog]
   );
 
   const activeReport = useMemo(
-    () => REPORTS.find((report) => report.id === activeReportId) || null,
-    [activeReportId]
+    () => catalog.find((r) => r.report_code === activeReportCode) || null,
+    [catalog, activeReportCode]
   );
+
   const visibleParameters = useMemo(
-    () => (activeReport ? getVisibleParameters(activeReport.parameters) : []),
-    [activeReport]
+    () => (activeDefinition ? getVisibleParameters(activeDefinition.normalizedFilters) : []),
+    [activeDefinition]
   );
 
-  const activeParams = activeReport ? reportParams[activeReport.id] ?? buildDefaultParams(activeReport) : {};
-  const activeRows = activeReport ? reportResults[activeReport.id] ?? [] : [];
-  const activeVisibleColumns = activeReport
-    ? reportVisibleColumns[activeReport.id] ?? activeReport.columns
-    : [];
+  const activeParams = activeReportCode ? reportParams[activeReportCode] ?? {} : {};
+  const activeResult = activeReportCode ? reportResults[activeReportCode] ?? null : null;
+  const activeRows = activeResult?.rows ?? [];
+  const activeColumns = activeResult?.columns ?? activeDefinition?.columns ?? [];
+  const activeVisibleFields = activeReportCode ? reportVisibleFields[activeReportCode] ?? new Set() : new Set();
 
-  const openReport = (reportId) => {
-    const nextReport = REPORTS.find((report) => report.id === reportId);
-    if (!nextReport) return;
-
-    setActiveReportId(reportId);
-    setReportParams((current) => ({
-      ...current,
-      [reportId]: current[reportId] ?? buildDefaultParams(nextReport),
-    }));
-    setReportVisibleColumns((current) => ({
-      ...current,
-      [reportId]: current[reportId] ?? nextReport.columns,
-    }));
+  const openReport = (reportCode) => {
+    setActiveReportCode(reportCode);
     setIsParamsCollapsed(true);
     setIsResultsCollapsed(true);
+    setExecuteError(null);
   };
 
   const closeReport = () => {
-    setActiveReportId(null);
+    setActiveReportCode(null);
+    setActiveDefinition(null);
     setIsParamsCollapsed(true);
     setIsResultsCollapsed(true);
+    setExecuteError(null);
   };
 
   const updateParam = (key, value) => {
-    if (!activeReport) return;
+    if (!activeReportCode) return;
 
     if (typeof value === "object" && value !== null && key.includes(":")) {
       const [startKey, endKey] = key.split(":");
-
-      setReportParams((current) => ({
-        ...current,
-        [activeReport.id]: {
-          ...(current[activeReport.id] ?? buildDefaultParams(activeReport)),
+      setReportParams((curr) => ({
+        ...curr,
+        [activeReportCode]: {
+          ...(curr[activeReportCode] ?? {}),
           [startKey]: value.start,
           [endKey]: value.end,
         },
@@ -649,78 +446,66 @@ export function ReportsPage() {
       return;
     }
 
-    setReportParams((current) => ({
-      ...current,
-      [activeReport.id]: {
-        ...(current[activeReport.id] ?? buildDefaultParams(activeReport)),
+    setReportParams((curr) => ({
+      ...curr,
+      [activeReportCode]: {
+        ...(curr[activeReportCode] ?? {}),
         [key]: value,
       },
     }));
   };
 
-  const runReport = () => {
-    if (!activeReport) return;
+  const runReport = async () => {
+    if (!activeReport || !activeDefinition) return;
 
-    setReportResults((current) => ({
-      ...current,
-      [activeReport.id]: activeReport.rows,
-    }));
-    setIsResultsCollapsed(false);
+    const modalId = ModalManager.loading({ title: "Ejecutando informe...", showProgress: false });
+    setExecuteError(null);
+
+    try {
+      const filters = buildApiFilters(activeParams, activeDefinition.normalizedFilters);
+      const result = await executeReport(activeReport.report_code, filters, { page: 1, page_size: 50 });
+      setReportResults((curr) => ({ ...curr, [activeReport.report_code]: result }));
+      setIsResultsCollapsed(false);
+    } catch (err) {
+      const errorMessage = err?.detail?.error?.message || err?.message || "No fue posible ejecutar el reporte.";
+      setExecuteError(errorMessage);
+      setIsResultsCollapsed(false);
+    } finally {
+      ModalManager.close(modalId);
+    }
   };
 
   const handleExport = () => {
-    if (!activeReport || !activeRows.length) return;
+    if (!activeReport || !activeRows.length || !activeColumns.length) return;
 
-    ModalManager.custom({
-      title: `Exportar ${activeReport.name}`,
-      size: "md",
-      showFooter: false,
-      content: (
-        <div className="space-y-4">
-          <div className="rounded-[20px] border border-[var(--border-color)] bg-[var(--bg-app)] p-4 text-sm text-[var(--text-secondary)]">
-            <p className="font-semibold text-[var(--text-primary)]">Archivo</p>
-            <p>{`${activeReport.name}.xlsx`}</p>
-          </div>
-          <div className="flex justify-end">
-            <Button
-              variant="primary"
-              onClick={() =>
-                ModalManager.success({
-                  title: "Exportacion preparada",
-                  message: "Placeholder listo para conectar la descarga real del informe.",
-                })
-              }
-            >
-              Descargar
-            </Button>
-          </div>
-        </div>
-      ),
-    });
+    const exportColumns = activeColumns.filter((c) => c.export !== false);
+    const header = exportColumns.map((c) => c.label);
+    const csvRows = activeRows.map((row) => exportColumns.map((c) => row[c.field] ?? ""));
+    const filename = `${activeReport.name}_${new Date().toISOString().slice(0, 10)}.csv`;
+
+    downloadRowsAsCsv({ filename, header, rows: csvRows });
   };
 
   const handleConfigureColumns = () => {
-    if (!activeReport) return;
+    if (!activeDefinition) return;
 
-    const selectedColumns = new Set(activeVisibleColumns);
+    const columns = activeDefinition.columns;
+    const selectedFields = new Set(activeVisibleFields);
 
-    const toggleColumn = (column) => {
-      if (selectedColumns.has(column)) {
-        if (selectedColumns.size === 1) return;
-        selectedColumns.delete(column);
+    const toggleField = (field) => {
+      if (selectedFields.has(field)) {
+        if (selectedFields.size === 1) return;
+        selectedFields.delete(field);
       } else {
-        selectedColumns.add(column);
+        selectedFields.add(field);
       }
-
-      ModalManager.update(modalId, {
-        content: renderColumnModalContent(),
-      });
+      ModalManager.update(modalId, { content: renderColumnModalContent() });
     };
 
     const applyColumns = () => {
-      setReportVisibleColumns((current) => ({
-        ...current,
-        [activeReport.id]: activeReport.columns.filter((column) => selectedColumns.has(column)),
+      setReportVisibleFields((curr) => ({
+        ...curr,
+        [activeReportCode]: new Set(selectedFields),
       }));
       ModalManager.close(modalId);
     };
@@ -728,14 +513,13 @@ export function ReportsPage() {
     const renderColumnModalContent = () => (
       <div className="space-y-4">
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {activeReport.columns.map((column) => {
-            const isSelected = selectedColumns.has(column);
-
+          {columns.map((col) => {
+            const isSelected = selectedFields.has(col.field);
             return (
               <button
-                key={column}
+                key={col.field}
                 type="button"
-                onClick={() => toggleColumn(column)}
+                onClick={() => toggleField(col.field)}
                 className={`flex min-h-[108px] flex-col items-center justify-center gap-4 rounded-[18px] border p-4 text-center transition ${
                   isSelected
                     ? "border-[rgba(81,152,194,0.38)] bg-[rgba(81,152,194,0.12)] text-[var(--text-primary)] shadow-[0_10px_22px_rgba(81,152,194,0.12)]"
@@ -744,9 +528,8 @@ export function ReportsPage() {
                 aria-pressed={isSelected}
               >
                 <span className="block text-sm font-semibold leading-6 text-[var(--text-primary)]">
-                  {column}
+                  {col.label}
                 </span>
-
                 <span className="inline-flex items-center gap-2 text-[0.68rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
                   <span className={`inline-flex h-2.5 w-2.5 rounded-full ${isSelected ? "bg-[var(--success)]" : "bg-[var(--danger)]"}`} />
                   {isSelected ? "Visible" : "Oculta"}
@@ -768,12 +551,14 @@ export function ReportsPage() {
     );
 
     const modalId = ModalManager.custom({
-      title: `Columnas de ${activeReport.name}`,
+      title: activeReport ? `Columnas de ${activeReport.name}` : "Configurar columnas",
       size: "md",
       showFooter: false,
       content: renderColumnModalContent(),
     });
   };
+
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="grid gap-5">
@@ -781,27 +566,37 @@ export function ReportsPage() {
         <Panel wide className="grid gap-6">
           <PanelHeader eyebrow="Catalogo" title="Informes disponibles" />
 
-          <div className="grid gap-6">
-            {groupedReports.map(({ category, items }, index) => (
-              <div
-                key={category}
-                className={index > 0 ? "border-t border-[var(--border-color)] pt-6" : ""}
-              >
-                <ReportCategorySection
-                  category={category}
-                  items={items}
-                  isCollapsed={collapsedCategories[category]}
-                  onToggle={() =>
-                    setCollapsedCategories((current) => ({
-                      ...current,
-                      [category]: !current[category],
-                    }))
-                  }
-                  onOpen={openReport}
-                />
-              </div>
-            ))}
-          </div>
+          {isCatalogLoading ? (
+            <div className="flex justify-center py-12">
+              <Spinner size="lg" />
+            </div>
+          ) : catalogError ? (
+            <div className="rounded-[20px] border border-dashed border-[var(--border-color)] bg-[var(--bg-app)] px-5 py-8 text-sm text-[var(--danger)]">
+              {catalogError}
+            </div>
+          ) : (
+            <div className="grid gap-6">
+              {groupedReports.map(({ category, items }, index) => (
+                <div
+                  key={category}
+                  className={index > 0 ? "border-t border-[var(--border-color)] pt-6" : ""}
+                >
+                  <ReportCategorySection
+                    category={category}
+                    items={items}
+                    isCollapsed={collapsedCategories[category]}
+                    onToggle={() =>
+                      setCollapsedCategories((curr) => ({
+                        ...curr,
+                        [category]: !curr[category],
+                      }))
+                    }
+                    onOpen={openReport}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
         </Panel>
       ) : (
         <div className="grid gap-5">
@@ -837,134 +632,157 @@ export function ReportsPage() {
             </div>
           </Panel>
 
-          <Panel wide>
-            <PanelHeader
-              eyebrow="Parametros"
-              title="Configuracion del informe"
-              actions={
-                <>
-                  <SoftActionButton onClick={runReport}>
-                    Cargar datos
-                  </SoftActionButton>
-                  <CollapseToggleButton
-                    isCollapsed={isParamsCollapsed}
-                    onClick={() => setIsParamsCollapsed((current) => !current)}
-                    collapsedLabel="Expandir parametros"
-                    expandedLabel="Colapsar parametros"
-                  />
-                </>
-              }
-            />
-
-            {!isParamsCollapsed ? (
-              <form className={`grid gap-4 ${getFormColumnClass(visibleParameters.length)}`}>
-                {visibleParameters.map((parameter) => (
-                  <ReportParameterField
-                    key={parameter.key}
-                    parameter={parameter}
-                    value={
-                      parameter.type === "date-range"
-                        ? {
-                            start: activeParams[parameter.startKey],
-                            end: activeParams[parameter.endKey],
-                          }
-                        : activeParams[parameter.key]
-                    }
-                    onChange={updateParam}
-                  />
-                ))}
-              </form>
-            ) : null}
-          </Panel>
-
-          <Panel wide>
-            <PanelHeader
-              eyebrow="Datos"
-              title="Resultado del informe"
-              actions={
-                <>
-                  <ReportIconButton
-                    title="Seleccionar columnas"
-                    disabled={!activeReport}
-                    onClick={handleConfigureColumns}
-                  >
-                    <svg viewBox="0 0 24 24" className="h-[17px] w-[17px]" aria-hidden="true">
-                      <path
-                        d="M4 6h16M4 12h16M4 18h16M8 4v4M16 10v4M12 16v4"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
+          {isDefinitionLoading ? (
+            <Panel wide>
+              <div className="flex justify-center py-12">
+                <Spinner size="lg" />
+              </div>
+            </Panel>
+          ) : (
+            <>
+              <Panel wide>
+                <PanelHeader
+                  eyebrow="Parametros"
+                  title="Configuracion del informe"
+                  actions={
+                    <>
+                      <SoftActionButton onClick={runReport} disabled={!activeDefinition}>
+                        Cargar datos
+                      </SoftActionButton>
+                      <CollapseToggleButton
+                        isCollapsed={isParamsCollapsed}
+                        onClick={() => setIsParamsCollapsed((curr) => !curr)}
+                        collapsedLabel="Expandir parametros"
+                        expandedLabel="Colapsar parametros"
                       />
-                    </svg>
-                  </ReportIconButton>
-                  <ReportIconButton
-                    title="Descargar datos"
-                    disabled={!activeRows.length}
-                    onClick={handleExport}
-                  >
-                    <svg viewBox="0 0 24 24" className="h-[17px] w-[17px]" aria-hidden="true">
-                      <path
-                        d="M12 4v10M8 10l4 4 4-4M5 19h14"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  </ReportIconButton>
-                  <CollapseToggleButton
-                    isCollapsed={isResultsCollapsed}
-                    onClick={() => setIsResultsCollapsed((current) => !current)}
-                    collapsedLabel="Expandir resultados"
-                    expandedLabel="Colapsar resultados"
-                  />
-                </>
-              }
-            />
+                    </>
+                  }
+                />
 
-            {!isResultsCollapsed ? (
-              activeRows.length ? (
-                <div className="overflow-hidden rounded-[20px] border border-[var(--border-color)]">
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full text-left text-sm">
-                      <thead className="bg-[var(--bg-app)] text-[var(--text-muted)]">
-                        <tr>
-                          {activeVisibleColumns.map((column) => (
-                            <th key={column} className="px-5 py-4 font-semibold uppercase tracking-[0.06em]">
-                              {column}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {activeRows.map((row, rowIndex) => (
-                          <tr key={`${activeReport.id}-${rowIndex}`} className="border-t border-[var(--border-color)]">
-                            {row
-                              .filter((_, cellIndex) => activeVisibleColumns.includes(activeReport.columns[cellIndex]))
-                              .map((cell, cellIndex) => (
-                              <td
-                                key={`${activeReport.id}-${rowIndex}-${cellIndex}`}
-                                className="px-5 py-4 text-[var(--text-secondary)]"
+                {!isParamsCollapsed && activeDefinition ? (
+                  <form className={`grid gap-4 ${getFormColumnClass(visibleParameters.length)}`}>
+                    {visibleParameters.map((parameter) => (
+                      <ReportParameterField
+                        key={parameter.key}
+                        parameter={parameter}
+                        value={
+                          parameter.type === "date-range"
+                            ? {
+                                start: activeParams[parameter.startKey],
+                                end: activeParams[parameter.endKey],
+                              }
+                            : activeParams[parameter.key]
+                        }
+                        onChange={updateParam}
+                      />
+                    ))}
+                  </form>
+                ) : null}
+              </Panel>
+
+              <Panel wide>
+                <PanelHeader
+                  eyebrow="Datos"
+                  title="Resultado del informe"
+                  actions={
+                    <>
+                      <ReportIconButton
+                        title="Seleccionar columnas"
+                        disabled={!activeDefinition}
+                        onClick={handleConfigureColumns}
+                      >
+                        <svg viewBox="0 0 24 24" className="h-[17px] w-[17px]" aria-hidden="true">
+                          <path
+                            d="M4 6h16M4 12h16M4 18h16M8 4v4M16 10v4M12 16v4"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      </ReportIconButton>
+                      <ReportIconButton
+                        title="Descargar datos"
+                        disabled={!activeRows.length}
+                        onClick={handleExport}
+                      >
+                        <svg viewBox="0 0 24 24" className="h-[17px] w-[17px]" aria-hidden="true">
+                          <path
+                            d="M12 4v10M8 10l4 4 4-4M5 19h14"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      </ReportIconButton>
+                      <CollapseToggleButton
+                        isCollapsed={isResultsCollapsed}
+                        onClick={() => setIsResultsCollapsed((curr) => !curr)}
+                        collapsedLabel="Expandir resultados"
+                        expandedLabel="Colapsar resultados"
+                      />
+                    </>
+                  }
+                />
+
+                {!isResultsCollapsed ? (
+                  executeError ? (
+                    <div className="rounded-[20px] border border-dashed border-[var(--border-color)] bg-[var(--bg-app)] px-5 py-8 text-sm text-[var(--danger)]">
+                      {executeError}
+                    </div>
+                  ) : activeRows.length ? (
+                    <div className="overflow-hidden rounded-[20px] border border-[var(--border-color)]">
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full text-left text-sm">
+                          <thead className="bg-[var(--bg-app)] text-[var(--text-muted)]">
+                            <tr>
+                              {activeColumns
+                                .filter((col) => activeVisibleFields.has(col.field))
+                                .map((col) => (
+                                  <th key={col.field} className="px-5 py-4 font-semibold uppercase tracking-[0.06em]">
+                                    {col.label}
+                                  </th>
+                                ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {activeRows.map((row, rowIndex) => (
+                              <tr
+                                key={`${activeReportCode}-${rowIndex}`}
+                                className="border-t border-[var(--border-color)]"
                               >
-                                {cell}
-                              </td>
-                              ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              ) : (
-                <div className="rounded-[20px] border border-dashed border-[var(--border-color)] bg-[var(--bg-app)] px-5 py-8 text-sm text-[var(--text-secondary)]">
-                  Configura los parametros y pulsa `Cargar datos` para visualizar el listado.
-                </div>
-              )
-            ) : null}
-          </Panel>
+                                {activeColumns
+                                  .filter((col) => activeVisibleFields.has(col.field))
+                                  .map((col) => (
+                                    <td
+                                      key={col.field}
+                                      className="px-5 py-4 text-[var(--text-secondary)]"
+                                    >
+                                      {row[col.field] ?? "-"}
+                                    </td>
+                                  ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ) : activeResult === null ? (
+                    <div className="rounded-[20px] border border-dashed border-[var(--border-color)] bg-[var(--bg-app)] px-5 py-8 text-sm text-[var(--text-secondary)]">
+                      Configura los parametros y pulsa &ldquo;Cargar datos&rdquo; para visualizar el listado.
+                    </div>
+                  ) : (
+                    <div className="rounded-[20px] border border-dashed border-[var(--border-color)] bg-[var(--bg-app)] px-5 py-8 text-sm text-[var(--text-secondary)]">
+                      Sin resultados para los filtros aplicados.
+                    </div>
+                  )
+                ) : null}
+              </Panel>
+            </>
+          )}
         </div>
       )}
     </div>
