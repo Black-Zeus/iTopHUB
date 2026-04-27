@@ -18,16 +18,32 @@ def fetch_report_catalog(include_inactive: bool = False) -> list[dict[str, Any]]
             rd.type,
             rd.status,
             rd.current_version,
+            JSON_EXTRACT(rdv.definition_json, '$.metadata.tags') AS tags_raw,
+            JSON_EXTRACT(rdv.definition_json, '$.metadata.available') AS available_raw,
             rd.created_at,
             rd.updated_at
         FROM hub_report_definitions rd
+        LEFT JOIN hub_report_definition_versions rdv
+            ON rdv.report_definition_id = rd.id AND rdv.status = 'active'
         {status_filter}
         ORDER BY rd.category ASC, rd.name ASC
     """
     with get_db_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(sql)
-            return cur.fetchall()
+            rows = cur.fetchall()
+
+    result = []
+    for row in rows:
+        tags_raw = row.pop("tags_raw", None)
+        available_raw = row.pop("available_raw", None)
+        try:
+            tags = json.loads(tags_raw) if isinstance(tags_raw, str) else (tags_raw if isinstance(tags_raw, list) else [])
+        except (json.JSONDecodeError, TypeError):
+            tags = []
+        available = available_raw not in (0, False, "false") if available_raw is not None else True
+        result.append({**row, "tags": tags if isinstance(tags, list) else [], "available": available})
+    return result
 
 
 def fetch_report_by_code(report_code: str) -> dict[str, Any] | None:

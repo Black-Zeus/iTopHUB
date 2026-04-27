@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
+import logging
 from typing import Any
 
 from modules.reports import engine as report_engine
@@ -15,6 +16,8 @@ from modules.reports.errors import (
     ReportDefinitionInvalidError,
     ReportExportError,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _get_report_or_raise(report_code: str) -> dict[str, Any]:
@@ -79,6 +82,13 @@ def execute_report(
     definition = version["definition_json"]
     if not isinstance(definition, dict):
         raise ReportDefinitionInvalidError()
+    if int(report.get("current_version") or 0) != int(version.get("version") or 0):
+        logger.warning(
+            "Report version mismatch detected: report_code=%s current_version=%s active_version=%s",
+            report_code,
+            report.get("current_version"),
+            version.get("version"),
+        )
 
     rows, total = report_engine.execute_report(definition, submitted_filters, pagination, runtime_token)
 
@@ -92,12 +102,23 @@ def execute_report(
             "export": c.get("export", True),
             "format": c.get("format", "text"),
             "align": c.get("align", "left"),
+            "wide": c.get("wide", False),
         }
         for c in columns
     ]
 
     page = max(1, int(pagination.get("page", 1)))
     page_size = max(1, min(500, int(pagination.get("page_size", 50))))
+
+    logger.info(
+        "Report executed successfully: report_code=%s version=%s page=%s page_size=%s total=%s rows=%s",
+        report_code,
+        version["version"],
+        page,
+        page_size,
+        total,
+        len(rows),
+    )
 
     return {
         "report_code": report_code,
@@ -123,7 +144,7 @@ def export_report_csv(
 
     try:
         rows, _ = report_engine.execute_report(
-            definition, submitted_filters, {"page": 1, "page_size": 2000}, runtime_token
+            definition, submitted_filters, {"page": 1, "page_size": 0}, runtime_token
         )
     except Exception as exc:
         raise ReportExportError(str(exc)) from exc

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from infrastructure.db import get_db_connection
 
 _HANDOVER_TYPE_LABEL = {
     "initial_assignment": "Entrega",
-    "return": "Recepcion",
+    "return": "Devolucion",
     "laboratory": "Laboratorio",
     "reassignment": "Reasignacion",
     "replacement": "Reposicion",
@@ -22,14 +23,46 @@ _STATUS_LABEL = {
 
 
 def _pagination_clause(pagination: dict) -> tuple[str, list]:
+    page_size_raw = int(pagination.get("page_size", 50))
+    if page_size_raw <= 0:
+        return "", []
     page = max(1, int(pagination.get("page", 1)))
-    page_size = max(1, min(500, int(pagination.get("page_size", 50))))
+    page_size = min(5000, page_size_raw)
     offset = (page - 1) * page_size
     return "LIMIT %s OFFSET %s", [page_size, offset]
 
 
+def _collect_related_users(
+    handover_type: str,
+    receiver_name: str | None,
+    additional_receivers_json: str | None,
+) -> str:
+    primary = (receiver_name or "").strip() or None
+    add_recv: list[dict] = []
+    if additional_receivers_json:
+        try:
+            parsed = json.loads(additional_receivers_json)
+            if isinstance(parsed, list):
+                add_recv = parsed
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    if handover_type == "reassignment":
+        origin = (add_recv[0].get("name") or "").strip() if add_recv else None
+        if origin and primary:
+            return f"{origin} → {primary}"
+        return primary or origin or "-"
+
+    names: list[str] = [primary] if primary else []
+    for person in add_recv:
+        name = (person.get("name") or "").strip()
+        if name and name not in names:
+            names.append(name)
+    return ", ".join(names) if names else "-"
+
+
 def handover_documents_by_period(filters: dict[str, Any], pagination: dict) -> tuple[list[dict], int]:
-    conditions: list[str] = []
+    conditions: list[str] = ["LOWER(d.receiver_status) = 'active'"]
     params: list[Any] = []
 
     from_date = filters.get("from_date")
@@ -50,7 +83,7 @@ def handover_documents_by_period(filters: dict[str, Any], pagination: dict) -> t
         conditions.append("LOWER(d.owner_name) LIKE %s")
         params.append(f"%{owner_name.lower()}%")
 
-    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    where = f"WHERE {' AND '.join(conditions)}"
     count_sql = f"SELECT COUNT(*) AS total FROM hub_handover_documents d {where}"
     data_sql = f"""
         SELECT
@@ -60,6 +93,7 @@ def handover_documents_by_period(filters: dict[str, Any], pagination: dict) -> t
             d.owner_name,
             COALESCE(GROUP_CONCAT(i.asset_code ORDER BY i.sort_order SEPARATOR ', '), '-') AS activos_list,
             d.receiver_name,
+            d.additional_receivers,
             d.status
         FROM hub_handover_documents d
         LEFT JOIN hub_handover_document_items i ON i.document_id = d.id
@@ -68,7 +102,8 @@ def handover_documents_by_period(filters: dict[str, Any], pagination: dict) -> t
         ORDER BY d.generated_at DESC
     """
     limit_clause, limit_params = _pagination_clause(pagination)
-    data_sql += f" {limit_clause}"
+    if limit_clause:
+        data_sql += f" {limit_clause}"
 
     with get_db_connection() as conn:
         with conn.cursor() as cur:
@@ -84,7 +119,11 @@ def handover_documents_by_period(filters: dict[str, Any], pagination: dict) -> t
             "fecha": str(r["generated_at"])[:10] if r["generated_at"] else "-",
             "responsable": r["owner_name"] or "-",
             "activos": r["activos_list"] or "-",
-            "usuario_relacionado": r["receiver_name"] or "-",
+            "usuario_relacionado": _collect_related_users(
+                r["handover_type"],
+                r.get("receiver_name"),
+                r.get("additional_receivers"),
+            ),
             "estado": _STATUS_LABEL.get(r["status"], r["status"]),
         }
         for r in rows_raw
@@ -93,7 +132,7 @@ def handover_documents_by_period(filters: dict[str, Any], pagination: dict) -> t
 
 
 def pending_delivery_confirmations(filters: dict[str, Any], pagination: dict) -> tuple[list[dict], int]:
-    conditions: list[str] = ["d.status = 'issued'"]
+    conditions: list[str] = ["d.status = 'issued'", "LOWER(d.receiver_status) = 'active'"]
     params: list[Any] = []
 
     from_date = filters.get("from_date")
@@ -118,6 +157,7 @@ def pending_delivery_confirmations(filters: dict[str, Any], pagination: dict) ->
             d.generated_at,
             COALESCE(GROUP_CONCAT(i.asset_code ORDER BY i.sort_order SEPARATOR ', '), '-') AS activos_list,
             d.receiver_name,
+            d.additional_receivers,
             d.owner_name,
             d.status
         FROM hub_handover_documents d
@@ -127,7 +167,8 @@ def pending_delivery_confirmations(filters: dict[str, Any], pagination: dict) ->
         ORDER BY d.generated_at ASC
     """
     limit_clause, limit_params = _pagination_clause(pagination)
-    data_sql += f" {limit_clause}"
+    if limit_clause:
+        data_sql += f" {limit_clause}"
 
     with get_db_connection() as conn:
         with conn.cursor() as cur:
@@ -141,7 +182,11 @@ def pending_delivery_confirmations(filters: dict[str, Any], pagination: dict) ->
             "acta": r["document_number"],
             "fecha": str(r["generated_at"])[:10] if r["generated_at"] else "-",
             "activos": r["activos_list"] or "-",
-            "persona": r["receiver_name"] or "-",
+            "persona": _collect_related_users(
+                "initial_assignment",
+                r.get("receiver_name"),
+                r.get("additional_receivers"),
+            ),
             "responsable": r["owner_name"] or "-",
             "estado": _STATUS_LABEL.get(r["status"], r["status"]),
         }
@@ -151,7 +196,7 @@ def pending_delivery_confirmations(filters: dict[str, Any], pagination: dict) ->
 
 
 def asset_movement_history(filters: dict[str, Any], pagination: dict) -> tuple[list[dict], int]:
-    conditions: list[str] = ["d.status != 'draft'"]
+    conditions: list[str] = ["d.status != 'draft'", "LOWER(d.receiver_status) = 'active'"]
     params: list[Any] = []
 
     asset_code = filters.get("asset_code")
@@ -184,25 +229,20 @@ def asset_movement_history(filters: dict[str, Any], pagination: dict) -> tuple[l
             d.generated_at,
             i.asset_code,
             d.handover_type,
-            CASE d.handover_type
-                WHEN 'initial_assignment' THEN 'Stock TI'
-                WHEN 'return' THEN d.receiver_name
-                ELSE d.owner_name
-            END AS origen,
-            CASE d.handover_type
-                WHEN 'initial_assignment' THEN d.receiver_name
-                WHEN 'return' THEN 'Stock TI'
-                ELSE d.receiver_name
-            END AS destino,
+            d.receiver_name,
+            d.additional_receivers,
+            d.owner_name,
             i.asset_status,
-            d.document_number
+            d.document_number,
+            COALESCE(i.notes, '') AS observacion_activo
         FROM hub_handover_documents d
         JOIN hub_handover_document_items i ON i.document_id = d.id
         {where}
         ORDER BY d.generated_at DESC, i.sort_order ASC
     """
     limit_clause, limit_params = _pagination_clause(pagination)
-    data_sql += f" {limit_clause}"
+    if limit_clause:
+        data_sql += f" {limit_clause}"
 
     with get_db_connection() as conn:
         with conn.cursor() as cur:
@@ -211,23 +251,48 @@ def asset_movement_history(filters: dict[str, Any], pagination: dict) -> tuple[l
             cur.execute(data_sql, params + limit_params)
             rows_raw = cur.fetchall()
 
-    rows = [
-        {
+    rows = []
+    for r in rows_raw:
+        ht = r["handover_type"]
+        add_recv_json = r.get("additional_receivers")
+        add_recv: list[dict] = []
+        if add_recv_json:
+            try:
+                parsed = json.loads(add_recv_json)
+                if isinstance(parsed, list):
+                    add_recv = parsed
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        if ht == "initial_assignment":
+            origen = "Stock TI"
+            destino = r["receiver_name"] or "-"
+        elif ht == "return":
+            origen = r["receiver_name"] or "-"
+            destino = "Stock TI"
+        elif ht == "reassignment":
+            origin_person = (add_recv[0].get("name") or "").strip() if add_recv else r["owner_name"]
+            origen = origin_person or "-"
+            destino = r["receiver_name"] or "-"
+        else:
+            origen = r["owner_name"] or "-"
+            destino = r["receiver_name"] or "-"
+
+        rows.append({
             "fecha": str(r["generated_at"])[:10] if r["generated_at"] else "-",
             "activo": r["asset_code"] or "-",
-            "tipo_movimiento": _HANDOVER_TYPE_LABEL.get(r["handover_type"], r["handover_type"]),
-            "origen": r["origen"] or "-",
-            "destino": r["destino"] or "-",
+            "tipo_movimiento": _HANDOVER_TYPE_LABEL.get(ht, ht),
+            "origen": origen,
+            "destino": destino,
             "estado_activo": r["asset_status"] or "-",
             "numero_acta": r["document_number"] or "-",
-        }
-        for r in rows_raw
-    ]
+            "observacion_activo": r.get("observacion_activo") or "-",
+        })
     return rows, int(total)
 
 
 def lab_equipment_current(filters: dict[str, Any], pagination: dict) -> tuple[list[dict], int]:
-    conditions: list[str] = ["d.handover_type = 'laboratory'"]
+    conditions: list[str] = ["d.handover_type = 'laboratory'", "LOWER(d.receiver_status) = 'active'"]
     params: list[Any] = []
 
     status = filters.get("status")
@@ -244,6 +309,7 @@ def lab_equipment_current(filters: dict[str, Any], pagination: dict) -> tuple[li
             d.reason,
             d.status,
             d.owner_name,
+            d.receiver_name,
             d.generated_at
         FROM hub_handover_documents d
         LEFT JOIN hub_handover_document_items i ON i.document_id = d.id
@@ -252,7 +318,8 @@ def lab_equipment_current(filters: dict[str, Any], pagination: dict) -> tuple[li
         ORDER BY d.generated_at DESC
     """
     limit_clause, limit_params = _pagination_clause(pagination)
-    data_sql += f" {limit_clause}"
+    if limit_clause:
+        data_sql += f" {limit_clause}"
 
     with get_db_connection() as conn:
         with conn.cursor() as cur:
@@ -268,6 +335,7 @@ def lab_equipment_current(filters: dict[str, Any], pagination: dict) -> tuple[li
             "motivo": r["reason"] or "-",
             "estado": _STATUS_LABEL.get(r["status"], r["status"]),
             "responsable": r["owner_name"] or "-",
+            "receptor": r["receiver_name"] or "-",
             "fecha_ingreso": str(r["generated_at"])[:10] if r["generated_at"] else "-",
         }
         for r in rows_raw
@@ -276,7 +344,7 @@ def lab_equipment_current(filters: dict[str, Any], pagination: dict) -> tuple[li
 
 
 def incomplete_handover_documents(filters: dict[str, Any], pagination: dict) -> tuple[list[dict], int]:
-    conditions: list[str] = ["d.status IN ('draft', 'issued')"]
+    conditions: list[str] = ["d.status IN ('draft', 'issued')", "LOWER(d.receiver_status) = 'active'"]
     params: list[Any] = []
 
     from_date = filters.get("from_date")
@@ -302,6 +370,8 @@ def incomplete_handover_documents(filters: dict[str, Any], pagination: dict) -> 
             d.generated_at,
             COALESCE(GROUP_CONCAT(i.asset_code ORDER BY i.sort_order SEPARATOR ', '), '-') AS activos_list,
             d.owner_name,
+            d.receiver_name,
+            d.additional_receivers,
             d.status
         FROM hub_handover_documents d
         LEFT JOIN hub_handover_document_items i ON i.document_id = d.id
@@ -310,7 +380,8 @@ def incomplete_handover_documents(filters: dict[str, Any], pagination: dict) -> 
         ORDER BY d.generated_at DESC
     """
     limit_clause, limit_params = _pagination_clause(pagination)
-    data_sql += f" {limit_clause}"
+    if limit_clause:
+        data_sql += f" {limit_clause}"
 
     with get_db_connection() as conn:
         with conn.cursor() as cur:
@@ -326,6 +397,11 @@ def incomplete_handover_documents(filters: dict[str, Any], pagination: dict) -> 
             "fecha": str(r["generated_at"])[:10] if r["generated_at"] else "-",
             "activos": r["activos_list"] or "-",
             "responsable": r["owner_name"] or "-",
+            "persona": _collect_related_users(
+                r["handover_type"],
+                r.get("receiver_name"),
+                r.get("additional_receivers"),
+            ),
             "faltante": "Pendiente de confirmacion" if r["status"] == "issued" else "Borrador sin emitir",
             "estado": _STATUS_LABEL.get(r["status"], r["status"]),
         }
