@@ -15,6 +15,10 @@ Covers delivery certificates, assignment events, user acceptance, and outbound a
 - PDF generation belongs to the document pipeline, not to the UI itself.
 - The Hub should persist a snapshot of the receiver, each delivered asset, and the checklist answers captured at emission time.
 - `Actas de Devolucion` siguen compartiendo el core de handover, pero ya operan como una variante con reglas propias: admiten un solo responsable, solo aceptan activos actualmente asociados a esa persona en iTop, y su confirmacion debe devolver esos activos al estado CMDB configurado para devoluciones.
+- `Actas de Reasignacion` tambien deben vivir dentro del mismo core de handover: reutilizan la tabla maestra, el detalle de activos, la emision PDF y la integracion documental/ticket existente, pero modelan al `responsable origen` como un `additional_receiver` dedicado con rol fijo `Responsable origen`.
+- En reasignacion, el formulario debe exigir origen, destino y al menos un activo; cada activo seleccionado debe validarse contra el origen actual en iTop antes de guardar, emitir o confirmar.
+- La reasignacion no usa checklist tecnico ni evidencia fotografica por activo como requisito del flujo. El detalle solo conserva la observacion opcional por activo y la trazabilidad documental del cambio.
+- Al confirmar una reasignacion, backend debe dejar cada activo vinculado unicamente al responsable destino en iTop, retirar la relacion activa con el origen y mantener la trazabilidad con ticket, PDFs y relaciones CMDB ya existentes.
 - Los checklist de handover ya no deben tratarse como un unico bloque generico: `Entrega`, `Devolucion` y `Normalizacion` deben tener tipos de uso separados para que cada acta consuma solo sus propias plantillas.
 - `Configuracion > CMDB` now owns the target CMDB status to be used by the return flow through `cmdb.handoverReturnAssetStatus`, so future return-specific orchestration should read that setting instead of hardcoding the destination status.
 - `Actas de Devolucion` now enforce a single responsible person. The draft, emit, and confirm steps must reject additional receivers for that acta type.

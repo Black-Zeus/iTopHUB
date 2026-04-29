@@ -21,12 +21,14 @@ TYPE_UI_TO_DB = {value: key for key, value in TYPE_DB_TO_UI.items()}
 
 SECONDARY_RECEIVER_ROLE_ALIASES = {
     "Apoyo": "Respaldo operativo",
+    "Origen": "Responsable origen",
 }
 
 SECONDARY_RECEIVER_ROLE_OPTIONS = {
     "Contraturno",
     "Referente de area",
     "Respaldo operativo",
+    "Responsable origen",
     "Testigo",
 }
 

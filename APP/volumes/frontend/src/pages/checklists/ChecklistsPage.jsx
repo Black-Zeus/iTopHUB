@@ -11,12 +11,11 @@ const MODULES = [
   { id: "laboratory", moduleCode: "lab", tabLabel: "Checklist Laboratorio", title: "Checklist Laboratorio", helper: "Cada checklist corresponde a una clase CMDB soportada. Desde aqui puedes abrir su configuracion interna.", usesCmdbClass: true, hasStatusToggle: false },
   { id: "delivery", moduleCode: "handover", tabLabel: "Checklist Entrega", title: "Checklist Entrega", helper: "Plantillas disponibles para actas de entrega.", usesCmdbClass: false, hasStatusToggle: true },
   { id: "return", moduleCode: "handover", tabLabel: "Checklist Devolucion", title: "Checklist Devolucion", helper: "Plantillas disponibles para actas de devolucion.", usesCmdbClass: false, hasStatusToggle: true },
-  { id: "reception", moduleCode: "reception", tabLabel: "Checklist Recepcion", title: "Checklist Recepcion", helper: "Plantillas disponibles para actas de recepcion.", usesCmdbClass: false, hasStatusToggle: true },
   { id: "reassignment", moduleCode: "reassignment", tabLabel: "Checklist Reasignacion", title: "Checklist Reasignacion", helper: "Plantillas disponibles para actas de reasignacion.", usesCmdbClass: false, hasStatusToggle: true },
   { id: "normalization", moduleCode: "handover", tabLabel: "Checklist Normalizacion", title: "Checklist Normalizacion", helper: "Plantillas reservadas para el futuro flujo de normalizacion.", usesCmdbClass: false, hasStatusToggle: true },
 ];
 
-const EMPTY_BY_MODULE = { laboratory: [], delivery: [], return: [], reassignment: [], reception: [], normalization: [] };
+const EMPTY_BY_MODULE = { laboratory: [], delivery: [], return: [], reassignment: [], normalization: [] };
 
 function getModule(id) {
   return MODULES.find((item) => item.id === id);
@@ -196,10 +195,10 @@ function NewChecklistContent({ moduleConfig, onCancel, onSave }) {
 export function ChecklistsPage() {
   const [activeModuleId, setActiveModuleId] = useState("laboratory");
   const [checklistsByModule, setChecklistsByModule] = useState(EMPTY_BY_MODULE);
-  const [selectedChecklistIds, setSelectedChecklistIds] = useState({ laboratory: null, delivery: null, return: null, reassignment: null, reception: null, normalization: null });
-  const [summaryCollapsedByModule, setSummaryCollapsedByModule] = useState({ laboratory: true, delivery: true, return: true, reassignment: true, reception: true, normalization: true });
-  const [descriptionEditByModule, setDescriptionEditByModule] = useState({ laboratory: false, delivery: false, return: false, reassignment: false, reception: false, normalization: false });
-  const [descriptionDraftByModule, setDescriptionDraftByModule] = useState({ laboratory: "", delivery: "", return: "", reassignment: "", reception: "", normalization: "" });
+  const [selectedChecklistIds, setSelectedChecklistIds] = useState({ laboratory: null, delivery: null, return: null, reassignment: null, normalization: null });
+  const [summaryCollapsedByModule, setSummaryCollapsedByModule] = useState({ laboratory: true, delivery: true, return: true, reassignment: true, normalization: true });
+  const [descriptionEditByModule, setDescriptionEditByModule] = useState({ laboratory: false, delivery: false, return: false, reassignment: false, normalization: false });
+  const [descriptionDraftByModule, setDescriptionDraftByModule] = useState({ laboratory: "", delivery: "", return: "", reassignment: "", normalization: "" });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [savingChecklistId, setSavingChecklistId] = useState(null);

@@ -33,6 +33,7 @@ class HandoverTypeDefinition:
     evidence_sync_mode: str = "assign_to_receiver"
     sync_assignment_on_evidence: bool = True
     attach_documents_on_evidence: bool = True
+    requires_checklists: bool = True
 
 
 def _normalize_lookup_value(value: Any) -> str:
@@ -114,6 +115,7 @@ HANDOVER_TYPE_DEFINITIONS: dict[str, HandoverTypeDefinition] = {
         requires_stock_assignment=False,
         asset_selection_mode="assigned_to_receiver",
         evidence_sync_mode="assign_to_receiver",
+        requires_checklists=False,
     ),
     "replacement": HandoverTypeDefinition(
         code="replacement",

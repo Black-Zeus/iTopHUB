@@ -68,7 +68,6 @@ const HANDOVER_DOCUMENT_TYPE_PREVIEW_TARGETS = [
   { key: "initial_assignment", label: "Entrega inicial", suffix: "Entrega" },
   { key: "return", label: "Devolucion", suffix: "Devolucion" },
   { key: "reassignment", label: "Reasignacion", suffix: "Reasignacion" },
-  { key: "replacement", label: "Reposicion", suffix: "Reposicion" },
   { key: "normalization", label: "Normalizacion", suffix: "Normalizacion" },
   { key: "laboratory", label: "Laboratorio", suffix: "Laboratorio" },
 ];
@@ -1397,8 +1396,10 @@ export function SettingsPage() {
                   </p>
                   <div className="mt-4 grid gap-4 md:grid-cols-2">
                     <Field label="Prefijo actas entrega" value={drafts.docs?.handoverPrefix || ""} onChange={(e) => updateField("docs", "handoverPrefix", e.target.value)} />
-                    <Field label="Prefijo actas recepcion" value={drafts.docs?.receptionPrefix || ""} onChange={(e) => updateField("docs", "receptionPrefix", e.target.value)} />
-                    <Field label="Prefijo laboratorio" value={drafts.docs?.laboratoryPrefix || ""} onChange={(e) => updateField("docs", "laboratoryPrefix", e.target.value)} />
+                    <Field label="Prefijo actas devolucion" value={drafts.docs?.handoverReturnPrefix || ""} onChange={(e) => updateField("docs", "handoverReturnPrefix", e.target.value)} />
+                    <Field label="Prefijo actas reasignacion" value={drafts.docs?.handoverReassignmentPrefix || ""} onChange={(e) => updateField("docs", "handoverReassignmentPrefix", e.target.value)} />
+                    <Field label="Prefijo actas normalizacion" value={drafts.docs?.handoverNormalizationPrefix || ""} onChange={(e) => updateField("docs", "handoverNormalizationPrefix", e.target.value)} />
+                    <Field label="Prefijo actas laboratorio" value={drafts.docs?.handoverLaboratoryPrefix || ""} onChange={(e) => updateField("docs", "handoverLaboratoryPrefix", e.target.value)} />
                     <Field label="Formato numeracion" value={drafts.docs?.numberingFormat || ""} onChange={(e) => updateField("docs", "numberingFormat", e.target.value)} />
                   </div>
                 </div>

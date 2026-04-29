@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import logging
+import math
 from typing import Any
 
 from modules.reports import engine as report_engine
@@ -39,6 +40,95 @@ def _require_active_report(report_code: str) -> dict[str, Any]:
     if report["status"] != "active":
         raise ReportInactiveError(report_code)
     return report
+
+
+_ITOP_STATUS_LABELS: dict[str, str] = {
+    "production": "Produccion",
+    "stock": "En stock",
+    "implementation": "En implementacion",
+    "obsolete": "Obsoleto",
+    "repair": "En reparacion",
+    "test": "En prueba",
+    "inactive": "Inactivo",
+    "disposed": "Eliminado",
+}
+
+
+def _fetch_itop_asset_states(runtime_token: str) -> list[dict[str, Any]]:
+    from integrations.itop_cmdb_connector import iTopCMDBConnector
+    from integrations.itop_runtime import get_itop_runtime_config
+
+    itop_config = get_itop_runtime_config()
+    connector = iTopCMDBConnector(
+        base_url=itop_config["integrationUrl"],
+        token=runtime_token,
+        username="hub-reports",
+        verify_ssl=itop_config["verifySsl"],
+        timeout=itop_config["timeoutSeconds"],
+    )
+    try:
+        response = connector.get("PhysicalDevice", "SELECT PhysicalDevice", output_fields="id,status")
+        if not response.ok:
+            return []
+        statuses = sorted({
+            str(item.get("status") or "").strip()
+            for item in response.items()
+            if str(item.get("status") or "").strip()
+        })
+        return [
+            {"label": _ITOP_STATUS_LABELS.get(s, s), "value": s}
+            for s in statuses
+        ]
+    finally:
+        connector.close()
+
+
+def get_filter_options(source_key: str, runtime_token: str | None = None) -> list[dict[str, Any]]:
+    if source_key == "cmdb_enabled_asset_types":
+        from modules.settings.service import get_settings_panel
+        cmdb = get_settings_panel("cmdb")
+        options: list[dict[str, Any]] = []
+        for item_str in cmdb.get("enabledAssetTypes", []):
+            item_str = item_str.strip()
+            paren_idx = item_str.rfind("(")
+            if paren_idx > 0 and item_str.endswith(")"):
+                label = item_str[:paren_idx].strip()
+                value = item_str[paren_idx + 1:-1].strip()
+            else:
+                label = item_str
+                value = item_str
+            if label and value:
+                options.append({"label": label, "value": value})
+        return options
+
+    if source_key == "itop_asset_states":
+        if runtime_token:
+            try:
+                states = _fetch_itop_asset_states(runtime_token)
+                if states:
+                    return states
+            except Exception:
+                logger.warning("Could not fetch itop_asset_states from iTop, falling back to default list")
+        return [{"label": v, "value": k} for k, v in _ITOP_STATUS_LABELS.items()]
+
+    return []
+
+
+def _apply_cmdb_scope(definition: dict, submitted_filters: dict[str, Any]) -> dict[str, Any]:
+    augmented = dict(submitted_filters)
+    for f in definition.get("filters", []):
+        if not f.get("enabled", True):
+            continue
+        name = f["name"]
+        if name in augmented:
+            continue
+        source_cfg = f.get("options_source") or {}
+        if source_cfg.get("source") == "cmdb_enabled_asset_types":
+            options = get_filter_options("cmdb_enabled_asset_types")
+            values = [o["value"] for o in options if o.get("value")]
+            if values:
+                augmented[name] = values
+    return augmented
 
 
 def list_reports(include_inactive: bool = False) -> list[dict[str, Any]]:
@@ -90,7 +180,8 @@ def execute_report(
             version.get("version"),
         )
 
-    rows, total = report_engine.execute_report(definition, submitted_filters, pagination, runtime_token)
+    scoped_filters = _apply_cmdb_scope(definition, submitted_filters)
+    rows, total = report_engine.execute_report(definition, scoped_filters, pagination, runtime_token)
 
     columns = sorted(definition.get("columns", []), key=lambda c: c.get("order", 0))
     public_columns = [
@@ -103,12 +194,14 @@ def execute_report(
             "format": c.get("format", "text"),
             "align": c.get("align", "left"),
             "wide": c.get("wide", False),
+            "link": c.get("link"),
         }
         for c in columns
     ]
 
     page = max(1, int(pagination.get("page", 1)))
-    page_size = max(1, min(500, int(pagination.get("page_size", 50))))
+    page_size = max(1, min(1000, int(pagination.get("page_size", 100))))
+    total_pages = max(1, math.ceil(total / page_size)) if total > 0 else 0
 
     logger.info(
         "Report executed successfully: report_code=%s version=%s page=%s page_size=%s total=%s rows=%s",
@@ -126,6 +219,7 @@ def execute_report(
         "columns": public_columns,
         "rows": rows,
         "total": total,
+        "total_pages": total_pages,
         "page": page,
         "page_size": page_size,
     }
@@ -135,6 +229,8 @@ def export_report_csv(
     report_code: str,
     submitted_filters: dict[str, Any],
     runtime_token: str,
+    scope: str = "all",
+    pagination: dict[str, Any] | None = None,
 ) -> tuple[str, str]:
     report = _require_active_report(report_code)
     version = _get_active_version_or_raise(report["id"])
@@ -142,9 +238,12 @@ def export_report_csv(
     if not isinstance(definition, dict):
         raise ReportDefinitionInvalidError()
 
+    export_pagination = pagination if scope == "current_page" and pagination else {"page": 1, "page_size": 0}
+    scoped_filters = _apply_cmdb_scope(definition, submitted_filters)
+
     try:
         rows, _ = report_engine.execute_report(
-            definition, submitted_filters, {"page": 1, "page_size": 0}, runtime_token
+            definition, scoped_filters, export_pagination, runtime_token
         )
     except Exception as exc:
         raise ReportExportError(str(exc)) from exc
@@ -160,7 +259,7 @@ def export_report_csv(
     for row in rows:
         writer.writerow([row.get(c["field"], "") for c in columns])
 
-    csv_content = "﻿" + output.getvalue()
+    csv_content = output.getvalue()
 
     output_cfg = definition.get("output", {}).get("export", {}).get("csv", {})
     from datetime import date

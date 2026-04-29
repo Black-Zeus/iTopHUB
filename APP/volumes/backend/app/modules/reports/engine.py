@@ -165,6 +165,18 @@ def _build_oql_query(definition: dict, active_filters: dict[str, Any]) -> tuple[
         if not field or value is None:
             continue
 
+        if isinstance(value, list):
+            if operator == "=" and value:
+                parts = []
+                for v in value:
+                    try:
+                        parts.append(f"{field} = '{_sanitize_oql_value(v)}'")
+                    except Exception:
+                        continue
+                if parts:
+                    conditions.append("(" + " OR ".join(parts) + ")")
+            continue
+
         safe_val = _sanitize_oql_value(value)
 
         if operator == "=":
@@ -265,12 +277,13 @@ def execute_oql_report(
             raise ReportOQLError(error_str) from exc
 
         total = len(items)
-        page_size_raw = int(pagination.get("page_size", 50))
+        page = max(1, int(pagination.get("page", 1)))
+        page_size_raw = int(pagination.get("page_size", 100))
         if page_size_raw <= 0:
             page_items = items
+            page_size = total
         else:
-            page = max(1, int(pagination.get("page", 1)))
-            page_size = max(1, min(500, page_size_raw))
+            page_size = max(1, min(1000, page_size_raw))
             start = (page - 1) * page_size
             page_items = items[start : start + page_size]
 
@@ -377,6 +390,7 @@ def build_public_definition(definition: dict) -> dict:
                 "required": f.get("required", False),
                 "placeholder": f.get("placeholder"),
                 "options": f.get("options"),
+                "options_source": f.get("options_source"),
             }
             for f in definition.get("filters", [])
             if f.get("enabled", True)
@@ -392,6 +406,7 @@ def build_public_definition(definition: dict) -> dict:
                     "format": c.get("format", "text"),
                     "align": c.get("align", "left"),
                     "wide": c.get("wide", False),
+                    "link": c.get("link"),
                 }
                 for c in definition.get("columns", [])
             ],

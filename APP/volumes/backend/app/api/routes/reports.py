@@ -26,6 +26,12 @@ class ExecuteReportRequest(BaseModel):
     pagination: dict[str, Any] = {}
 
 
+class ExportReportRequest(BaseModel):
+    filters: dict[str, Any] = {}
+    pagination: dict[str, Any] = {}
+    scope: str = "all"
+
+
 class CreateVersionRequest(BaseModel):
     definition_json: dict[str, Any]
     change_reason: str = ""
@@ -36,6 +42,29 @@ class RollbackRequest(BaseModel):
 
 
 # ── Catalog ──────────────────────────────────────────────────────────────────
+
+@router.get("/filter-options/{source}")
+def get_filter_options(
+    source: str,
+    hub_session_id: str | None = Cookie(default=None),
+) -> dict[str, Any]:
+    session_id = ensure_session(hub_session_id)
+    try:
+        ensure_module_access(session_id, "reports")
+        runtime_token = None
+        try:
+            runtime_token = get_runtime_token(session_id)
+        except Exception:
+            pass
+        items = report_service.get_filter_options(source, runtime_token=runtime_token)
+        return {"items": items}
+    except AuthenticationError as exc:
+        raise_auth_error(exc)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"No fue posible cargar las opciones del filtro: {exc}") from exc
+
 
 @router.get("")
 def list_reports(
@@ -115,7 +144,21 @@ def execute_report(
             pagination=body.pagination,
             runtime_token=runtime_token,
         )
-        return {"success": True, **result}
+        return {
+            "success": True,
+            "data": {
+                "report_code": result["report_code"],
+                "version": result["version"],
+                "columns": result["columns"],
+                "rows": result["rows"],
+                "pagination": {
+                    "page": result["page"],
+                    "page_size": result["page_size"],
+                    "total": result["total"],
+                    "total_pages": result["total_pages"],
+                },
+            },
+        }
     except AuthenticationError as exc:
         raise_auth_error(exc)
     except ReportError as exc:
@@ -129,17 +172,20 @@ def execute_report(
 @router.post("/{report_code}/export/csv")
 def export_report_csv(
     report_code: str,
-    body: ExecuteReportRequest,
+    body: ExportReportRequest,
     hub_session_id: str | None = Cookie(default=None),
 ) -> Response:
     session_id = ensure_session(hub_session_id)
     try:
         ensure_module_access(session_id, "reports")
         runtime_token = get_runtime_token(session_id)
+        scope = body.scope if body.scope in {"all", "current_page"} else "all"
         csv_content, filename = report_service.export_report_csv(
             report_code,
             submitted_filters=body.filters,
             runtime_token=runtime_token,
+            scope=scope,
+            pagination=body.pagination or None,
         )
         return Response(
             content=csv_content.encode("utf-8-sig"),

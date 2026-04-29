@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import logging
 from typing import Any
 
 from modules.cmdb_visibility import (
@@ -9,6 +12,8 @@ from modules.auth.service import AuthenticationError
 from integrations.itop_cmdb_connector import iTopCMDBConnector
 from integrations.itop_runtime import get_itop_runtime_config
 from modules.people.service import _build_ci_detail, _format_ci_status
+
+logger = logging.getLogger(__name__)
 
 CMDB_TYPE_RULES: dict[str, dict[str, set[str]]] = {
     "Desktop (PC)": {
@@ -302,37 +307,40 @@ def _load_asset_contact_history(
     return history_items
 
 
+_USERS_BATCH_SIZE = 50
+
+
 def _load_asset_assigned_users(connector: iTopCMDBConnector, asset_ids: list[int]) -> dict[int, list[dict[str, str | int]]]:
     normalized_ids = sorted({int(asset_id) for asset_id in asset_ids if int(asset_id) > 0})
     if not normalized_ids:
         return {}
 
     contacts_by_asset: dict[int, list[dict[str, str | int]]] = {}
-    for asset_id in normalized_ids:
-        contacts = connector.oql(
-            (
-                "SELECT Contact AS c "
-                "JOIN lnkContactToFunctionalCI AS l ON l.contact_id = c.id "
-                f"WHERE l.functionalci_id = {asset_id}"
-            ),
-            output_fields="id,name,friendlyname,finalclass,status",
-        )
-        if not contacts:
+
+    for chunk_start in range(0, len(normalized_ids), _USERS_BATCH_SIZE):
+        chunk = normalized_ids[chunk_start : chunk_start + _USERS_BATCH_SIZE]
+        where = " OR ".join(f"l.functionalci_id = {aid}" for aid in chunk)
+        try:
+            links = connector.oql(
+                f"SELECT lnkContactToFunctionalCI AS l WHERE {where}",
+                output_fields="contact_id,contact_id_friendlyname,functionalci_id",
+            )
+        except Exception:
+            logger.warning(
+                "_load_asset_assigned_users: batch query failed for chunk starting at index %s, skipping",
+                chunk_start,
+            )
             continue
 
-        contacts_by_asset[asset_id] = []
-        for contact in contacts:
-            contact_name = _normalize_space(contact.get("friendlyname") or contact.get("name") or f"Persona {contact.id}")
-            if not contact_name:
+        for link in links:
+            ci_id = int(link.get("functionalci_id") or 0)
+            contact_id = int(link.get("contact_id") or 0)
+            contact_name = _normalize_space(link.get("contact_id_friendlyname") or "")
+            if ci_id <= 0 or not contact_name:
                 continue
-            if any(int(item.get("id") or 0) == int(contact.id) for item in contacts_by_asset[asset_id]):
-                continue
-            contacts_by_asset[asset_id].append(
-                {
-                    "id": int(contact.id),
-                    "name": contact_name,
-                }
-            )
+            bucket = contacts_by_asset.setdefault(ci_id, [])
+            if not any(int(existing.get("id") or 0) == contact_id for existing in bucket):
+                bucket.append({"id": contact_id, "name": contact_name})
 
     return contacts_by_asset
 

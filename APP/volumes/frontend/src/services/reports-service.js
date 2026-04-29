@@ -17,6 +17,14 @@ export async function getReportDefinition(reportCode) {
   return payload.item ?? null;
 }
 
+export async function getFilterOptions(source) {
+  const payload = await apiRequest(`/v1/reports/filter-options/${source}`, {
+    fallbackMessage: "No fue posible cargar las opciones del filtro.",
+    retryOnRevalidate: true,
+  });
+  return payload.items ?? [];
+}
+
 export async function executeReport(reportCode, filters = {}, pagination = {}) {
   const payload = await apiRequest(`/v1/reports/${reportCode}/execute`, {
     method: "POST",
@@ -24,13 +32,27 @@ export async function executeReport(reportCode, filters = {}, pagination = {}) {
     fallbackMessage: "No fue posible ejecutar el reporte.",
     retryOnRevalidate: true,
   });
+  // Normalize new nested format to flat shape the UI expects
+  if (payload.data) {
+    const d = payload.data;
+    return {
+      report_code: d.report_code,
+      version: d.version,
+      columns: d.columns ?? [],
+      rows: d.rows ?? [],
+      total: d.pagination?.total ?? 0,
+      total_pages: d.pagination?.total_pages ?? 0,
+      page: d.pagination?.page ?? 1,
+      page_size: d.pagination?.page_size ?? 100,
+    };
+  }
   return payload;
 }
 
-export async function exportReportCsv(reportCode, filters = {}) {
+export async function exportReportCsv(reportCode, filters = {}, scope = "all", pagination = {}) {
   const payload = await apiRequest(`/v1/reports/${reportCode}/export/csv`, {
     method: "POST",
-    body: JSON.stringify({ filters, pagination: {} }),
+    body: JSON.stringify({ filters, pagination, scope }),
     fallbackMessage: "No fue posible exportar el reporte.",
     retryOnRevalidate: true,
   });
@@ -45,13 +67,17 @@ export async function getReportVersions(reportCode) {
   return payload.items ?? [];
 }
 
-export async function downloadReportCsv(reportCode, filters = {}) {
+export async function downloadReportCsv(reportCode, filters = {}, scope = "all", pagination = {}) {
   const API_BASE_URL = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
   const response = await fetch(`${API_BASE_URL}/v1/reports/${reportCode}/export/csv`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
-    body: JSON.stringify({ filters, pagination: { page: 1, page_size: 0 } }),
+    body: JSON.stringify({
+      filters,
+      pagination: scope === "all" ? { page: 1, page_size: 0 } : pagination,
+      scope,
+    }),
   });
   if (!response.ok) {
     throw new Error("No fue posible exportar el reporte.");

@@ -40,6 +40,7 @@ from modules.handover.payloads import (
     normalize_generated_documents as _normalize_generated_documents,
     normalize_itop_ticket_summary as _normalize_itop_ticket_summary,
     normalize_optional_datetime as _normalize_optional_datetime,
+    normalize_reassignment_source_receiver as _normalize_reassignment_source_receiver,
     normalize_receiver as _normalize_receiver,
 )
 from modules.handover.pdf_pipeline import (
@@ -820,10 +821,21 @@ def list_handover_documents(
         itop_ticket = _extract_itop_ticket_from_attachments(
             _deserialize_evidence_attachments(row.get("evidence_attachments"))
         )
+        additional_receivers = _deserialize_additional_receivers(row.get("additional_receivers"))
+        source_person = next(
+            (
+                person
+                for person in additional_receivers
+                if _normalize_comparison_text(person.get("assignmentRole")) == "responsable origen"
+            ),
+            additional_receivers[0] if additional_receivers else {},
+        )
         return {
             "id": int(row["id"]),
             "code": row["document_number"],
             "person": row["receiver_name"],
+            "sourcePerson": source_person.get("name") or "",
+            "destinationPerson": row["receiver_name"],
             "email": row.get("receiver_email") or "",
             "role": row.get("receiver_role") or "",
             "elaborador": row.get("owner_name") or "",
@@ -1058,11 +1070,13 @@ def _validate_handover_items_ready_for_workflow(
     detail: dict[str, Any],
     *,
     action_label: str,
+    type_definition: Any | None = None,
 ) -> None:
     items = detail.get("items") or []
     if not items:
         raise HTTPException(status_code=422, detail=f"Debes agregar al menos un activo antes de {action_label}.")
-    _validate_required_checklists(items, action_label=action_label)
+    if getattr(type_definition, "requires_checklists", True):
+        _validate_required_checklists(items, action_label=action_label)
 
 
 def _get_receiver_person_id(detail: dict[str, Any], *, action_label: str) -> int:
@@ -1090,6 +1104,65 @@ def _validate_handover_receiver_rules(
             detail=f"El tipo de acta '{type_definition.label}' solo permite un responsable para {action_label}.",
         )
     return person_id
+
+
+def _get_reassignment_source_person(
+    detail: dict[str, Any],
+    *,
+    action_label: str,
+) -> dict[str, Any]:
+    additional_receivers = detail.get("additionalReceivers") or []
+    if not isinstance(additional_receivers, list) or not additional_receivers:
+        raise HTTPException(status_code=422, detail=f"Debes seleccionar el responsable origen antes de {action_label}.")
+
+    origin_candidates = [
+        item
+        for item in additional_receivers
+        if _normalize_comparison_text(item.get("assignmentRole")) == "responsable origen"
+    ]
+    if not origin_candidates:
+        origin_candidates = additional_receivers[:1]
+
+    if len(origin_candidates) != 1 or len(additional_receivers) != 1:
+        raise HTTPException(
+            status_code=422,
+            detail=f"La reasignacion requiere exactamente un responsable origen antes de {action_label}.",
+        )
+
+    source_person = origin_candidates[0] or {}
+    try:
+        source_person_id = int(source_person.get("id") or 0)
+    except (TypeError, ValueError):
+        source_person_id = 0
+    source_name = _coerce_str(source_person.get("name"))
+    if source_person_id <= 0 or not source_name:
+        raise HTTPException(status_code=422, detail=f"El responsable origen no es valido para {action_label}.")
+
+    return {
+        "id": source_person_id,
+        "code": _coerce_str(source_person.get("code")),
+        "name": source_name,
+        "email": _coerce_str(source_person.get("email")),
+        "phone": _coerce_str(source_person.get("phone")),
+        "role": _coerce_str(source_person.get("role")),
+        "status": _coerce_str(source_person.get("status")),
+        "assignmentRole": "Responsable origen",
+    }
+
+
+def _validate_reassignment_people(
+    detail: dict[str, Any],
+    *,
+    action_label: str,
+) -> tuple[dict[str, Any], int]:
+    source_person = _get_reassignment_source_person(detail, action_label=action_label)
+    destination_id = _get_receiver_person_id(detail, action_label=action_label)
+    if int(source_person["id"]) == destination_id:
+        raise HTTPException(
+            status_code=422,
+            detail="El responsable origen y el responsable destino no pueden ser la misma persona.",
+        )
+    return source_person, destination_id
 
 
 def _list_handover_contact_people(detail: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1187,7 +1260,7 @@ def _validate_ci_receiver_alignment(
                 status_code=422,
                 detail=(
                     f"El activo '{asset_label}' no esta asociado a {receiver_name} en iTop "
-                    "y no puede ser incluido en esta devolucion."
+                    "y no puede ser incluido en esta acta."
                 ),
             )
         raise HTTPException(
@@ -2197,7 +2270,16 @@ def _normalize_handover_payload(
 
     template_catalog = _build_template_catalog_by_id()
     receiver = _normalize_receiver(payload.get("receiver") or {})
-    additional_receivers = _normalize_additional_receivers(payload.get("additionalReceivers") or [], receiver["receiver_person_id"])
+    if type_definition.code == "reassignment":
+        additional_receivers = _normalize_reassignment_source_receiver(
+            payload.get("additionalReceivers") or [],
+            receiver["receiver_person_id"],
+        )
+    else:
+        additional_receivers = _normalize_additional_receivers(
+            payload.get("additionalReceivers") or [],
+            receiver["receiver_person_id"],
+        )
     generated_documents = _normalize_generated_documents(payload.get("generatedDocuments") or [])
     evidence_attachments = _normalize_evidence_attachments(payload.get("evidenceAttachments") or [])
     items = _normalize_items(payload.get("items") or [], template_catalog, type_definition=type_definition)
@@ -2207,23 +2289,36 @@ def _normalize_handover_payload(
             status_code=422,
             detail=f"El tipo de acta '{type_definition.label}' solo permite un responsable.",
         )
+    if type_definition.code == "reassignment":
+        source_people = _deserialize_additional_receivers(additional_receivers)
+        if len(source_people) != 1:
+            raise HTTPException(
+                status_code=422,
+                detail="La reasignacion requiere exactamente un responsable origen.",
+            )
+        if int(source_people[0].get("id") or 0) == receiver["receiver_person_id"]:
+            raise HTTPException(
+                status_code=422,
+                detail="El responsable origen y el responsable destino no pueden ser la misma persona.",
+            )
 
     if not reason:
         raise HTTPException(status_code=422, detail=f"Debes indicar el {type_definition.main_reason_label.lower()}.")
     if status_ui in {"Emitida", "Confirmada"}:
-        _validate_required_checklists(
-            [
-                {
-                    "asset": {
-                        "code": item.get("asset_code"),
-                        "name": item.get("asset_name"),
-                    },
-                    "checklists": item.get("checklists") or [],
-                }
-                for item in items
-            ],
-            action_label="guardar el acta en ese estado",
-        )
+        if type_definition.requires_checklists:
+            _validate_required_checklists(
+                [
+                    {
+                        "asset": {
+                            "code": item.get("asset_code"),
+                            "name": item.get("asset_name"),
+                        },
+                        "checklists": item.get("checklists") or [],
+                    }
+                    for item in items
+                ],
+                action_label="guardar el acta en ese estado",
+            )
 
     owner_user_id = int(existing_document["owner_user_id"]) if existing_document else int(session_user["id"])
     owner_name = existing_document["owner_name"] if existing_document else session_user["name"]

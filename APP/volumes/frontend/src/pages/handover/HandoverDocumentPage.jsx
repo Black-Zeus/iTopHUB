@@ -71,10 +71,11 @@ function ResolveReceiverConflictModalContent({
   );
 }
 
-function ReturnAssetSelectionModalContent({
-  receiver,
+function AssignedAssetSelectionModalContent({
+  responsible,
   selectedAssetIds,
   enforceSingleAssignment = false,
+  helperText = "Esta lista se carga desde iTop solo con los activos actualmente asociados a esta persona.",
   onLoad,
   onSelectAsset,
   onCancel,
@@ -125,12 +126,12 @@ function ReturnAssetSelectionModalContent({
     <div className="grid gap-4">
       <div className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] p-4">
         <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Responsable</p>
-        <p className="mt-2 text-sm font-semibold text-[var(--text-primary)]">{receiver?.name || "Sin responsable"}</p>
+        <p className="mt-2 text-sm font-semibold text-[var(--text-primary)]">{responsible?.name || "Sin responsable"}</p>
         <p className="mt-1 text-sm text-[var(--text-secondary)]">
-          {[receiver?.code, receiver?.email].filter(Boolean).join(" / ") || "Sin informacion adicional."}
+          {[responsible?.code, responsible?.email].filter(Boolean).join(" / ") || "Sin informacion adicional."}
         </p>
         <p className="mt-2 text-xs text-[var(--text-muted)]">
-          Esta lista se carga desde iTop solo con los activos actualmente asociados a este responsable.
+          {helperText}
         </p>
       </div>
 
@@ -166,7 +167,7 @@ function ReturnAssetSelectionModalContent({
         {filteredItems.map((asset) => {
           const restrictionMessage = getAssetAssignmentRestriction(asset, {
             assetSelectionMode: "assigned_to_receiver",
-            receiver,
+            receiver: responsible,
             enforceSingleAssignment,
           });
           const alreadySelected = localSelectedAssetIds.has(Number(asset.id));
@@ -216,6 +217,8 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
   const { add } = useToast();
   const moduleConfig = getHandoverModuleConfig(moduleVariant);
   const isReturnFlow = moduleConfig.key === "return";
+  const isReassignmentFlow = moduleConfig.key === "reassignment";
+  const isAssignedAssetFlow = isReturnFlow || isReassignmentFlow;
 
   const [bootstrap, setBootstrap] = useState(null);
   const [bootstrapLoading, setBootstrapLoading] = useState(true);
@@ -225,6 +228,9 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
   const [notice, setNotice] = useState("");
   const [form, setForm] = useState(createEmptyForm(null, { moduleVariant, defaultHandoverType: moduleConfig.handoverType }));
   const isReadOnly = !isCreateMode && ["Confirmada", "Anulada"].includes(form.status);
+  const [sourceSearchQuery, setSourceSearchQuery] = useState("");
+  const [sourceResults, setSourceResults] = useState([]);
+  const [sourceLoading, setSourceLoading] = useState(false);
   const [personSearchQuery, setPersonSearchQuery] = useState("");
   const [peopleResults, setPeopleResults] = useState([]);
   const [peopleLoading, setPeopleLoading] = useState(false);
@@ -235,10 +241,13 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
   const [collapsedSections, setCollapsedSections] = useState({
     document: false,
     itop: false,
+    source: false,
     receiver: false,
     assets: false,
   });
+  const sourceSearchInputRef = useRef(null);
   const personSearchInputRef = useRef(null);
+  const sourceSelectionEndRef = useRef(null);
   const receiverSelectionEndRef = useRef(null);
   const itopPeopleWarningShownRef = useRef(false);
   const pageRootRef = useRef(null);
@@ -260,6 +269,11 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
     });
     return index;
   }, [activeTemplates]);
+  const sourceResponsible = useMemo(() => (
+    (form.additionalReceivers || []).find((person) => String(person?.assignmentRole || "").trim().toLowerCase() === "responsable origen")
+    || form.additionalReceivers?.[0]
+    || null
+  ), [form.additionalReceivers]);
 
   useEffect(() => {
     formRef.current = form;
@@ -298,6 +312,12 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
     setPersonSearchQuery("");
     setPeopleResults([]);
     setPeopleLoading(false);
+  };
+
+  const resetSourceSearch = () => {
+    setSourceSearchQuery("");
+    setSourceResults([]);
+    setSourceLoading(false);
   };
 
   const resetAssetSearch = () => {
@@ -363,8 +383,10 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
     const loadDocument = async () => {
       setEditorLoading(true);
       setError("");
+      setSourceResults([]);
       setPeopleResults([]);
       setAssetResults([]);
+      setSourceSearchQuery("");
       setPersonSearchQuery("");
       setAssetSearchQuery("");
       setSelectedTemplateByAsset({});
@@ -390,6 +412,51 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
       cancelled = true;
     };
   }, [bootstrap, isCreateMode, slug]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const query = sourceSearchQuery.trim();
+
+    if (!isReassignmentFlow || query.length < minCharsPeople) {
+      setSourceResults([]);
+      setSourceLoading(false);
+      return undefined;
+    }
+
+    const run = async () => {
+      setSourceLoading(true);
+      setNotice("");
+      setError("");
+      try {
+        const items = await searchHandoverPeople({ query });
+        if (!cancelled) {
+          itopPeopleWarningShownRef.current = false;
+          setSourceResults(items);
+        }
+      } catch (loadError) {
+        if (!cancelled) {
+          if (loadError.code === "ITOP_UNAVAILABLE") {
+            const message = "No fue posible consultar Personas de iTop en este momento. Revisa la conexion del servicio y vuelve a intentar.";
+            setError(message);
+            showItopUnavailableModal(message);
+          } else {
+            setError(loadError.message || "No fue posible buscar personas.");
+          }
+          setSourceResults([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setSourceLoading(false);
+        }
+      }
+    };
+
+    const timer = window.setTimeout(run, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [isReassignmentFlow, minCharsPeople, sourceSearchQuery]);
 
   useEffect(() => {
     let cancelled = false;
@@ -437,7 +504,7 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
   }, [minCharsPeople, personSearchQuery]);
 
   useEffect(() => {
-    if (isReturnFlow) {
+    if (isAssignedAssetFlow) {
       setAssetResults([]);
       setAssetLoading(false);
       return undefined;
@@ -478,13 +545,13 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [assetSearchQuery, isReturnFlow, minCharsAssets]);
+  }, [assetSearchQuery, isAssignedAssetFlow, minCharsAssets]);
 
   const addAssetToForm = (asset, receiverOverride = null) => {
-    const resolvedReceiver = receiverOverride || form.receiver;
+    const resolvedAssignmentResponsible = receiverOverride || (isReassignmentFlow ? sourceResponsible : form.receiver);
     const restrictionMessage = getAssetAssignmentRestriction(asset, {
-      assetSelectionMode: isReturnFlow ? "assigned_to_receiver" : "stock_unassigned",
-      receiver: resolvedReceiver,
+      assetSelectionMode: isAssignedAssetFlow ? "assigned_to_receiver" : "stock_unassigned",
+      receiver: resolvedAssignmentResponsible,
       enforceSingleAssignment: isReturnFlow,
     });
     if (restrictionMessage) {
@@ -528,8 +595,8 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
   };
 
   const addAdditionalReceiver = (person) => {
-    if (isReturnFlow) {
-      setNotice("Las actas de devolucion solo permiten un responsable.");
+    if (isAssignedAssetFlow) {
+      setNotice("Este flujo no permite participantes secundarios adicionales.");
       return;
     }
 
@@ -697,10 +764,28 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
         scrollToReceiverSelection();
         focusPersonSearchInput();
         window.requestAnimationFrame(() => {
-          openReturnAssetSelector(person, { revertReceiverOnEmptyClose: true });
+          openAssignedAssetSelector(person, { revertResponsibleOnEmptyClose: true });
         });
       };
       void replaceResponsible();
+      return;
+    }
+
+    if (isReassignmentFlow && Number(sourceResponsible?.id || 0) === Number(person?.id || 0)) {
+      setError("El responsable origen y el responsable destino no pueden ser la misma persona.");
+      return;
+    }
+
+    if (isReassignmentFlow && form.receiver?.id && form.receiver.id !== person.id) {
+      setForm((current) => ({
+        ...current,
+        receiver: person,
+      }));
+      resetPeopleSearch();
+      setNotice("");
+      setError("");
+      scrollToReceiverSelection();
+      focusPersonSearchInput();
       return;
     }
 
@@ -726,7 +811,7 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
     focusPersonSearchInput();
     if (isReturnFlow) {
       window.requestAnimationFrame(() => {
-        openReturnAssetSelector(person, { revertReceiverOnEmptyClose: true });
+        openAssignedAssetSelector(person, { revertResponsibleOnEmptyClose: true });
       });
     }
   };
@@ -761,6 +846,83 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
       ...current,
       additionalReceivers: (current.additionalReceivers || []).map((item) => item.id === personId ? { ...item, assignmentRole } : item),
     }));
+  };
+
+  const removeSourceResponsible = () => {
+    setForm((current) => ({
+      ...current,
+      additionalReceivers: [],
+      items: [],
+    }));
+  };
+
+  const requestRemoveSourceResponsible = async () => {
+    const confirmed = await ModalManager.confirm({
+      title: "Quitar responsable origen",
+      message: `Se quitara ${sourceResponsible?.name || "el responsable origen"} de esta acta.`,
+      content: "Confirma para eliminar el responsable origen. Los activos seleccionados tambien se quitaran porque dependen de esa persona.",
+      buttons: { cancel: "Cancelar", confirm: "Quitar" },
+    });
+
+    if (!confirmed) {
+      return;
+    }
+
+    removeSourceResponsible();
+    resetSourceSearch();
+    resetAssetSearch();
+    setNotice("");
+    setError("");
+  };
+
+  const selectSourceResponsible = (person) => {
+    if (!isReassignmentFlow) {
+      return;
+    }
+    if (Number(form.receiver?.id || 0) === Number(person?.id || 0)) {
+      setError("El responsable origen y el responsable destino no pueden ser la misma persona.");
+      return;
+    }
+
+    const applySource = () => {
+      setForm((current) => ({
+        ...current,
+        additionalReceivers: [{ ...person, assignmentRole: "Responsable origen" }],
+        items: [],
+      }));
+      resetSourceSearch();
+      resetAssetSearch();
+      setNotice("");
+      setError("");
+      window.requestAnimationFrame(() => {
+        sourceSelectionEndRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "end",
+        });
+      });
+      window.requestAnimationFrame(() => {
+        openAssignedAssetSelector(person, { revertResponsibleOnEmptyClose: true, responsibleRole: "source" });
+      });
+    };
+
+    if (sourceResponsible?.id && sourceResponsible.id !== person.id && form.items.length) {
+      const replaceSource = async () => {
+        const confirmed = await ModalManager.confirm({
+          title: "Cambiar responsable origen",
+          message: `Se reemplazara a ${sourceResponsible.name} por ${person.name}.`,
+          content: "Los activos seleccionados se quitaran para evitar mezclar equipos de responsables distintos.",
+          buttons: { cancel: "Cancelar", confirm: "Cambiar" },
+        });
+        if (!confirmed) {
+          return;
+        }
+        applySource();
+      };
+      void replaceSource();
+      return;
+    }
+
+    applySource();
   };
 
   const removeAssetFromForm = (assetId) => {
@@ -967,38 +1129,50 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
     }));
   };
 
-  const openReturnAssetSelector = (receiverOverride = null, options = {}) => {
-    const resolvedReceiver = receiverOverride || form.receiver;
-    if (!resolvedReceiver?.id) {
+  const openAssignedAssetSelector = (responsibleOverride = null, options = {}) => {
+    const responsibleRole = options?.responsibleRole || (isReassignmentFlow ? "source" : "receiver");
+    const fallbackResponsible = responsibleRole === "source" ? sourceResponsible : form.receiver;
+    const resolvedResponsible = responsibleOverride || fallbackResponsible;
+    if (!resolvedResponsible?.id) {
       setError("Debes seleccionar primero al responsable para buscar los activos asociados.");
       return;
     }
 
-    const receiverId = resolvedReceiver.id;
-    const revertReceiverOnEmptyClose = Boolean(options?.revertReceiverOnEmptyClose);
+    const responsibleId = resolvedResponsible.id;
+    const revertResponsibleOnEmptyClose = Boolean(options?.revertResponsibleOnEmptyClose);
     let assetLinked = false;
     let modalId = null;
     const selectedAssetIds = new Set((form.items || []).map((item) => Number(item.asset?.id || 0)));
     modalId = ModalManager.custom({
-      title: `Seleccionar activos asociados${resolvedReceiver?.name ? ` · ${resolvedReceiver.name}` : ""}`,
+      title: `Seleccionar activos asociados${resolvedResponsible?.name ? ` · ${resolvedResponsible.name}` : ""}`,
       size: "personDetail",
       showFooter: false,
       onClose: () => {
-        if (!revertReceiverOnEmptyClose || assetLinked) {
+        if (!revertResponsibleOnEmptyClose || assetLinked) {
           return;
         }
         const latestForm = formRef.current;
-        const currentReceiverId = Number(latestForm?.receiver?.id || 0);
+        const currentResponsible = responsibleRole === "source"
+          ? ((latestForm?.additionalReceivers || []).find((person) => String(person?.assignmentRole || "").trim().toLowerCase() === "responsable origen")
+            || latestForm?.additionalReceivers?.[0]
+            || null)
+          : latestForm?.receiver;
+        const currentResponsibleId = Number(currentResponsible?.id || 0);
         const hasLinkedItems = Array.isArray(latestForm?.items) && latestForm.items.length > 0;
-        if (currentReceiverId === Number(receiverId) && !hasLinkedItems) {
+        if (currentResponsibleId === Number(responsibleId) && !hasLinkedItems) {
           setForm((current) => {
-            if (Number(current?.receiver?.id || 0) !== Number(receiverId) || (current.items || []).length > 0) {
+            const currentAssignedResponsible = responsibleRole === "source"
+              ? ((current.additionalReceivers || []).find((person) => String(person?.assignmentRole || "").trim().toLowerCase() === "responsable origen")
+                || current.additionalReceivers?.[0]
+                || null)
+              : current.receiver;
+            if (Number(currentAssignedResponsible?.id || 0) !== Number(responsibleId) || (current.items || []).length > 0) {
               return current;
             }
             return {
               ...current,
-              receiver: null,
-              additionalReceivers: [],
+              receiver: responsibleRole === "receiver" ? null : current.receiver,
+              additionalReceivers: responsibleRole === "source" ? [] : current.additionalReceivers,
               items: [],
             };
           });
@@ -1007,17 +1181,20 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
         }
       },
       content: (
-        <ReturnAssetSelectionModalContent
-          receiver={resolvedReceiver}
+        <AssignedAssetSelectionModalContent
+          responsible={resolvedResponsible}
           selectedAssetIds={selectedAssetIds}
           enforceSingleAssignment
+          helperText={isReassignmentFlow
+            ? "Esta lista se carga desde iTop solo con los activos actualmente asociados al responsable origen seleccionado."
+            : "Esta lista se carga desde iTop solo con los activos actualmente asociados a este responsable."}
           onLoad={() => searchHandoverAssets({
             query: "",
-            assignedPersonId: receiverId,
+            assignedPersonId: responsibleId,
           })}
           onSelectAsset={(asset) => {
             assetLinked = true;
-            addAssetToForm(asset, resolvedReceiver);
+            addAssetToForm(asset, resolvedResponsible);
           }}
           onCancel={() => ModalManager.close(modalId)}
         />
@@ -1032,6 +1209,24 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
     if (!form.reason.trim()) {
       setError(moduleConfig.reasonValidationMessage);
       return;
+    }
+    if (isReassignmentFlow) {
+      if (!sourceResponsible?.id) {
+        setError("Debes seleccionar el responsable origen.");
+        return;
+      }
+      if (!form.receiver?.id) {
+        setError("Debes seleccionar el responsable destino.");
+        return;
+      }
+      if (Number(sourceResponsible.id) === Number(form.receiver.id)) {
+        setError("El responsable origen y el responsable destino no pueden ser la misma persona.");
+        return;
+      }
+      if (!(form.items || []).length) {
+        setError("Debes agregar al menos un activo para la reasignacion.");
+        return;
+      }
     }
     if (isReturnFlow) {
       const invalidEvidence = (form.items || []).find((item) => (
@@ -1063,15 +1258,15 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
     };
 
     const invalidAsset = form.items.find((item) => getAssetAssignmentRestriction(item.asset, {
-      assetSelectionMode: isReturnFlow ? "assigned_to_receiver" : "stock_unassigned",
-      receiver: form.receiver,
+      assetSelectionMode: isAssignedAssetFlow ? "assigned_to_receiver" : "stock_unassigned",
+      receiver: isReassignmentFlow ? sourceResponsible : form.receiver,
       enforceSingleAssignment: isReturnFlow,
     }));
     if (invalidAsset) {
       setSaving(false);
       setError(getAssetAssignmentRestriction(invalidAsset.asset, {
-        assetSelectionMode: isReturnFlow ? "assigned_to_receiver" : "stock_unassigned",
-        receiver: form.receiver,
+        assetSelectionMode: isAssignedAssetFlow ? "assigned_to_receiver" : "stock_unassigned",
+        receiver: isReassignmentFlow ? sourceResponsible : form.receiver,
         enforceSingleAssignment: isReturnFlow,
       }));
       return;
@@ -1146,6 +1341,13 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
         <HandoverEditorSections
           form={form}
           statusOptions={statusOptions}
+          sourceLoading={sourceLoading}
+          sourceResults={sourceResults}
+          sourceSearchQuery={sourceSearchQuery}
+          setSourceSearchQuery={setSourceSearchQuery}
+          sourceSearchInputRef={sourceSearchInputRef}
+          sourceSelectionEndRef={sourceSelectionEndRef}
+          sourceResponsible={sourceResponsible}
           peopleLoading={peopleLoading}
           peopleResults={peopleResults}
           personSearchQuery={personSearchQuery}
@@ -1171,6 +1373,14 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
           isCreateMode={isCreateMode}
           minCharsPeople={minCharsPeople}
           minCharsAssets={minCharsAssets}
+          requiresSourceResponsible={moduleConfig.requiresSourceResponsible}
+          sourceSectionTitle={moduleConfig.sourceSectionTitle}
+          sourceSectionHelper={moduleConfig.sourceSectionHelper}
+          sourceSearchLabel={moduleConfig.sourceSearchLabel}
+          primarySourceLabel={moduleConfig.primarySourceLabel}
+          emptyPrimarySourceMessage={moduleConfig.emptyPrimarySourceMessage}
+          selectSourceResponsible={selectSourceResponsible}
+          requestRemoveSourceResponsible={requestRemoveSourceResponsible}
           selectPrimaryReceiver={selectPrimaryReceiver}
           promoteAdditionalReceiverToPrimary={promoteAdditionalReceiverToPrimary}
           requestRemovePrimaryReceiver={requestRemovePrimaryReceiver}
@@ -1183,6 +1393,8 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
           itopIntegrationUrl={String(bootstrap?.itopIntegrationUrl || "").replace(/\/+$/, "")}
           reasonLabel={moduleConfig.reasonLabel}
           notesPlaceholder={bootstrap?.defaults?.notesPlaceholder || moduleConfig.notesPlaceholder}
+          itemNotesLabel={moduleConfig.itemNotesLabel}
+          itemNotesPlaceholder={moduleConfig.itemNotesPlaceholder}
           receiverSectionTitle={moduleConfig.receiverSectionTitle}
           receiverSectionHelper={moduleConfig.receiverSectionHelper}
           receiverSearchLabel={moduleConfig.receiverSearchLabel}
@@ -1194,8 +1406,12 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
           assetSelectionMode={moduleConfig.assetSelectionMode}
           assetSearchLabel={moduleConfig.assetSearchLabel}
           assetSearchPlaceholder={moduleConfig.assetSearchPlaceholder}
+          assetSelectorHelper={moduleConfig.assetSelectorHelper}
+          assetSelectorButtonLabel={moduleConfig.assetSelectorButtonLabel}
+          assetAssignmentResponsible={isReassignmentFlow ? sourceResponsible : form.receiver}
           enforceSingleAssignment={isReturnFlow}
-          onOpenAssetSelector={isReturnFlow ? openReturnAssetSelector : null}
+          onOpenAssetSelector={isAssignedAssetFlow ? openAssignedAssetSelector : null}
+          showChecklistSection={moduleConfig.showChecklistSection !== false}
           showItemEvidenceSection={isReturnFlow}
           addItemEvidenceFiles={addItemEvidenceFiles}
           updateItemEvidenceCaption={updateItemEvidenceCaption}

@@ -112,6 +112,10 @@ function buildTicketDescription(row, template, detail, moduleConfig) {
   const items = detail?.items || [];
   const count = items.length || Number(row?.assetCount ?? 0);
   const returnReason = String(detail?.reason || "").trim();
+  const sourcePerson = detail?.additionalReceivers?.find((person) => String(person?.assignmentRole || "").trim().toLowerCase() === "responsable origen")
+    || detail?.additionalReceivers?.[0]
+    || null;
+  const destinationPerson = detail?.receiver || null;
 
   let assetLine;
   if (count === 1 && items[0]?.asset) {
@@ -138,17 +142,28 @@ function buildTicketDescription(row, template, detail, moduleConfig) {
     lines.push(returnReason);
     lines.push("");
   }
+  if (moduleConfig?.key === "reassignment") {
+    lines.push("");
+    lines.push(`Responsable origen: ${sourcePerson?.name || "Sin registro"}.`);
+    lines.push(`Responsable destino: ${destinationPerson?.name || row?.person || "Sin registro"}.`);
+    lines.push("");
+  }
   lines.push(`* ${assetLine}`);
   return lines.join("\n");
 }
 
 function downloadListCsv(rows, moduleConfig) {
+  const isReassignmentModule = moduleConfig?.key === "reassignment";
   downloadRowsAsCsv({
     filename: moduleConfig.csvFilename,
-    header: ["Acta", "Destinatario", "Elaborador", "Folio iTop", "Fecha", "Estado"],
+    header: isReassignmentModule
+      ? ["Acta", "Origen", "Destino", "Elaborador", "Folio iTop", "Fecha", "Estado"]
+      : ["Acta", moduleConfig.listPersonColumnLabel || "Destinatario", "Elaborador", "Folio iTop", "Fecha", "Estado"],
     rows: rows.map((row) => [
       row.code || "",
-      row.person || "",
+      ...(isReassignmentModule
+        ? [row.sourcePerson || "", row.destinationPerson || row.person || ""]
+        : [row.person || ""]),
       row.elaborador || "",
       row.itopTicketNumber || "",
       row.date || "",
@@ -1290,10 +1305,21 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
     });
   };
 
+  const identityColumns = moduleConfig.key === "reassignment"
+    ? [
+        { key: "code", label: "Acta", sortable: true, headerClassName: "w-[9rem] min-w-[9rem]", cellClassName: "w-[9rem] min-w-[9rem]" },
+        { key: "sourcePerson", label: "Origen", sortable: true },
+        { key: "destinationPerson", label: "Destino", sortable: true },
+        { key: "elaborador", label: "Elaborador", sortable: true },
+      ]
+    : [
+        { key: "code", label: "Acta", sortable: true, headerClassName: "w-[9rem] min-w-[9rem]", cellClassName: "w-[9rem] min-w-[9rem]" },
+        { key: "person", label: moduleConfig.listPersonColumnLabel || "Destinatario", sortable: true },
+        { key: "elaborador", label: "Elaborador", sortable: true },
+      ];
+
   const tableColumns = [
-    { key: "code", label: "Acta", sortable: true, headerClassName: "w-[9rem] min-w-[9rem]", cellClassName: "w-[9rem] min-w-[9rem]" },
-    { key: "person", label: "Destinatario", sortable: true },
-    { key: "elaborador", label: "Elaborador", sortable: true },
+    ...identityColumns,
     {
       key: "itopTicketNumber",
       label: "Folio iTop",

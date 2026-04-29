@@ -283,6 +283,30 @@ def normalize_additional_receivers(payload: Any, primary_receiver_id: int) -> st
     return json.dumps(normalized, ensure_ascii=True)
 
 
+def normalize_reassignment_source_receiver(payload: Any, destination_person_id: int) -> str:
+    if not isinstance(payload, list) or not payload:
+        raise HTTPException(status_code=422, detail="Debes seleccionar el responsable origen.")
+    if len(payload) != 1:
+        raise HTTPException(
+            status_code=422,
+            detail="La reasignacion requiere exactamente un responsable origen.",
+        )
+
+    source_person = payload[0]
+    if not isinstance(source_person, dict):
+        raise HTTPException(status_code=422, detail="El responsable origen no es valido.")
+
+    return normalize_additional_receivers(
+        [
+            {
+                **source_person,
+                "assignmentRole": "Responsable origen",
+            }
+        ],
+        destination_person_id,
+    )
+
+
 def normalize_evidence_attachments(payload: Any) -> str:
     if not payload:
         return ""

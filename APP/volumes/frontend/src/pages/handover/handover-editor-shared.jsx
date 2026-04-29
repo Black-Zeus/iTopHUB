@@ -12,7 +12,7 @@ import { getHandoverModuleConfig } from "./handover-module-config";
 
 export const INPUT_CLASS_NAME = "h-[50px] rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 text-sm text-[var(--text-primary)] outline-none";
 export const TEXTAREA_CLASS_NAME = "w-full rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-3 text-sm text-[var(--text-primary)] outline-none";
-const SECONDARY_RECEIVER_ROLE_OPTIONS = ["Contraturno", "Referente de area", "Respaldo operativo", "Testigo"];
+const SECONDARY_RECEIVER_ROLE_OPTIONS = ["Contraturno", "Referente de area", "Respaldo operativo", "Responsable origen", "Testigo"];
 
 const formatAttachmentName = (filename = "") => {
   const lastDot = filename.lastIndexOf(".");
@@ -635,6 +635,13 @@ function EditorSectionPanel({ eyebrow, title, helper, isCollapsed, onToggle, chi
 export function HandoverEditorSections({
   form,
   statusOptions,
+  sourceLoading,
+  sourceResults,
+  sourceSearchQuery,
+  setSourceSearchQuery,
+  sourceSearchInputRef,
+  sourceSelectionEndRef,
+  sourceResponsible = null,
   peopleLoading,
   peopleResults,
   personSearchQuery,
@@ -659,8 +666,18 @@ export function HandoverEditorSections({
   toggleSection,
   isCreateMode,
   notesPlaceholder,
+  itemNotesLabel = "Observacion del item",
+  itemNotesPlaceholder = "Accesorios, condiciones particulares o acuerdos asociados al activo",
   minCharsPeople,
   minCharsAssets,
+  requiresSourceResponsible = false,
+  sourceSectionTitle = "Responsable origen",
+  sourceSectionHelper = "Selecciona al responsable actual asociado a los activos.",
+  sourceSearchLabel = "Buscar responsable origen",
+  primarySourceLabel = "Responsable origen seleccionado",
+  emptyPrimarySourceMessage = "No hay responsable origen seleccionado.",
+  selectSourceResponsible = () => {},
+  requestRemoveSourceResponsible = () => {},
   selectPrimaryReceiver,
   promoteAdditionalReceiverToPrimary,
   requestRemovePrimaryReceiver,
@@ -682,14 +699,18 @@ export function HandoverEditorSections({
   assetSelectionMode = "inline",
   assetSearchLabel = "Buscar activo",
   assetSearchPlaceholder = "Codigo, nombre o serie",
+  assetSelectorHelper = "",
+  assetSelectorButtonLabel = "Abrir lista de activos asociados",
+  assetAssignmentResponsible = null,
   enforceSingleAssignment = false,
   onOpenAssetSelector = null,
+  showChecklistSection = true,
   showItemEvidenceSection = false,
   addItemEvidenceFiles = () => {},
   updateItemEvidenceCaption = () => {},
   removeItemEvidence = () => {},
 }) {
-  const topPanelsExpanded = !collapsedSections.document && !collapsedSections.receiver;
+  const topPanelsExpanded = !collapsedSections.document && !collapsedSections.receiver && (!requiresSourceResponsible || !collapsedSections.source);
   const shouldShowItopSection = readOnly && form.status === "Confirmada";
   const [collapsedAssets, setCollapsedAssets] = useState({});
   const [collapsedChecklists, setCollapsedChecklists] = useState({});
@@ -825,6 +846,84 @@ export function HandoverEditorSections({
         </EditorSectionPanel>
 
         <div className="grid gap-5">
+          {requiresSourceResponsible ? (
+            <EditorSectionPanel
+              eyebrow="Origen"
+              title={sourceSectionTitle}
+              helper={sourceSectionHelper}
+              isCollapsed={Boolean(collapsedSections.source)}
+              onToggle={() => toggleSection("source")}
+            >
+              <div className="grid gap-4">
+                {!readOnly ? (
+                  <div className="relative z-20">
+                    <Field label={sourceSearchLabel}>
+                      <input
+                        ref={sourceSearchInputRef}
+                        type="search"
+                        value={sourceSearchQuery}
+                        onChange={(event) => setSourceSearchQuery(event.target.value)}
+                        className={INPUT_CLASS_NAME}
+                        placeholder={`Escribe nombre, identificador o correo (${minCharsPeople}+ caracteres)`}
+                      />
+                    </Field>
+
+                    {sourceSearchQuery.trim().length > 0 && sourceSearchQuery.trim().length < minCharsPeople ? (
+                      <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-20">
+                        <MessageBanner>Ingresa al menos {minCharsPeople} caracteres para buscar en Personas de iTop.</MessageBanner>
+                      </div>
+                    ) : null}
+
+                    {sourceResults.length ? (
+                      <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-20 max-h-[320px] overflow-y-auto rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-2 shadow-[var(--shadow-soft)]">
+                        <div className="grid gap-3">
+                          {sourceResults.map((person) => (
+                            <ResultCard
+                              key={`source-${person.id}`}
+                              title={person.name}
+                              subtitle={`${person.code}${person.email ? ` / ${person.email}` : ""}`}
+                              helper={[person.role, person.status].filter(Boolean).join(" / ")}
+                              actions={<Button size="sm" variant="secondary" onClick={() => selectSourceResponsible(person)}>Seleccionar</Button>}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    ) : sourceLoading ? (
+                      <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-20">
+                        <MessageBanner>Buscando personas...</MessageBanner>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {sourceResponsible ? (
+                  <div className="grid gap-3">
+                    <div className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">{primarySourceLabel}</div>
+                    <div className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <RoleChip label="Origen" />
+                          <p className="mt-3 truncate text-sm font-semibold text-[var(--text-primary)]">{sourceResponsible.name}</p>
+                          <p className="mt-1 text-sm text-[var(--text-secondary)]">{`${sourceResponsible.code || "Sin codigo"}${sourceResponsible.email ? ` / ${sourceResponsible.email}` : ""}`}</p>
+                          <p className="mt-1 text-xs text-[var(--text-muted)]">{[sourceResponsible.role, sourceResponsible.status].filter(Boolean).join(" / ")}</p>
+                        </div>
+                        {!readOnly ? (
+                          <div className="flex items-center gap-2">
+                            <CornerIconButton iconName="xmark" label="Quitar responsable origen" onClick={requestRemoveSourceResponsible} />
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <MessageBanner>{emptyPrimarySourceMessage}</MessageBanner>
+                )}
+
+                <div ref={sourceSelectionEndRef} />
+              </div>
+            </EditorSectionPanel>
+          ) : null}
+
           {shouldShowItopSection ? (
             <EditorSectionPanel
               eyebrow="iTop"
@@ -951,8 +1050,8 @@ export function HandoverEditorSections({
                   </div>
                 </div>
               ) : (
-                <MessageBanner>{emptyPrimaryReceiverMessage}</MessageBanner>
-              )}
+              <MessageBanner>{emptyPrimaryReceiverMessage}</MessageBanner>
+            )}
 
               {allowAdditionalReceivers && form.additionalReceivers?.length ? (
                 <div className="grid gap-3">
@@ -1005,13 +1104,17 @@ export function HandoverEditorSections({
         {!readOnly ? (
           assetSelectionMode === "modal" ? (
             <div className="grid gap-3 mb-6">
-              <MessageBanner>
-                Abre una lista ya cargada con los activos del responsable seleccionado y vincula solo los que correspondan a esta devolucion.
-              </MessageBanner>
+              {assetSelectorHelper ? (
+                <MessageBanner>{assetSelectorHelper}</MessageBanner>
+              ) : null}
               <div className="flex flex-wrap gap-3">
-                <Button variant="secondary" onClick={() => onOpenAssetSelector?.()} disabled={!form.receiver?.id}>
+                <Button
+                  variant="secondary"
+                  onClick={() => onOpenAssetSelector?.()}
+                  disabled={!Number(assetAssignmentResponsible?.id || form.receiver?.id || 0)}
+                >
                   <Icon name="plus" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                  Abrir lista de activos asociados
+                  {assetSelectorButtonLabel}
                 </Button>
               </div>
             </div>
@@ -1033,7 +1136,7 @@ export function HandoverEditorSections({
                   {assetResults.map((asset) => {
                     const restrictionMessage = getAssetAssignmentRestriction(asset, {
                       assetSelectionMode: assetSelectionMode === "modal" ? "assigned_to_receiver" : "stock_unassigned",
-                      receiver: form.receiver,
+                      receiver: assetAssignmentResponsible || form.receiver,
                       enforceSingleAssignment,
                     });
 
@@ -1107,16 +1210,16 @@ export function HandoverEditorSections({
                       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.92fr)]">
                         <section className="rounded-[22px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-4">
                           <div className="grid gap-4">
-                            <Field label="Observacion del item">
+                            <Field label={itemNotesLabel}>
                               {readOnly
                                 ? <ReadOnlyValue value={item.notes} placeholder="Sin observacion registrada" />
-                                : <textarea rows="4" value={item.notes || ""} onChange={(event) => updateItemNotes(assetId, event.target.value)} className={TEXTAREA_CLASS_NAME} placeholder="Accesorios, condiciones particulares o acuerdos asociados al activo" />
+                                : <textarea rows="4" value={item.notes || ""} onChange={(event) => updateItemNotes(assetId, event.target.value)} className={TEXTAREA_CLASS_NAME} placeholder={itemNotesPlaceholder} />
                               }
                             </Field>
                           </div>
                         </section>
 
-                        {!readOnly ? (
+                        {!readOnly && showChecklistSection ? (
                           <section className="relative z-0 mb-16 rounded-[22px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-4">
                             <div className="grid gap-3">
                               <Field label="Agregar checklist">
@@ -1230,7 +1333,7 @@ export function HandoverEditorSections({
                         </section>
                       ) : null}
 
-                      {item.checklists.length ? (
+                      {showChecklistSection && item.checklists.length ? (
                         <div className="grid gap-4">
                           {item.checklists.map((checklist) => {
                             const checklistKey = `${assetId}-${checklist.templateId}`;

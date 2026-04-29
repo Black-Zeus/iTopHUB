@@ -32,11 +32,10 @@ const NAV_GROUPS = [
   {
     label: "Operacion",
     items: [
-      { path: "/handover", moduleCode: "handover", label: "Actas de Entrega", icon: <Icon d="M5 12h10M11 6l6 6-6 6M4 5h5v14H4z" /> },
-      { path: "/returns", moduleCode: "handover", label: "Actas de Devolucion", icon: <Icon d="M19 12H9M13 6l-6 6 6 6M15 5h5v14h-5z" /> },
-      { path: "/normalization", moduleCode: "handover", label: "Actas de Normalizacion", icon: <Icon d="M6 6h12M6 12h9M6 18h12M18 9l2 3-2 3" /> },
-      { path: "/reception", moduleCode: "reception", label: "Actas de Recepcion", icon: <Icon d="M19 12H9M13 6l-6 6 6 6M15 5h5v14h-5z" /> },
-      { path: "/reassignment", moduleCode: "reassignment", label: "Acta de Reasignacion", icon: <Icon d="M7 7h10v4M17 17H7v-4M14 4l3 3-3 3M10 20l-3-3 3-3" /> },
+      { path: "/handover", moduleCode: "handover", label: "Acta Entrega", icon: <Icon d="M5 12h10M11 6l6 6-6 6M4 5h5v14H4z" /> },
+      { path: "/returns", moduleCode: "handover", label: "Acta Devolucion", icon: <Icon d="M19 12H9M13 6l-6 6 6 6M15 5h5v14h-5z" /> },
+      { path: "/reassignment", moduleCode: "reassignment", label: "Acta Reasignacion", icon: <Icon d="M7 7h10v4M17 17H7v-4M14 4l3 3-3 3M10 20l-3-3 3-3" /> },
+      { path: "/normalization", moduleCode: "handover", label: "Acta Normalizacion", icon: <Icon d="M6 6h12M6 12h9M6 18h12M18 9l2 3-2 3" /> },
     ],
   },
   {

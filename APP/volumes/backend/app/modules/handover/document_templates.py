@@ -480,6 +480,24 @@ def _build_handover_footer_note() -> str:
     return f'<p class="muted" style="font-size:11px; margin:12px 0 0; text-align:justify;">{_escape(note)}</p>'
 
 
+def _get_reassignment_source_person(detail: dict[str, Any]) -> dict[str, Any]:
+    additional_receivers = detail.get("additionalReceivers") or []
+    for person in additional_receivers:
+        if _normalize_label(person.get("assignmentRole")) == "responsable origen":
+            return person
+    return additional_receivers[0] if additional_receivers else {}
+
+
+def _build_reassignment_footer_note() -> str:
+    note = (
+        "El firmante declara recibir la responsabilidad de los activos detallados en la presente acta, "
+        "en la fecha indicada, aceptando la reasignacion efectuada y la informacion registrada. "
+        "El responsable origen deja de mantener relacion activa sobre los activos indicados, quedando "
+        "estos asociados al responsable destinatario conforme al registro del sistema."
+    )
+    return f'<p class="muted" style="font-size:11px; margin:12px 0 0; text-align:justify;">{_escape(note)}</p>'
+
+
 def _build_return_main_html(detail: dict[str, Any], type_definition: Any) -> tuple[str, str | None]:
     document_number = _coerce_str(detail.get("documentNumber"))
     generated_at = _format_datetime_label(detail.get("assignmentDate") or detail.get("generatedAt") or detail.get("creationDate"))
@@ -604,6 +622,224 @@ def _build_return_main_html(detail: dict[str, Any], type_definition: Any) -> tup
         body=body,
         generated_at=generated_at,
         eyebrow="Devolucion de activos",
+    )
+
+
+def _build_reassignment_main_html(detail: dict[str, Any], type_definition: Any) -> tuple[str, str | None]:
+    document_number = _coerce_str(detail.get("documentNumber"))
+    generated_at = _format_datetime_label(detail.get("assignmentDate") or detail.get("generatedAt") or detail.get("creationDate"))
+    source_person = _get_reassignment_source_person(detail)
+    destination_person = detail.get("receiver") or {}
+    owner = detail.get("owner") or {}
+    items = detail.get("items") or []
+
+    asset_rows: list[str] = []
+    for index, item in enumerate(items, start=1):
+        asset = item.get("asset") or {}
+        asset_rows.append(
+            f"""
+            <tr>
+                <td>{index}</td>
+                <td>{_escape(asset.get("className"))}</td>
+                <td>{_escape(_build_asset_display_name(asset))}</td>
+                <td>{_escape(_join_non_empty([asset.get("brand"), asset.get("model")]))}</td>
+                <td>{_escape(asset.get("serial") or asset.get("code"))}</td>
+                <td>{_escape(item.get("notes") or "Sin observacion")}</td>
+            </tr>
+            """
+        )
+    if not asset_rows:
+        asset_rows.append(
+            """
+            <tr>
+                <td colspan="6">Sin activos registrados.</td>
+            </tr>
+            """
+        )
+
+    body = f"""
+    <section class="section">
+        <h2 class="section-title">Responsables de reasignacion</h2>
+        <div class="section-body">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width:20%;">Rol</th>
+                        <th style="width:28%;">Nombre</th>
+                        <th style="width:24%;">Correo</th>
+                        <th style="width:28%;">Referencia</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Responsable origen</td>
+                        <td>{_escape(source_person.get("name"))}</td>
+                        <td>{_escape(source_person.get("email"))}</td>
+                        <td>{_escape(_join_non_empty([source_person.get("code"), source_person.get("role")]))}</td>
+                    </tr>
+                    <tr>
+                        <td>Responsable destino</td>
+                        <td>{_escape(destination_person.get("name"))}</td>
+                        <td>{_escape(destination_person.get("email"))}</td>
+                        <td>{_escape(_join_non_empty([destination_person.get("code"), destination_person.get("role")]))}</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="section">
+        <h2 class="section-title">{_escape(type_definition.main_reason_section_title)}</h2>
+        <div class="section-body">
+            <table>
+                <tbody>
+                    <tr>
+                        <td class="label-cell">{_escape(type_definition.main_reason_label)}</td>
+                        <td>{_escape(detail.get("reason"))}</td>
+                    </tr>
+                    <tr>
+                        <td class="label-cell">{_escape(type_definition.main_notes_label)}</td>
+                        <td>{_escape(detail.get("notes"))}</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="section">
+        <h2 class="section-title">{_escape(type_definition.main_asset_section_title)}</h2>
+        <div class="section-body">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width:7%;">#</th>
+                        <th style="width:15%;">Tipo</th>
+                        <th style="width:24%;">Activo</th>
+                        <th style="width:18%;">Marca / Modelo</th>
+                        <th style="width:16%;">Serie / Identificador</th>
+                        <th style="width:20%;">Observacion</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {''.join(asset_rows)}
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="section">
+        <h2 class="section-title">Aceptacion y conformidad</h2>
+        <div class="section-body">
+            <div class="signature-grid" style="grid-template-columns: repeat(3, minmax(0, 1fr));">
+                <div class="signature-box">
+                    <div class="signature-line">
+                        <div><strong>{_escape(source_person.get("name"))}</strong></div>
+                        <div class="muted">Responsable origen</div>
+                        <div class="muted">{_escape(_join_non_empty([source_person.get("code"), source_person.get("email")], " · "))}</div>
+                    </div>
+                </div>
+                <div class="signature-box">
+                    <div class="signature-line">
+                        <div><strong>{_escape(destination_person.get("name"))}</strong></div>
+                        <div class="muted">{_escape(type_definition.main_signature_receiver_label)}</div>
+                        <div class="muted">{_escape(_join_non_empty([destination_person.get("code"), destination_person.get("email")], " · "))}</div>
+                    </div>
+                </div>
+                <div class="signature-box">
+                    <div class="signature-line">
+                        <div><strong>{_escape(owner.get("name"))}</strong></div>
+                        <div class="muted">{_escape(type_definition.main_signature_issuer_label)}</div>
+                        <div class="muted">Documento generado desde iTop HUB</div>
+                    </div>
+                </div>
+            </div>
+            {_build_reassignment_footer_note()}
+        </div>
+    </section>
+    """
+    return _build_base_html(
+        title=type_definition.main_title,
+        subtitle=type_definition.main_subtitle,
+        code_label=type_definition.main_code_label,
+        code_value=document_number,
+        body=body,
+        generated_at=generated_at,
+        eyebrow="Reasignacion de activos",
+    )
+
+
+def _build_reassignment_detail_html(detail: dict[str, Any], type_definition: Any) -> tuple[str, str | None]:
+    detail_number = build_detail_document_number(_coerce_str(detail.get("documentNumber")))
+    generated_at = _format_datetime_label(detail.get("assignmentDate") or detail.get("generatedAt") or detail.get("creationDate"))
+    source_person = _get_reassignment_source_person(detail)
+    destination_person = detail.get("receiver") or {}
+
+    blocks: list[str] = []
+    for item in detail.get("items") or []:
+        asset = item.get("asset") or {}
+        itop_detail = item.get("itopAssetDetail") or {}
+        field_lookup = _build_field_lookup(itop_detail.get("fields"))
+        is_computer = _is_computer_asset(asset, itop_detail)
+
+        if is_computer:
+            specification_rows = [
+                ("Serie", _find_field_value(field_lookup, "Numero de serie", "Serie") or _coerce_str(asset.get("serial")) or _coerce_str(asset.get("code")) or "Sin dato"),
+                ("Marca / Modelo", _build_brand_model_value(field_lookup, asset) or "Sin dato"),
+                ("CPU", _find_field_value(field_lookup, "Procesador", "CPU") or "Sin dato"),
+                ("RAM", _find_field_value(field_lookup, "RAM") or "Sin dato"),
+                ("Sistema Operativo", _find_field_value(field_lookup, "Sistema operativo", "Operating System") or "Sin dato"),
+            ]
+        else:
+            specification_rows = [
+                ("Activo", _coerce_str(itop_detail.get("name")) or _build_asset_display_name(asset)),
+                ("Codigo", _coerce_str(itop_detail.get("code")) or _coerce_str(asset.get("code"))),
+                ("Serie", _find_field_value(field_lookup, "Numero de serie", "Serie") or _coerce_str(asset.get("serial")) or _coerce_str(asset.get("code"))),
+                ("Marca / Modelo", _build_brand_model_value(field_lookup, asset)),
+                ("Clase CMDB", _coerce_str(itop_detail.get("className")) or _coerce_str(asset.get("className"))),
+                ("Estado", _coerce_str(itop_detail.get("status")) or _coerce_str(asset.get("status"))),
+            ]
+        specification_html = "".join(
+            f"<tr><td class=\"label-cell\">{_escape(label)}</td><td>{_escape(value)}</td></tr>"
+            for label, value in specification_rows
+            if _coerce_str(value)
+        )
+
+        transfer_rows = [
+            f"<tr><td class=\"label-cell\">Responsable origen</td><td>{_escape(_join_non_empty([source_person.get('name'), source_person.get('email')], ' · ') or 'Sin dato')}</td></tr>",
+            f"<tr><td class=\"label-cell\">Responsable destino</td><td>{_escape(_join_non_empty([destination_person.get('name'), destination_person.get('email')], ' · ') or 'Sin dato')}</td></tr>",
+            f"<tr><td class=\"label-cell\">Observacion</td><td>{_escape(item.get('notes') or 'Sin observacion registrada')}</td></tr>",
+        ]
+
+        blocks.append(
+            f"""
+            <section class="section">
+                <h2 class="section-title">{_escape(_build_asset_heading(asset))}</h2>
+                <div class="section-body">
+                    <div class="block-space">
+                        <h3 class="subsection-title">Especificaciones</h3>
+                        <table>
+                            <tbody>{specification_html}</tbody>
+                        </table>
+                    </div>
+                    <div class="block-space">
+                        <h3 class="subsection-title">Trazabilidad de reasignacion</h3>
+                        <table>
+                            <tbody>{''.join(transfer_rows)}</tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+            """
+        )
+
+    return _build_base_html(
+        title=type_definition.detail_title,
+        subtitle=type_definition.detail_subtitle,
+        code_label=type_definition.detail_code_label,
+        code_value=detail_number,
+        body="".join(blocks),
+        generated_at=generated_at,
+        eyebrow="Reasignacion de activos",
     )
 
 
@@ -739,6 +975,8 @@ def build_handover_main_html(detail: dict[str, Any]) -> tuple[str, str | None]:
     type_definition = get_handover_type_definition(detail.get("handoverTypeCode") or detail.get("handoverType"))
     if _coerce_str(type_definition.code) == "return":
         return _build_return_main_html(detail, type_definition)
+    if _coerce_str(type_definition.code) == "reassignment":
+        return _build_reassignment_main_html(detail, type_definition)
     document_number = _coerce_str(detail.get("documentNumber"))
     generated_at = _format_datetime_label(detail.get("assignmentDate") or detail.get("generatedAt") or detail.get("creationDate"))
     receiver = detail.get("receiver") or {}
@@ -886,6 +1124,8 @@ def build_handover_detail_html(detail: dict[str, Any]) -> tuple[str, str | None]
     type_definition = get_handover_type_definition(detail.get("handoverTypeCode") or detail.get("handoverType"))
     if _coerce_str(type_definition.code) == "return":
         return _build_return_detail_html(detail, type_definition)
+    if _coerce_str(type_definition.code) == "reassignment":
+        return _build_reassignment_detail_html(detail, type_definition)
     detail_number = build_detail_document_number(_coerce_str(detail.get("documentNumber")))
     generated_at = _format_datetime_label(detail.get("assignmentDate") or detail.get("generatedAt") or detail.get("creationDate"))
 

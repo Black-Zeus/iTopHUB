@@ -31,6 +31,7 @@ def fetch_handover_document_rows(
             (
                 LOWER(d.document_number) LIKE %s
                 OR LOWER(d.receiver_name) LIKE %s
+                OR LOWER(COALESCE(d.additional_receivers, '')) LIKE %s
                 OR EXISTS (
                     SELECT 1
                     FROM hub_handover_document_items search_item
@@ -44,7 +45,7 @@ def fetch_handover_document_rows(
             )
             """
         )
-        params.extend([like, like, like, like, like])
+        params.extend([like, like, like, like, like, like])
 
     if status:
         filters.append("d.status = %s")

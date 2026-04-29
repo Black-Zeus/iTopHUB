@@ -1,7 +1,6 @@
 const MODULE_ROUTE_MAP = {
   dashboard: "/dashboard",
   handover: "/handover",
-  reception: "/reception",
   reassignment: "/reassignment",
   lab: "/lab",
   devices: "/devices",
@@ -17,7 +16,6 @@ const MODULE_ROUTE_MAP = {
 const DEFAULT_ROUTE_PRIORITY = [
   "dashboard",
   "handover",
-  "reception",
   "reassignment",
   "lab",
   "devices",

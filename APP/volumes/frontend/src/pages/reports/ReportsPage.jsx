@@ -12,6 +12,7 @@ import ModalManager from "../../components/ui/modal";
 import {
   downloadReportCsv,
   executeReport,
+  getFilterOptions,
   getReportCatalog,
   getReportDefinition,
 } from "../../services/reports-service";
@@ -28,6 +29,7 @@ const CATEGORY_ORDER = [
 
 const ALL_VALUE = "__all__";
 const DEFAULT_PAGE_SIZE = 100;
+const DEFAULT_ALLOWED_PAGE_SIZES = [100, 200, 500, 1000];
 
 function getDateOffset(days) {
   const date = new Date();
@@ -46,6 +48,7 @@ function normalizeFilters(apiFilters) {
     placeholder: f.placeholder,
     options: Array.isArray(f.options) ? f.options.map((o) => o.label) : [],
     optionValues: Array.isArray(f.options) ? f.options.map((o) => o.value) : [],
+    optionsSource: f.options_source ?? null,
   }));
 }
 
@@ -132,6 +135,52 @@ function buildApiFilters(params, normalizedFilters) {
   return result;
 }
 
+function generateClientSideCsv(columns, rows, filename) {
+  const exportCols = columns.filter((c) => c.export !== false);
+  const header = exportCols.map((c) => c.label).join(";");
+  const csvRows = rows.map((row) =>
+    exportCols
+      .map((c) => {
+        const val = String(row[c.field] ?? "");
+        return val.includes(";") || val.includes("\n") || val.includes('"')
+          ? `"${val.replace(/"/g, '""')}"`
+          : val;
+      })
+      .join(";")
+  );
+  const csv = "﻿" + [header, ...csvRows].join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function classifyReportError(err) {
+  const code = err?.detail?.error?.code;
+  const msg = err?.detail?.error?.message || err?.message || "";
+  if (code === "REPORT_ITOP_CONNECTION_ERROR" || msg.toLowerCase().includes("connect")) {
+    return "No fue posible conectar con iTop. Verifique la conectividad y vuelva a intentarlo.";
+  }
+  if (code === "REPORT_OQL_ERROR") {
+    return "Error en la consulta al CMDB. Revise los filtros aplicados o contacte al administrador.";
+  }
+  if (code === "REPORT_FILTER_REQUIRED") {
+    return msg || "Hay un filtro requerido que no fue completado.";
+  }
+  if (code === "REPORT_SOURCE_UNSUPPORTED") {
+    return "Este informe no esta disponible en la version actual del sistema.";
+  }
+  if (msg.toLowerCase().includes("timeout") || msg.toLowerCase().includes("timed out")) {
+    return "La consulta supero el tiempo maximo de espera. Intente aplicar filtros mas restrictivos.";
+  }
+  return msg || "No fue posible ejecutar el reporte.";
+}
+
 // ── Internal components ───────────────────────────────────────────────────────
 
 function ReportIconButton({ title, onClick, disabled = false, children }) {
@@ -183,16 +232,34 @@ function TagChip({ tag, active, onClick }) {
   );
 }
 
-function TablePaginator({ page, pageSize, total, onPageChange }) {
+function TablePaginator({ page, pageSize, total, allowedPageSizes, onPageChange, onPageSizeChange }) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const start = total > 0 ? (page - 1) * pageSize + 1 : 0;
   const end = Math.min(page * pageSize, total);
+  const sizes = allowedPageSizes && allowedPageSizes.length > 0 ? allowedPageSizes : DEFAULT_ALLOWED_PAGE_SIZES;
 
   return (
-    <div className="flex items-center justify-between border-t border-[var(--border-color)] px-5 py-3">
-      <span className="text-[0.78rem] text-[var(--text-muted)]">
-        {total > 0 ? `${start}–${end} de ${total} registros` : "Sin registros"}
-      </span>
+    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border-color)] px-5 py-3">
+      <div className="flex items-center gap-2">
+        <span className="text-[0.78rem] text-[var(--text-muted)]">Mostrar</span>
+        <select
+          value={pageSize}
+          onChange={(e) => onPageSizeChange(Number(e.target.value))}
+          className="rounded-[8px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1 text-[0.78rem] font-semibold text-[var(--text-secondary)] outline-none focus:border-[var(--accent-strong)]"
+        >
+          {sizes.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+        <span className="text-[0.78rem] text-[var(--text-muted)]">por pagina</span>
+        {total > 0 && (
+          <span className="ml-2 text-[0.78rem] text-[var(--text-muted)]">
+            · {start}–{end} de {total}
+          </span>
+        )}
+      </div>
       <div className="flex items-center gap-3">
         <button
           type="button"
@@ -322,11 +389,47 @@ function ReportParameterField({ parameter, value, onChange }) {
   );
 }
 
+function renderCellValue(col, row) {
+  const rawValue = row[col.field] ?? "";
+  if (col.format === "badge") {
+    return <StatusChip status={rawValue || "-"} />;
+  }
+  if (col.format === "link" && col.link) {
+    const linkCfg = col.link;
+    const resolveTemplate = (tpl) =>
+      String(tpl ?? "").replace(/\{([^}]+)\}/g, (_, key) => String(row[key] ?? ""));
+    const displayText = rawValue || "-";
+    if (linkCfg.type === "external") {
+      const href = resolveTemplate(linkCfg.url);
+      return href ? (
+        <a href={href} target="_blank" rel="noopener noreferrer" className="text-[var(--accent-strong)] underline underline-offset-2 hover:opacity-80">
+          {displayText}
+        </a>
+      ) : displayText;
+    }
+    const href = resolveTemplate(linkCfg.path);
+    return href ? (
+      <a href={href} className="text-[var(--accent-strong)] underline underline-offset-2 hover:opacity-80">
+        {displayText}
+      </a>
+    ) : displayText;
+  }
+  return rawValue || "-";
+}
+
 function ReportCard({ report, onOpen, onTagClick, activeTagFilters }) {
+  const isUnavailable = report.available === false;
   return (
-    <article className="flex h-full flex-col rounded-[var(--radius-md)] border border-[var(--border-color)] bg-[var(--bg-panel-muted)] p-5">
-      <div className="mb-1 text-[0.68rem] font-semibold uppercase tracking-[0.1em] text-[var(--text-muted)]">
-        {report.category}
+    <article className={`flex h-full flex-col rounded-[var(--radius-md)] border p-5 ${isUnavailable ? "border-[var(--border-color)] bg-[var(--bg-app)] opacity-70" : "border-[var(--border-color)] bg-[var(--bg-panel-muted)]"}`}>
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <span className="text-[0.68rem] font-semibold uppercase tracking-[0.1em] text-[var(--text-muted)]">
+          {report.category}
+        </span>
+        {isUnavailable && (
+          <span className="inline-flex items-center rounded-full border border-[var(--border-color)] bg-[var(--bg-panel)] px-2.5 py-0.5 text-[0.65rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+            No disponible
+          </span>
+        )}
       </div>
       <h4 className="mb-3 text-base font-semibold leading-snug text-[var(--text-primary)]">
         {report.name}
@@ -347,7 +450,7 @@ function ReportCard({ report, onOpen, onTagClick, activeTagFilters }) {
       )}
 
       <div className="mt-4 flex justify-center pt-4" style={{ marginTop: "auto", paddingTop: "1rem" }}>
-        <SoftActionButton onClick={() => onOpen(report.report_code)}>
+        <SoftActionButton onClick={() => onOpen(report.report_code)} disabled={isUnavailable}>
           Ver informe
         </SoftActionButton>
       </div>
@@ -432,15 +535,15 @@ export function ReportsPage() {
   const [reportPaginations, setReportPaginations] = useState({});
   const [executeError, setExecuteError] = useState(null);
 
-  // Load catalog on mount — only active / available reports
+  // Load catalog on mount — all reports including unavailable ones
   useEffect(() => {
     let cancelled = false;
     setIsCatalogLoading(true);
     setCatalogError(null);
-    getReportCatalog(false)
+    getReportCatalog(true)
       .then((items) => {
         if (!cancelled) {
-          setCatalog(items.filter((r) => r.available !== false));
+          setCatalog(items);
           setIsCatalogLoading(false);
         }
       })
@@ -453,41 +556,74 @@ export function ReportsPage() {
     return () => { cancelled = true; };
   }, []);
 
-  // Load definition when a report is opened
+  // Load definition when a report is opened — resolves options_source for dynamic filters
   useEffect(() => {
     if (!activeReportCode) return;
     let cancelled = false;
     setIsDefinitionLoading(true);
     setActiveDefinition(null);
-    getReportDefinition(activeReportCode)
-      .then((def) => {
-        if (!cancelled) {
-          const normalizedFilters = normalizeFilters(def.filters);
-          const pageSize =
-            def.output?.table?.pagination?.default_page_size ?? DEFAULT_PAGE_SIZE;
-          setActiveDefinition({ ...def, normalizedFilters, pageSize });
-          setReportParams((curr) => ({
-            ...curr,
-            [activeReportCode]: curr[activeReportCode] ?? buildDefaultParams(normalizedFilters),
-          }));
-          setReportVisibleFields((curr) => ({
-            ...curr,
-            [activeReportCode]:
-              curr[activeReportCode] ??
-              new Set(
-                def.columns.filter((c) => c.visible !== false).map((c) => c.field)
-              ),
-          }));
-          setReportPaginations((curr) => ({
-            ...curr,
-            [activeReportCode]: curr[activeReportCode] ?? { page: 1, page_size: pageSize },
-          }));
-          setIsDefinitionLoading(false);
+
+    (async () => {
+      try {
+        const def = await getReportDefinition(activeReportCode);
+        if (cancelled) return;
+
+        let normalizedFilters = normalizeFilters(def.filters);
+
+        // Resolve options_source for any dynamic filter
+        const dynamicIdxs = normalizedFilters
+          .map((f, i) => ({ f, i }))
+          .filter(({ f }) => f.optionsSource?.source);
+
+        if (dynamicIdxs.length > 0) {
+          const resolved = await Promise.allSettled(
+            dynamicIdxs.map(({ f, i }) =>
+              getFilterOptions(f.optionsSource.source).then((items) => ({ i, items }))
+            )
+          );
+          resolved.forEach((result) => {
+            if (result.status === "fulfilled") {
+              const { i, items } = result.value;
+              normalizedFilters = normalizedFilters.map((f, idx) =>
+                idx === i
+                  ? {
+                      ...f,
+                      options: ["Todos", ...items.map((o) => o.label)],
+                      optionValues: [null, ...items.map((o) => o.value)],
+                    }
+                  : f
+              );
+            }
+          });
         }
-      })
-      .catch(() => {
+
+        if (cancelled) return;
+
+        const pageSize =
+          def.output?.table?.pagination?.default_page_size ?? DEFAULT_PAGE_SIZE;
+        setActiveDefinition({ ...def, normalizedFilters, pageSize });
+        setReportParams((curr) => ({
+          ...curr,
+          [activeReportCode]: curr[activeReportCode] ?? buildDefaultParams(normalizedFilters),
+        }));
+        setReportVisibleFields((curr) => ({
+          ...curr,
+          [activeReportCode]:
+            curr[activeReportCode] ??
+            new Set(
+              def.columns.filter((c) => c.visible !== false).map((c) => c.field)
+            ),
+        }));
+        setReportPaginations((curr) => ({
+          ...curr,
+          [activeReportCode]: curr[activeReportCode] ?? { page: 1, page_size: pageSize },
+        }));
+        setIsDefinitionLoading(false);
+      } catch {
         if (!cancelled) setIsDefinitionLoading(false);
-      });
+      }
+    })();
+
     return () => { cancelled = true; };
   }, [activeReportCode]);
 
@@ -529,6 +665,12 @@ export function ReportsPage() {
 
   const visibleParameters = useMemo(
     () => (activeDefinition ? getVisibleParameters(activeDefinition.normalizedFilters) : []),
+    [activeDefinition]
+  );
+
+  const allowedPageSizes = useMemo(
+    () =>
+      activeDefinition?.output?.table?.pagination?.allowed_page_sizes ?? DEFAULT_ALLOWED_PAGE_SIZES,
     [activeDefinition]
   );
 
@@ -593,9 +735,9 @@ export function ReportsPage() {
     }));
   };
 
-  const runReport = async (pageOverride) => {
+  const runReport = async (pageOverride, pageSizeOverride) => {
     if (!activeReport || !activeDefinition) return;
-    const pageSize = activePagination.page_size;
+    const pageSize = pageSizeOverride ?? activePagination.page_size;
     const page = pageOverride ?? 1;
 
     const modalId = ModalManager.loading({ title: "Ejecutando informe...", showProgress: false });
@@ -611,27 +753,121 @@ export function ReportsPage() {
       }));
       setIsResultsCollapsed(false);
     } catch (err) {
-      const errorMessage =
-        err?.detail?.error?.message || err?.message || "No fue posible ejecutar el reporte.";
-      setExecuteError(errorMessage);
+      setExecuteError(classifyReportError(err));
       setIsResultsCollapsed(false);
     } finally {
       ModalManager.close(modalId);
     }
   };
 
-  const handleExport = async () => {
-    if (!activeReport || !activeDefinition) return;
-    const modalId = ModalManager.loading({ title: "Preparando exportacion...", showProgress: false });
-    try {
-      const filters = buildApiFilters(activeParams, activeDefinition.normalizedFilters);
-      await downloadReportCsv(activeReport.report_code, filters);
-    } catch (err) {
-      const msg = err?.message || "No fue posible exportar el reporte.";
-      setExecuteError(msg);
-    } finally {
-      ModalManager.close(modalId);
+  const handlePageSizeChange = (newSize) => {
+    if (!activeReportCode) return;
+    setReportPaginations((curr) => ({
+      ...curr,
+      [activeReportCode]: { page: 1, page_size: newSize },
+    }));
+    if (activeResult !== null) {
+      runReport(1, newSize);
     }
+  };
+
+  const handleExport = () => {
+    if (!activeReport || !activeDefinition) return;
+    const hasResults = activeRows.length > 0;
+
+    const doExportCurrentPage = () => {
+      ModalManager.close(exportModalId);
+      const reportName = activeReport.report_code;
+      const today = new Date().toISOString().slice(0, 10);
+      generateClientSideCsv(activeColumns, activeRows, `${reportName}_pagina_${activePagination.page}_${today}.csv`);
+    };
+
+    const doExportAll = () => {
+      ModalManager.close(exportModalId);
+      const confirmId = ModalManager.custom({
+        title: "Confirmar exportacion completa",
+        size: "sm",
+        showFooter: false,
+        content: (
+          <div className="space-y-4">
+            <p className="text-sm leading-6 text-[var(--text-secondary)]">
+              Se exportaran <strong>todos los registros</strong> del informe con los filtros actuales.
+              Esta operacion puede tardar unos segundos segun el volumen de datos.
+            </p>
+            <div className="flex justify-end gap-3">
+              <Button variant="ghost" onClick={() => ModalManager.close(confirmId)}>
+                Cancelar
+              </Button>
+              <SoftActionButton
+                onClick={async () => {
+                  ModalManager.close(confirmId);
+                  const loadingId = ModalManager.loading({ title: "Exportando todos los registros...", showProgress: false });
+                  try {
+                    const filters = buildApiFilters(activeParams, activeDefinition.normalizedFilters);
+                    await downloadReportCsv(activeReport.report_code, filters, "all");
+                  } catch (err) {
+                    setExecuteError(err?.message || "No fue posible exportar el reporte.");
+                  } finally {
+                    ModalManager.close(loadingId);
+                  }
+                }}
+              >
+                Confirmar exportacion
+              </SoftActionButton>
+            </div>
+          </div>
+        ),
+      });
+    };
+
+    // eslint-disable-next-line prefer-const
+    let exportModalId;
+    exportModalId = ModalManager.custom({
+      title: "Exportar informe",
+      size: "sm",
+      showFooter: false,
+      content: (
+        <div className="space-y-3">
+          <p className="text-sm text-[var(--text-secondary)]">
+            Selecciona el alcance de la exportacion.
+          </p>
+          <div className="grid gap-3">
+            <button
+              type="button"
+              disabled={!hasResults}
+              onClick={doExportCurrentPage}
+              className="flex flex-col gap-1 rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] px-5 py-4 text-left transition hover:border-[var(--accent-strong)] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <span className="text-sm font-semibold text-[var(--text-primary)]">
+                Exportar vista actual
+              </span>
+              <span className="text-[0.78rem] text-[var(--text-muted)]">
+                {hasResults
+                  ? `${activeRows.length} registro${activeRows.length === 1 ? "" : "s"} en pantalla`
+                  : "Sin datos cargados"}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={doExportAll}
+              className="flex flex-col gap-1 rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] px-5 py-4 text-left transition hover:border-[var(--accent-strong)]"
+            >
+              <span className="text-sm font-semibold text-[var(--text-primary)]">
+                Exportar todos los registros
+              </span>
+              <span className="text-[0.78rem] text-[var(--text-muted)]">
+                Consulta completa al servidor con los filtros actuales
+              </span>
+            </button>
+          </div>
+          <div className="flex justify-end">
+            <Button variant="ghost" onClick={() => ModalManager.close(exportModalId)}>
+              Cancelar
+            </Button>
+          </div>
+        </div>
+      ),
+    });
   };
 
   const handleConfigureColumns = () => {
@@ -931,7 +1167,7 @@ export function ReportsPage() {
                         </svg>
                       </ReportIconButton>
                       <ReportIconButton
-                        title="Exportar todos los registros a CSV"
+                        title="Exportar informe"
                         disabled={!activeDefinition}
                         onClick={handleExport}
                       >
@@ -1018,11 +1254,7 @@ export function ReportsPage() {
                                               : ""
                                           }`}
                                         >
-                                          {col.format === "badge" ? (
-                                            <StatusChip status={row[col.field] ?? "-"} />
-                                          ) : (
-                                            row[col.field] ?? "-"
-                                          )}
+                                          {renderCellValue(col, row)}
                                         </td>
                                       ))}
                                   </tr>
@@ -1031,14 +1263,14 @@ export function ReportsPage() {
                             </tbody>
                           </table>
                         </div>
-                        {activeTotal > activePagination.page_size && (
-                          <TablePaginator
-                            page={activePagination.page}
-                            pageSize={activePagination.page_size}
-                            total={activeTotal}
-                            onPageChange={(newPage) => runReport(newPage)}
-                          />
-                        )}
+                        <TablePaginator
+                          page={activePagination.page}
+                          pageSize={activePagination.page_size}
+                          total={activeTotal}
+                          allowedPageSizes={allowedPageSizes}
+                          onPageChange={(newPage) => runReport(newPage)}
+                          onPageSizeChange={handlePageSizeChange}
+                        />
                       </div>
                       <p className="mt-2 text-right text-[0.72rem] text-[var(--text-muted)]">
                         {activeTotal} registro{activeTotal === 1 ? "" : "s"} en total

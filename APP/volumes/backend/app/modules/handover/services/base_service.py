@@ -329,7 +329,11 @@ class BaseHandoverService:
             type_definition=self.type_definition,
             action_label="emitir el acta",
         )
-        helpers._validate_handover_items_ready_for_workflow(current_detail, action_label="emitir el acta")
+        helpers._validate_handover_items_ready_for_workflow(
+            current_detail,
+            action_label="emitir el acta",
+            type_definition=self.type_definition,
+        )
         self.pre_emit(current_detail, runtime_token)
         self.validate_assets(
             current_detail,
@@ -434,7 +438,11 @@ class BaseHandoverService:
 
         created_paths: list[Path] = []
         current_detail = helpers.get_handover_document_detail(document_id)
-        helpers._validate_handover_items_ready_for_workflow(current_detail, action_label="confirmar el acta")
+        helpers._validate_handover_items_ready_for_workflow(
+            current_detail,
+            action_label="confirmar el acta",
+            type_definition=self.type_definition,
+        )
         docs_settings = helpers.get_settings_panel("docs")
         ticket_rules = helpers._resolve_handover_ticket_rules(docs_settings)
         helpers._validate_handover_receiver_rules(
