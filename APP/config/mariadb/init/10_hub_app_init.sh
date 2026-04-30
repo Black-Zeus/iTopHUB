@@ -3,11 +3,16 @@ set -eu
 
 APP_INIT_DIR="/docker-entrypoint-initdb.d/app"
 FOUND_SQL=0
+DB_CLIENT="${DB_CLIENT:-mysql}"
+
+if ! command -v "${DB_CLIENT}" >/dev/null 2>&1; then
+  DB_CLIENT="mariadb"
+fi
 
 for sql_file in "${APP_INIT_DIR}"/*.sql; do
   [ -f "${sql_file}" ] || continue
   FOUND_SQL=1
-  mariadb -u root -p"${MARIADB_ROOT_PASSWORD}" "${APP_DB_NAME}" < "${sql_file}"
+  "${DB_CLIENT}" -u root -p"${MARIADB_ROOT_PASSWORD}" "${APP_DB_NAME}" < "${sql_file}"
 done
 
 if [ "${FOUND_SQL}" -eq 0 ]; then

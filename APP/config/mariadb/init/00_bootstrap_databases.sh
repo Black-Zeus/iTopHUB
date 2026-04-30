@@ -1,7 +1,13 @@
 #!/bin/sh
 set -eu
 
-mariadb -u root -p"${MARIADB_ROOT_PASSWORD}" <<SQL
+DB_CLIENT="${DB_CLIENT:-mysql}"
+
+if ! command -v "${DB_CLIENT}" >/dev/null 2>&1; then
+  DB_CLIENT="mariadb"
+fi
+
+"${DB_CLIENT}" -u root -p"${MARIADB_ROOT_PASSWORD}" <<SQL
 CREATE DATABASE IF NOT EXISTS \`${APP_DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE DATABASE IF NOT EXISTS \`${ITOP_DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 

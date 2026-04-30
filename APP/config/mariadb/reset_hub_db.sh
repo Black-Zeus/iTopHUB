@@ -6,9 +6,14 @@ APP_INIT_DIR="${SCRIPT_DIR}/init/app"
 HUB_USERS_TABLE="hub_users"
 BACKUP_DB_NAME="${APP_DB_NAME}__reset_backup"
 BACKUP_CREATED=0
+DB_CLIENT="${DB_CLIENT:-mysql}"
+
+if ! command -v "${DB_CLIENT}" >/dev/null 2>&1; then
+  DB_CLIENT="mariadb"
+fi
 
 run_mariadb() {
-  mariadb -u root -p"${MARIADB_ROOT_PASSWORD}" "$@"
+  "${DB_CLIENT}" -u root -p"${MARIADB_ROOT_PASSWORD}" "$@"
 }
 
 cleanup_backup_db() {
