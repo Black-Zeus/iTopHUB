@@ -40,6 +40,7 @@ APP/data/dev/pdq/*.sqlite3
 Draft/Database/*.db
 Draft/Database/*.sqlite
 Draft/Database/*.sqlite3
+APP/config/itop-installer/*/
 
 # Local certs
 APP/config/nginx/certs/

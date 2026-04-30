@@ -16,20 +16,23 @@ x-common-env: &common-env
 x-common-labels: &common-labels
   stack: ${PROJECT_NAME}
   env: ${ENV_NAME}
-
+ 
 services:
   # Core
-  mariadb:
-    image: mariadb:11.4
-    container_name: ${PROJECT_NAME}-mariadb
+  mysql:
+    image:  mariadb:10.6
+    container_name: ${PROJECT_NAME}-mysql
     labels:
       <<: *common-labels
       service.group: core
       service.lifecycle: active
     environment:
       <<: *common-env
+      MYSQL_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${APP_DB_NAME}
+      MYSQL_USER: ${MARIADB_USER}
+      MYSQL_PASSWORD: ${MARIADB_PASSWORD}
       MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
-      MARIADB_DATABASE: ${APP_DB_NAME}
       MARIADB_USER: ${MARIADB_USER}
       MARIADB_PASSWORD: ${MARIADB_PASSWORD}
       APP_DB_NAME: ${APP_DB_NAME}
@@ -40,13 +43,15 @@ services:
     ports:
       - "${MARIADB_PORT}:3306"
     volumes:
-      - mariadb_data:/var/lib/mysql
+      - mysql_data:/var/lib/mysql
       - ${SETTINGS_ROOT}/mariadb/init:/docker-entrypoint-initdb.d:ro
       # Incluye reset_hub_db.sh y su ruta relativa init/app para reconstruccion manual del Hub DB.
       - ${SETTINGS_ROOT}/mariadb:/opt/mariadb-tools:ro
       - ${LOGS_ROOT}/mariadb:/var/log/mysql
+      - ${SETTINGS_ROOT}/itop-installer/db:/opt/itop_setup/db:ro
+      - ${SETTINGS_ROOT}/itop-installer/scripts:/opt/itop_setup/script:ro
     healthcheck:
-      test: ["CMD", "mariadb-admin", "ping", "-h", "127.0.0.1", "-u${MARIADB_USER}", "-p${MARIADB_PASSWORD}"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u${MARIADB_USER}", "-p${MARIADB_PASSWORD}"]
       interval: 10s
       timeout: 5s
       retries: 20
@@ -94,7 +99,7 @@ services:
       <<: *common-env
       APP_HOST: 0.0.0.0
       APP_PORT: 8000
-      APP_DB_HOST: mariadb
+      APP_DB_HOST: mysql
       APP_DB_PORT: 3306
       APP_DB_NAME: ${APP_DB_NAME}
       APP_DB_USER: ${MARIADB_USER}
@@ -102,7 +107,7 @@ services:
       ITOP_URL: http://itop
       ITOP_VERIFY_SSL: ${ITOP_VERIFY_SSL}
       ITOP_TIMEOUT_SECONDS: ${ITOP_TIMEOUT_SECONDS}
-      ITOP_DB_HOST: mariadb
+      ITOP_DB_HOST: mysql
       ITOP_DB_PORT: 3306
       ITOP_DB_NAME: ${ITOP_DB_NAME}
       ITOP_DB_USER: ${MARIADB_USER}
@@ -149,7 +154,7 @@ services:
       timeout: 5s
       retries: 10
     depends_on:
-      mariadb:
+      mysql:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -227,7 +232,7 @@ services:
       POLL_INTERVAL: ${PDF_WORKER_POLL_INTERVAL:-2.0}
       HUB_NOTIFICATION_TTL_SECONDS: ${HUB_NOTIFICATION_TTL_SECONDS}
       HUB_NOTIFICATION_HISTORY_LIMIT: ${HUB_NOTIFICATION_HISTORY_LIMIT}
-      APP_DB_HOST: mariadb
+      APP_DB_HOST: mysql
       APP_DB_PORT: 3306
       APP_DB_USER: ${MARIADB_USER}
       APP_DB_PASSWORD: ${MARIADB_PASSWORD}
@@ -345,7 +350,7 @@ services:
       service.lifecycle: dev-temporary
     environment:
       <<: *common-env
-      ITOP_DB_HOST: mariadb
+      ITOP_DB_HOST: mysql
       ITOP_DB_PORT: 3306
       ITOP_DB_NAME: ${ITOP_DB_NAME}
       ITOP_DB_USER: ${MARIADB_USER}
@@ -357,13 +362,14 @@ services:
       ITOP_INSTALL_FORCE: ${ITOP_INSTALL_FORCE}
       ITOP_AUTO_INSTALL_IF_EMPTY: ${ITOP_AUTO_INSTALL_IF_EMPTY}
     depends_on:
-      mariadb:
+      mysql:
         condition: service_healthy
     ports:
       - "${ITOP_PORT}:80"
     volumes:
-      - itop_data:/var/www/html
-      - ${SETTINGS_ROOT}/itop-installer:/opt/itop-installer:ro
+      - ${SETTINGS_ROOT}/itop-installer/html:/var/www/html
+      - ${SETTINGS_ROOT}/itop-installer/db:/opt/itop_setup/db:ro
+      - ${SETTINGS_ROOT}/itop-installer/scripts:/opt/itop_setup/script:ro
       - ${LOGS_ROOT}/itop:/var/log/apache2
     networks:
       - internal
@@ -412,9 +418,7 @@ networks:
     name: ${PROJECT_NAME}_internal
 
 volumes:
-  mariadb_data:
-    name: ${PROJECT_NAME}_mariadb_data
+  mysql_data:
+    name: ${PROJECT_NAME}_mysql_data
   frontend_node_modules:
     name: ${PROJECT_NAME}_frontend_node_modules
-  itop_data:
-    name: ${PROJECT_NAME}_itop_data
