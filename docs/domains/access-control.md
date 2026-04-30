@@ -55,6 +55,13 @@ Covers Hub login, authorization, user linking, personal iTop token handling, and
 - The personal iTop token must be persisted encrypted in MariaDB.
 - The personal iTop token used by Hub must be created in iTop with scope `REST/JSON`.
 - The source iTop instance must have REST token authentication enabled in its configuration. If `allowed_login_types` is configured, it must include `rest-token`.
+- The source iTop instance must allow personal token usage for profile `REST Services User`, so normal linked users can authenticate through their own tokens without becoming iTop administrators.
+- When token authentication fails, validate these iTop-side entries before changing Hub code:
+  - `conf/production/config-itop.php`: `allowed_login_types` includes `rest-token`.
+  - `env-production/core/main.php`: `authent-token.personal_tokens_allowed_profiles` includes `REST Services User`.
+  - iTop user profile assignment: the user has profile `REST Services User`.
+  - iTop personal token record: the token belongs to that user and includes scope `REST/JSON`.
+  - iTop `log/error.log`: `No personal token allowed profile` points to profile policy, while `invalid_token` points to an incorrect or revoked token value.
 - The token must never be returned to the browser.
 - The token must only be decrypted in backend memory immediately before an iTop call.
 - The token shown in `Usuarios` must be masked:
