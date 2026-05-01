@@ -1,12 +1,20 @@
 from __future__ import annotations
 
+import base64
 from datetime import datetime
 from html import escape
+from io import BytesIO
+from pathlib import Path
 from typing import Any
 import unicodedata
 
+from PIL import Image, ImageDraw, ImageFont
+
 from modules.handover.handover_types import HANDOVER_DOCUMENT_LEGEND_TOKEN, get_handover_type_definition
 from modules.settings.service import get_settings_panel, read_organization_logo_data_url
+
+
+AGENT_SIGNATURE_STAMP_PATH = Path(__file__).resolve().parents[1] / "signature" / "assets" / "TimbreFirma.png"
 
 
 def _coerce_str(value: Any, default: str = "") -> str:
@@ -197,6 +205,94 @@ def _resolve_document_subtitle(subtitle: str, docs_settings: dict[str, Any]) -> 
 def _resolve_signature_owner_support_text(owner: dict[str, Any]) -> str:
     docs_settings = get_settings_panel("docs")
     return _coerce_str(owner.get("role")) or _resolve_handover_document_legend(docs_settings)
+
+
+def _load_stamp_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    try:
+        return ImageFont.truetype("DejaVuSans.ttf", size)
+    except Exception:
+        return ImageFont.load_default()
+
+
+def _build_agent_signature_stamp_data_url(owner: dict[str, Any]) -> str:
+    owner_name = _coerce_str(owner.get("name"))
+    if not owner_name or not AGENT_SIGNATURE_STAMP_PATH.exists():
+        return ""
+
+    source = Image.open(AGENT_SIGNATURE_STAMP_PATH).convert("RGBA")
+    draw = ImageDraw.Draw(source)
+    width, height = source.size
+    box_left = int(width * 0.18)
+    box_right = int(width * 0.82)
+    box_top = int(height * 0.38)
+    box_bottom = int(height * 0.62)
+    max_width = max(1, box_right - box_left)
+    max_height = max(1, box_bottom - box_top)
+
+    font = _load_stamp_font(max(14, int(width * 0.065)))
+    while True:
+        text_box = draw.textbbox((0, 0), owner_name, font=font)
+        text_width = text_box[2] - text_box[0]
+        text_height = text_box[3] - text_box[1]
+        if (text_width <= max_width and text_height <= max_height) or getattr(font, "size", 14) <= 12:
+            break
+        next_size = max(12, getattr(font, "size", 14) - 2)
+        if next_size == getattr(font, "size", 14):
+            break
+        font = _load_stamp_font(next_size)
+
+    draw.text(
+        (
+            box_left + (max_width - text_width) / 2,
+            box_top + (max_height - text_height) / 2 - text_box[1],
+        ),
+        owner_name,
+        fill=(42, 59, 79, 255),
+        font=font,
+    )
+
+    buffer = BytesIO()
+    source.save(buffer, format="PNG")
+    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+    return f"data:image/png;base64,{encoded}"
+
+
+def _build_owner_signature_box(owner: dict[str, Any], signature_label: str) -> str:
+    stamp_data_url = _build_agent_signature_stamp_data_url(owner)
+    signature_image_html = (
+        f'<div class="signature-image-wrap"><img src="{stamp_data_url}" alt="Firma del agente" class="signature-image" /></div>'
+        if stamp_data_url
+        else ""
+    )
+    signature_line_class = "signature-line signature-line-signed" if stamp_data_url else "signature-line"
+    signature_meta_html = (
+        '<div class="signature-meta">Firma aplicada automáticamente por el agente del Hub</div>'
+        if stamp_data_url
+        else ""
+    )
+    return f"""
+        <div class="signature-box">
+            {signature_image_html}
+            <div class="{signature_line_class}">
+                <div><strong>{_escape(owner.get("name"))}</strong></div>
+                <div class="muted">{_escape(signature_label)}</div>
+                <div class="muted">{_escape(_resolve_signature_owner_support_text(owner))}</div>
+                {signature_meta_html}
+            </div>
+        </div>
+    """
+
+
+def _build_signer_observation_row(detail: dict[str, Any]) -> str:
+    signer_observation = _coerce_str(detail.get("signerObservation"))
+    if not signer_observation:
+        return ""
+    return (
+        "<tr>"
+        "<td class=\"label-cell\">Observación firmante</td>"
+        f"<td>{_escape(signer_observation)}</td>"
+        "</tr>"
+    )
 
 
 def _build_receiver_signature_box(detail: dict[str, Any], receiver: dict[str, Any], signature_label: str) -> str:
@@ -667,6 +763,7 @@ def _build_return_main_html(detail: dict[str, Any], type_definition: Any) -> tup
                         <td class="label-cell">{_escape(type_definition.main_notes_label)}</td>
                         <td>{_escape(detail.get("notes"))}</td>
                     </tr>
+                    {_build_signer_observation_row(detail)}
                 </tbody>
             </table>
         </div>
@@ -698,13 +795,7 @@ def _build_return_main_html(detail: dict[str, Any], type_definition: Any) -> tup
         <div class="section-body">
             <div class="signature-grid">
                 {_build_receiver_signature_box(detail, receiver, type_definition.main_signature_receiver_label)}
-                <div class="signature-box">
-                    <div class="signature-line">
-                        <div><strong>{_escape(owner.get("name"))}</strong></div>
-                        <div class="muted">{_escape(type_definition.main_signature_issuer_label)}</div>
-                        <div class="muted">{_escape(_resolve_signature_owner_support_text(owner))}</div>
-                    </div>
-                </div>
+                {_build_owner_signature_box(owner, type_definition.main_signature_issuer_label)}
             </div>
             {_build_handover_footer_note()}
         </div>
@@ -794,6 +885,7 @@ def _build_reassignment_main_html(detail: dict[str, Any], type_definition: Any) 
                         <td class="label-cell">{_escape(type_definition.main_notes_label)}</td>
                         <td>{_escape(detail.get("notes"))}</td>
                     </tr>
+                    {_build_signer_observation_row(detail)}
                 </tbody>
             </table>
         </div>
@@ -832,13 +924,7 @@ def _build_reassignment_main_html(detail: dict[str, Any], type_definition: Any) 
                     </div>
                 </div>
                 {_build_receiver_signature_box(detail, destination_person, type_definition.main_signature_receiver_label)}
-                <div class="signature-box">
-                    <div class="signature-line">
-                        <div><strong>{_escape(owner.get("name"))}</strong></div>
-                        <div class="muted">{_escape(type_definition.main_signature_issuer_label)}</div>
-                        <div class="muted">{_escape(_resolve_signature_owner_support_text(owner))}</div>
-                    </div>
-                </div>
+                {_build_owner_signature_box(owner, type_definition.main_signature_issuer_label)}
             </div>
             {_build_reassignment_footer_note()}
         </div>
@@ -1144,6 +1230,7 @@ def _build_delivery_main_html(detail: dict[str, Any], type_definition: Any) -> t
                         <td class="label-cell">{_escape(type_definition.main_notes_label)}</td>
                         <td>{_escape(detail.get("notes"))}</td>
                     </tr>
+                    {_build_signer_observation_row(detail)}
                 </tbody>
             </table>
         </div>
@@ -1175,13 +1262,7 @@ def _build_delivery_main_html(detail: dict[str, Any], type_definition: Any) -> t
         <div class="section-body">
             <div class="signature-grid">
                 {_build_receiver_signature_box(detail, receiver, type_definition.main_signature_receiver_label)}
-                <div class="signature-box">
-                    <div class="signature-line">
-                        <div><strong>{_escape(owner.get("name"))}</strong></div>
-                        <div class="muted">{_escape(type_definition.main_signature_issuer_label)}</div>
-                        <div class="muted">{_escape(_resolve_signature_owner_support_text(owner))}</div>
-                    </div>
-                </div>
+                {_build_owner_signature_box(owner, type_definition.main_signature_issuer_label)}
             </div>
             {_build_handover_footer_note()}
         </div>

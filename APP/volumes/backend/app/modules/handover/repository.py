@@ -70,6 +70,7 @@ def fetch_handover_document_rows(
             d.handover_type,
             d.reason,
             d.notes,
+            d.signer_observation,
             d.receiver_person_id,
             d.receiver_code,
             d.receiver_name,
@@ -104,6 +105,7 @@ def fetch_handover_document_rows(
             d.handover_type,
             d.reason,
             d.notes,
+            d.signer_observation,
             d.receiver_person_id,
             d.receiver_code,
             d.receiver_name,
@@ -138,6 +140,7 @@ def fetch_handover_document_row(document_id: int) -> dict[str, Any] | None:
             handover_type,
             reason,
             notes,
+            signer_observation,
             receiver_person_id,
             receiver_code,
             receiver_name,
@@ -176,6 +179,7 @@ def fetch_handover_document_row_by_signature_token(signature_token: str) -> dict
             handover_type,
             reason,
             notes,
+            signer_observation,
             receiver_person_id,
             receiver_code,
             receiver_name,
@@ -226,6 +230,112 @@ def fetch_handover_item_rows(document_id: int) -> list[dict[str, Any]]:
         with connection.cursor() as cursor:
             cursor.execute(query, (document_id,))
             return cursor.fetchall()
+
+
+def fetch_latest_handover_mobile_signature_session(document_id: int) -> dict[str, Any] | None:
+    query = """
+        SELECT
+            id,
+            document_id,
+            signature_token,
+            channel,
+            session_status,
+            requested_at,
+            claimed_at,
+            signed_at,
+            signer_name,
+            signer_role,
+            client_ip,
+            user_agent,
+            device_platform,
+            device_language,
+            device_timezone,
+            screen_width,
+            screen_height,
+            viewport_width,
+            viewport_height,
+            device_pixel_ratio,
+            created_at,
+            updated_at
+        FROM hub_handover_mobile_signature_sessions
+        WHERE document_id = %s
+        ORDER BY COALESCE(signed_at, claimed_at, requested_at) DESC, id DESC
+        LIMIT 1
+    """
+    with get_db_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(query, (document_id,))
+            return cursor.fetchone()
+
+
+def upsert_handover_mobile_signature_session(session_data: dict[str, Any]) -> None:
+    query = """
+        INSERT INTO hub_handover_mobile_signature_sessions (
+            document_id,
+            signature_token,
+            channel,
+            session_status,
+            requested_at,
+            claimed_at,
+            signed_at,
+            signer_name,
+            signer_role,
+            client_ip,
+            user_agent,
+            device_platform,
+            device_language,
+            device_timezone,
+            screen_width,
+            screen_height,
+            viewport_width,
+            viewport_height,
+            device_pixel_ratio
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON DUPLICATE KEY UPDATE
+            session_status = VALUES(session_status),
+            requested_at = COALESCE(VALUES(requested_at), requested_at),
+            claimed_at = COALESCE(VALUES(claimed_at), claimed_at),
+            signed_at = COALESCE(VALUES(signed_at), signed_at),
+            signer_name = COALESCE(VALUES(signer_name), signer_name),
+            signer_role = COALESCE(VALUES(signer_role), signer_role),
+            client_ip = COALESCE(VALUES(client_ip), client_ip),
+            user_agent = COALESCE(VALUES(user_agent), user_agent),
+            device_platform = COALESCE(VALUES(device_platform), device_platform),
+            device_language = COALESCE(VALUES(device_language), device_language),
+            device_timezone = COALESCE(VALUES(device_timezone), device_timezone),
+            screen_width = COALESCE(VALUES(screen_width), screen_width),
+            screen_height = COALESCE(VALUES(screen_height), screen_height),
+            viewport_width = COALESCE(VALUES(viewport_width), viewport_width),
+            viewport_height = COALESCE(VALUES(viewport_height), viewport_height),
+            device_pixel_ratio = COALESCE(VALUES(device_pixel_ratio), device_pixel_ratio)
+    """
+    with get_db_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                query,
+                (
+                    session_data.get("document_id"),
+                    session_data.get("signature_token"),
+                    session_data.get("channel"),
+                    session_data.get("session_status"),
+                    session_data.get("requested_at"),
+                    session_data.get("claimed_at"),
+                    session_data.get("signed_at"),
+                    session_data.get("signer_name"),
+                    session_data.get("signer_role"),
+                    session_data.get("client_ip"),
+                    session_data.get("user_agent"),
+                    session_data.get("device_platform"),
+                    session_data.get("device_language"),
+                    session_data.get("device_timezone"),
+                    session_data.get("screen_width"),
+                    session_data.get("screen_height"),
+                    session_data.get("viewport_width"),
+                    session_data.get("viewport_height"),
+                    session_data.get("device_pixel_ratio"),
+                ),
+            )
 
 
 def fetch_handover_item_checklist_rows(document_id: int) -> list[dict[str, Any]]:
@@ -424,6 +534,7 @@ def save_handover_document(
             handover_type,
             reason,
             notes,
+            signer_observation,
             receiver_person_id,
             receiver_code,
             receiver_name,
@@ -436,7 +547,7 @@ def save_handover_document(
             evidence_attachments,
             signature_workflow
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """
     update_document_query = """
         UPDATE hub_handover_documents
@@ -449,6 +560,7 @@ def save_handover_document(
             handover_type = %s,
             reason = %s,
             notes = %s,
+            signer_observation = %s,
             receiver_person_id = %s,
             receiver_code = %s,
             receiver_name = %s,
@@ -524,6 +636,7 @@ def save_handover_document(
                             document["handover_type"],
                             document["reason"],
                             document["notes"],
+                            document["signer_observation"],
                             document["receiver_person_id"],
                             document["receiver_code"],
                             document["receiver_name"],
@@ -550,6 +663,7 @@ def save_handover_document(
                             document["handover_type"],
                             document["reason"],
                             document["notes"],
+                            document["signer_observation"],
                             document["receiver_person_id"],
                             document["receiver_code"],
                             document["receiver_name"],

@@ -2,7 +2,7 @@ import mimetypes
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Cookie, HTTPException
+from fastapi import APIRouter, Cookie, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 
 from api.deps import ensure_any_module_access, ensure_session, model_to_dict, raise_auth_error
@@ -194,12 +194,13 @@ def handover_document_attach_evidence(
 @router.post("/documents/{document_id}/signature-session")
 def handover_document_signature_session_create(
     document_id: int,
+    force_new: bool = Query(default=False),
     hub_session_id: str | None = Cookie(default=None),
 ) -> dict[str, Any]:
     session_id = ensure_session(hub_session_id)
     try:
         session_user = _ensure_handover_family_access(session_id, write=True)
-        return {"item": create_handover_signature_session(document_id, session_user)}
+        return {"item": create_handover_signature_session(document_id, session_user, force_new=force_new)}
     except AuthenticationError as exc:
         raise_auth_error(exc)
     except HTTPException:
@@ -245,9 +246,20 @@ def handover_document_publish_signed(
 
 
 @router.get("/signature-sessions/{signature_token}")
-def handover_public_signature_session_detail(signature_token: str) -> dict[str, Any]:
+def handover_public_signature_session_detail(
+    signature_token: str,
+    request: Request,
+    claim_token: str = Query(default=""),
+) -> dict[str, Any]:
     try:
-        return {"item": get_public_handover_signature_session(signature_token)}
+        return {
+            "item": get_public_handover_signature_session(
+                signature_token,
+                claim_token=claim_token,
+                client_ip=request.client.host if request.client else "",
+                user_agent=request.headers.get("user-agent", ""),
+            )
+        }
     except HTTPException:
         raise
     except Exception as exc:
@@ -258,6 +270,7 @@ def handover_public_signature_session_detail(signature_token: str) -> dict[str, 
 def handover_public_signature_session_submit(
     signature_token: str,
     payload: HandoverSignatureSubmitRequest,
+    request: Request,
 ) -> dict[str, Any]:
     try:
         return {
@@ -266,6 +279,11 @@ def handover_public_signature_session_submit(
                 signature_data_url=payload.signatureDataUrl,
                 signer_name=payload.signerName,
                 signer_role=payload.signerRole,
+                observation=payload.observation,
+                claim_token=payload.claimToken,
+                client_ip=request.client.host if request.client else "",
+                user_agent=request.headers.get("user-agent", ""),
+                device_context=payload.deviceContext,
             )
         }
     except HTTPException:
@@ -278,9 +296,14 @@ def handover_public_signature_session_submit(
 def handover_public_signature_session_document_download(
     signature_token: str,
     document_kind: str,
+    claim_token: str = Query(default=""),
 ) -> FileResponse:
     try:
-        file_path, safe_name = get_public_handover_signature_document(signature_token, document_kind)
+        file_path, safe_name = get_public_handover_signature_document(
+            signature_token,
+            document_kind,
+            claim_token=claim_token,
+        )
     except HTTPException:
         raise
     except Exception as exc:

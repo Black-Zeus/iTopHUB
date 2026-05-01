@@ -56,6 +56,7 @@ from modules.handover.repository import (
     fetch_handover_document_row,
     fetch_handover_document_row_by_signature_token,
     fetch_handover_document_rows,
+    fetch_latest_handover_mobile_signature_session,
     fetch_handover_item_evidence_rows,
     fetch_handover_item_checklist_rows,
     fetch_handover_item_rows,
@@ -64,6 +65,7 @@ from modules.handover.repository import (
     get_next_handover_sequence,
     replace_handover_item_evidences,
     save_handover_document,
+    upsert_handover_mobile_signature_session,
 )
 from modules.handover.shared import (
     DEFAULT_EVIDENCE_ALLOWED_EXTENSIONS,
@@ -80,6 +82,7 @@ from modules.settings.service import (
     get_requirement_initial_status,
     get_settings_panel,
     is_requirement_ticket_enabled,
+    read_organization_logo_data_url,
 )
 from modules.handover.storage_paths import (
     HANDOVER_DOCUMENT_ROOT,
@@ -94,7 +97,6 @@ from modules.handover.storage_paths import (
 
 logger = logging.getLogger(__name__)
 
-SIGNATURE_SESSION_TTL_MINUTES = 20
 SIGNATURE_PUBLIC_ROUTE = "firma/h"
 
 
@@ -120,7 +122,7 @@ def _get_signature_workflow_status(workflow: dict[str, Any]) -> str:
     if not isinstance(workflow, dict):
         return ""
     status = _coerce_str(workflow.get("status"))
-    if status != "pending":
+    if status not in {"pending", "claimed"}:
         return status
 
     expires_at = _coerce_str(workflow.get("expiresAt"))
@@ -139,9 +141,76 @@ def _build_signature_requested_by(session_user: dict[str, Any]) -> dict[str, Any
     }
 
 
+def _build_signature_owner(session_user: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "userId": int(session_user.get("id") or 0) or None,
+        "name": _coerce_str(session_user.get("name") or session_user.get("username")),
+    }
+
+
+def _append_signature_observation(existing_notes: Any, observation: Any) -> str:
+    base_notes = _coerce_str(existing_notes)
+    normalized_observation = _coerce_str(observation)
+    if not normalized_observation:
+        return base_notes
+
+    observation_line = f"Observación del receptor al firmar: {normalized_observation}"
+    if observation_line in base_notes:
+        return base_notes
+    if not base_notes:
+        return observation_line
+    return f"{base_notes}\n\n{observation_line}"
+
+
+def _get_qr_settings() -> dict[str, Any]:
+    return get_settings_panel("qr")
+
+
+def _ensure_qr_signature_enabled() -> dict[str, Any]:
+    qr_settings = _get_qr_settings()
+    if not bool(qr_settings.get("enabled", True)):
+        raise HTTPException(status_code=422, detail="La firma QR no está habilitada en la configuración del Hub.")
+    return qr_settings
+
+
+def _get_qr_signature_ttl_minutes() -> int:
+    qr_settings = _get_qr_settings()
+    return max(1, int(qr_settings.get("sessionTtlMinutes") or 20))
+
+
+def _is_qr_single_device_lock_enabled() -> bool:
+    qr_settings = _get_qr_settings()
+    return bool(qr_settings.get("singleDeviceLock", True))
+
+
+def _build_handover_public_signature_url(token: str) -> str:
+    safe_token = Path(_coerce_str(token)).name
+    if not safe_token:
+        return ""
+
+    qr_settings = _get_qr_settings()
+    base_url = _coerce_str(qr_settings.get("hubPublicBaseUrl")).rstrip("/")
+    route_path = _coerce_str(qr_settings.get("sessionRoutePath"), SIGNATURE_PUBLIC_ROUTE).strip("/") or SIGNATURE_PUBLIC_ROUTE
+    if not base_url:
+        return ""
+    return f"{base_url}/{route_path}/{safe_token}"
+
+
 def _build_handover_public_signature_path(token: str) -> str:
     safe_token = Path(_coerce_str(token)).name
-    return f"/{SIGNATURE_PUBLIC_ROUTE}/{safe_token}" if safe_token else ""
+    route_path = _coerce_str(_get_qr_settings().get("sessionRoutePath"), SIGNATURE_PUBLIC_ROUTE).strip("/") or SIGNATURE_PUBLIC_ROUTE
+    return f"/{route_path}/{safe_token}" if safe_token else ""
+
+
+def _build_public_signature_branding() -> dict[str, Any]:
+    organization_settings = get_settings_panel("organization")
+    logo_path = _coerce_str(organization_settings.get("organizationLogoPath"))
+    return {
+        "organizationName": _coerce_str(organization_settings.get("organizationName"), "iTop Hub"),
+        "organizationAcronym": _coerce_str(organization_settings.get("organizationAcronym"), "ITH"),
+        "organizationLogoUrl": _coerce_str(organization_settings.get("organizationLogoUrl")),
+        "organizationLogoDataUrl": read_organization_logo_data_url(logo_path),
+    }
 
 
 def _normalize_ticket_id(value: Any) -> str:
@@ -862,6 +931,7 @@ def enrich_handover_detail_for_pdf(
 
 def get_handover_bootstrap(session_user: dict[str, Any], runtime_token: str) -> dict[str, Any]:
     docs_settings = get_settings_panel("docs")
+    qr_settings = get_settings_panel("qr")
     default_type = get_handover_type_definition("initial_assignment")
     allowed_evidence_extensions = sorted(_get_allowed_evidence_extensions())
     ticket_rules = _resolve_handover_ticket_rules(docs_settings)
@@ -885,8 +955,10 @@ def get_handover_bootstrap(session_user: dict[str, Any], runtime_token: str) -> 
         },
         "actions": {
             "allowEvidenceUpload": bool(docs_settings.get("allowEvidenceUpload", True)),
+            "allowQrSignature": bool(qr_settings.get("enabled", True)),
             "evidenceAllowedExtensions": allowed_evidence_extensions,
             "requirementTicketEnabled": ticket_rules["enabled"],
+            "qrSessionTtlMinutes": max(1, int(qr_settings.get("sessionTtlMinutes") or 20)),
         },
         "statusOptions": [
             {"value": value, "label": label}
@@ -1062,6 +1134,9 @@ def get_handover_document_detail(document_id: int) -> dict[str, Any]:
     generated_documents = _deserialize_generated_documents(document_row.get("generated_documents"))
     evidence_attachments = _deserialize_evidence_attachments(document_row.get("evidence_attachments"))
     signature_workflow = _deserialize_signature_workflow(document_row.get("signature_workflow"))
+    mobile_signature_session = _serialize_mobile_signature_session(
+        fetch_latest_handover_mobile_signature_session(document_id)
+    )
 
     return {
         "id": int(document_row["id"]),
@@ -1073,12 +1148,14 @@ def get_handover_document_detail(document_id: int) -> dict[str, Any]:
         "generatedDocuments": generated_documents,
         "evidenceAttachments": evidence_attachments,
         "signatureWorkflow": signature_workflow,
+        "mobileSignatureSession": mobile_signature_session,
         "itopTicket": _extract_document_itop_ticket(evidence_attachments, signature_workflow),
         "status": STATUS_DB_TO_UI.get(document_row["status"], document_row["status"]),
         "handoverType": type_definition.label,
         "handoverTypeCode": type_definition.code,
         "reason": document_row["reason"],
         "notes": document_row.get("notes") or "",
+        "signerObservation": document_row.get("signer_observation") or "",
         "owner": {
             "userId": int(document_row["owner_user_id"]),
             "name": document_row["owner_name"],
@@ -2423,11 +2500,78 @@ def _validate_signature_data_url(value: Any) -> dict[str, str]:
     }
 
 
+def _normalize_mobile_signature_device_context(
+    device_context: dict[str, Any] | None = None,
+    *,
+    client_ip: str = "",
+    user_agent: str = "",
+) -> dict[str, Any]:
+    payload = device_context if isinstance(device_context, dict) else {}
+
+    def _to_int(value: Any) -> int | None:
+        try:
+            number = int(value)
+        except (TypeError, ValueError):
+            return None
+        return number if number >= 0 else None
+
+    def _to_ratio(value: Any) -> float | None:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        return round(number, 2) if number >= 0 else None
+
+    return {
+        "client_ip": _coerce_str(client_ip),
+        "user_agent": _coerce_str(user_agent),
+        "device_platform": _coerce_str(payload.get("platform")),
+        "device_language": _coerce_str(payload.get("language")),
+        "device_timezone": _coerce_str(payload.get("timezone")),
+        "screen_width": _to_int(payload.get("screenWidth")),
+        "screen_height": _to_int(payload.get("screenHeight")),
+        "viewport_width": _to_int(payload.get("viewportWidth")),
+        "viewport_height": _to_int(payload.get("viewportHeight")),
+        "device_pixel_ratio": _to_ratio(payload.get("devicePixelRatio")),
+    }
+
+
+def _serialize_mobile_signature_session(session_row: dict[str, Any] | None) -> dict[str, Any]:
+    if not session_row:
+        return {}
+    return {
+        "channel": _coerce_str(session_row.get("channel"), "qr"),
+        "status": _coerce_str(session_row.get("session_status")),
+        "token": _coerce_str(session_row.get("signature_token")),
+        "requestedAt": _serialize_datetime(session_row.get("requested_at")),
+        "claimedAt": _serialize_datetime(session_row.get("claimed_at")),
+        "signedAt": _serialize_datetime(session_row.get("signed_at")),
+        "signerName": _coerce_str(session_row.get("signer_name")),
+        "signerRole": _coerce_str(session_row.get("signer_role")),
+        "clientIp": _coerce_str(session_row.get("client_ip")),
+        "userAgent": _coerce_str(session_row.get("user_agent")),
+        "devicePlatform": _coerce_str(session_row.get("device_platform")),
+        "deviceLanguage": _coerce_str(session_row.get("device_language")),
+        "deviceTimezone": _coerce_str(session_row.get("device_timezone")),
+        "screenWidth": int(session_row.get("screen_width") or 0) or None,
+        "screenHeight": int(session_row.get("screen_height") or 0) or None,
+        "viewportWidth": int(session_row.get("viewport_width") or 0) or None,
+        "viewportHeight": int(session_row.get("viewport_height") or 0) or None,
+        "devicePixelRatio": float(session_row.get("device_pixel_ratio") or 0) or None,
+    }
+
+
 def _build_signature_session_response(
     detail: dict[str, Any],
     signature_workflow: dict[str, Any],
+    *,
+    owner_claim_token: str = "",
+    occupied: bool = False,
 ) -> dict[str, Any]:
     token = _coerce_str(signature_workflow.get("token"))
+    qr_settings = _get_qr_settings()
+    allow_detail_document_preview = bool(qr_settings.get("allowDetailDocumentPreview", True))
+    claim_token = _coerce_str(signature_workflow.get("claimToken"))
     documents = [
         {
             "kind": _coerce_str(item.get("kind")),
@@ -2437,9 +2581,17 @@ def _build_signature_session_response(
             "downloadPath": f"/v1/handover/signature-sessions/{token}/documents/{_coerce_str(item.get('kind'))}" if token else "",
         }
         for item in detail.get("generatedDocuments") or []
-        if _coerce_str(item.get("kind")) in GENERATED_DOCUMENT_KINDS and _coerce_str(item.get("storedName"))
+        if _coerce_str(item.get("kind")) in GENERATED_DOCUMENT_KINDS
+        and _coerce_str(item.get("storedName"))
+        and (allow_detail_document_preview or _coerce_str(item.get("kind")) != "detail")
     ]
     status = _get_signature_workflow_status(signature_workflow)
+    public_url = _coerce_str(signature_workflow.get("publicUrl")) or _build_handover_public_signature_url(token)
+    if occupied and status == "claimed":
+        status = "occupied"
+    mobile_signature_session = _serialize_mobile_signature_session(
+        fetch_latest_handover_mobile_signature_session(int(detail.get("id") or 0))
+    )
     return {
         "documentId": int(detail.get("id") or 0),
         "documentNumber": _coerce_str(detail.get("documentNumber")),
@@ -2449,8 +2601,10 @@ def _build_signature_session_response(
         "documentStatus": _coerce_str(detail.get("status")),
         "token": token,
         "publicPath": _build_handover_public_signature_path(token),
+        "publicUrl": public_url,
         "requestedAt": _coerce_str(signature_workflow.get("requestedAt")),
         "expiresAt": _coerce_str(signature_workflow.get("expiresAt")),
+        "claimedAt": _coerce_str(signature_workflow.get("claimedAt")),
         "completedAt": _coerce_str(signature_workflow.get("completedAt")),
         "receiver": detail.get("receiver") or {},
         "owner": detail.get("owner") or {},
@@ -2459,6 +2613,13 @@ def _build_signature_session_response(
         "assignmentDate": _coerce_str(detail.get("assignmentDate")),
         "documents": documents,
         "signatureWorkflow": signature_workflow,
+        "claimToken": owner_claim_token if owner_claim_token and claim_token and owner_claim_token == claim_token else "",
+        "brand": _build_public_signature_branding(),
+        "mobileSignatureSession": mobile_signature_session,
+        "messages": {
+            "success": _coerce_str(qr_settings.get("successMessage")),
+            "completionHint": _coerce_str(qr_settings.get("completionHint")),
+        },
     }
 
 
@@ -2490,6 +2651,119 @@ def _get_public_signature_detail(signature_token: str) -> tuple[dict[str, Any], 
     if _coerce_str(signature_workflow.get("token")) != token:
         raise HTTPException(status_code=404, detail="La sesión de firma no está disponible.")
     return detail, signature_workflow
+
+
+def _save_detail_signature_workflow(
+    detail: dict[str, Any],
+    existing_document: dict[str, Any],
+    signature_workflow: dict[str, Any],
+    *,
+    status_ui: str | None = None,
+    generated_documents: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    document_payload = _build_document_payload_from_detail(
+        detail,
+        existing_document,
+        status_ui=status_ui or _coerce_str(detail.get("status"), "Emitida"),
+        assignment_date=detail.get("assignmentDate") or "",
+        evidence_date=detail.get("evidenceDate") or "",
+        generated_documents=generated_documents if generated_documents is not None else (detail.get("generatedDocuments") or []),
+        evidence_attachments=detail.get("evidenceAttachments") or [],
+        signature_workflow=signature_workflow,
+    )
+    item_payloads = _build_item_payloads_from_detail(detail.get("items") or [])
+    save_handover_document(int(detail["id"]), document_payload, item_payloads)
+    refreshed_detail = get_handover_document_detail(int(detail["id"]))
+    return refreshed_detail
+
+
+def _persist_mobile_signature_session(
+    detail: dict[str, Any],
+    signature_workflow: dict[str, Any],
+    *,
+    session_status: str,
+    client_ip: str = "",
+    user_agent: str = "",
+    device_context: dict[str, Any] | None = None,
+) -> None:
+    device_data = _normalize_mobile_signature_device_context(
+        device_context,
+        client_ip=client_ip,
+        user_agent=user_agent,
+    )
+    signed_by = signature_workflow.get("signedBy") if isinstance(signature_workflow.get("signedBy"), dict) else {}
+    upsert_handover_mobile_signature_session(
+        {
+            "document_id": int(detail.get("id") or 0),
+            "signature_token": _coerce_str(signature_workflow.get("token")),
+            "channel": _coerce_str(signature_workflow.get("channel"), "qr"),
+            "session_status": session_status,
+            "requested_at": _normalize_optional_datetime(signature_workflow.get("requestedAt")),
+            "claimed_at": _normalize_optional_datetime(signature_workflow.get("claimedAt")),
+            "signed_at": _normalize_optional_datetime(signature_workflow.get("completedAt")),
+            "signer_name": _coerce_str(signed_by.get("name")),
+            "signer_role": _coerce_str(signed_by.get("role")),
+            **device_data,
+        }
+    )
+
+
+def _claim_public_signature_session(
+    detail: dict[str, Any],
+    signature_workflow: dict[str, Any],
+    *,
+    claim_token: str = "",
+    client_ip: str = "",
+    user_agent: str = "",
+) -> tuple[dict[str, Any], str, bool]:
+    workflow_status = _get_signature_workflow_status(signature_workflow)
+    if workflow_status not in {"pending", "claimed"} or not _is_qr_single_device_lock_enabled():
+        return signature_workflow, "", False
+
+    existing_claim_token = _coerce_str(signature_workflow.get("claimToken"))
+    normalized_claim_token = _coerce_str(claim_token)
+    if workflow_status == "claimed":
+        if existing_claim_token and normalized_claim_token == existing_claim_token:
+            return signature_workflow, existing_claim_token, False
+        return signature_workflow, "", True
+
+    if existing_claim_token and normalized_claim_token == existing_claim_token:
+        return signature_workflow, existing_claim_token, False
+
+    if not normalized_claim_token:
+        normalized_claim_token = uuid4().hex
+
+    claimed_at = _serialize_signature_timestamp()
+    updated_workflow = {
+        **signature_workflow,
+        "status": "claimed",
+        "claimedAt": claimed_at,
+        "claimToken": normalized_claim_token,
+        "deviceLock": {
+            "singleDevice": True,
+            "claimed": True,
+        },
+    }
+
+    existing_document = fetch_handover_document_row(int(detail["id"]))
+    if not existing_document:
+        raise HTTPException(status_code=404, detail="Acta no encontrada.")
+
+    refreshed_detail = _save_detail_signature_workflow(
+        detail,
+        existing_document,
+        updated_workflow,
+        status_ui="Emitida",
+    )
+    refreshed_workflow = refreshed_detail.get("signatureWorkflow") or updated_workflow
+    _persist_mobile_signature_session(
+        refreshed_detail,
+        refreshed_workflow,
+        session_status="claimed",
+        client_ip=client_ip,
+        user_agent=user_agent,
+    )
+    return refreshed_workflow, normalized_claim_token, False
 
 
 def _normalize_items(
@@ -2734,7 +3008,19 @@ def _resolve_handover_service(handover_type: Any):
     return resolve_handover_service(handover_type)
 
 
-def create_handover_signature_session(document_id: int, session_user: dict[str, Any]) -> dict[str, Any]:
+def create_handover_signature_session(
+    document_id: int,
+    session_user: dict[str, Any],
+    *,
+    force_new: bool = False,
+) -> dict[str, Any]:
+    qr_settings = _ensure_qr_signature_enabled()
+    if not _coerce_str(qr_settings.get("hubPublicBaseUrl")):
+        raise HTTPException(
+            status_code=422,
+            detail="Debes configurar la URL pública del Hub en Configuración > Firma QR antes de generar un código QR.",
+        )
+
     current_detail = get_handover_document_detail(document_id)
     if _coerce_str(current_detail.get("status")) != "Emitida":
         raise HTTPException(status_code=422, detail="Solo puedes abrir un QR de firma sobre actas en estado Emitida.")
@@ -2750,18 +3036,53 @@ def create_handover_signature_session(document_id: int, session_user: dict[str, 
     now = datetime.now()
     existing_workflow = current_detail.get("signatureWorkflow") or {}
     workflow_status = _get_signature_workflow_status(existing_workflow)
-    if workflow_status == "pending" and _coerce_str(existing_workflow.get("token")):
+    owner_override = _build_signature_owner(session_user)
+    detail_with_owner = {
+        **current_detail,
+        "owner": owner_override,
+    }
+    if workflow_status in {"pending", "claimed"} and _coerce_str(existing_workflow.get("token")) and not force_new:
+        if current_detail.get("owner") != owner_override:
+            refreshed_detail = _save_detail_signature_workflow(
+                detail_with_owner,
+                existing_document,
+                existing_workflow,
+                status_ui="Emitida",
+            )
+            return _build_signature_session_response(refreshed_detail, refreshed_detail.get("signatureWorkflow") or existing_workflow)
         return _build_signature_session_response(current_detail, existing_workflow)
 
+    existing_token = _coerce_str(existing_workflow.get("token"))
+    if existing_token and workflow_status in {"pending", "claimed", "expired"} and force_new:
+        cancelled_workflow = {
+            **existing_workflow,
+            "status": "cancelled",
+            "cancelledAt": _serialize_signature_timestamp(now),
+            "errorCode": "",
+            "errorMessage": "",
+        }
+        _persist_mobile_signature_session(
+            {
+                **detail_with_owner,
+                "signatureWorkflow": cancelled_workflow,
+            },
+            cancelled_workflow,
+            session_status="cancelled",
+        )
+
     token = uuid4().hex
+    expires_at = now + timedelta(minutes=_get_qr_signature_ttl_minutes())
     signature_workflow = {
         "channel": "qr",
         "status": "pending",
         "token": token,
+        "publicUrl": _build_handover_public_signature_url(token),
         "requestedAt": _serialize_signature_timestamp(now),
-        "expiresAt": _serialize_signature_timestamp(now + timedelta(minutes=SIGNATURE_SESSION_TTL_MINUTES)),
+        "expiresAt": _serialize_signature_timestamp(expires_at),
+        "claimedAt": "",
         "completedAt": "",
         "cancelledAt": "",
+        "claimToken": "",
         "requestedBy": _build_signature_requested_by(session_user),
         "signedBy": {},
         "signature": {},
@@ -2769,22 +3090,25 @@ def create_handover_signature_session(document_id: int, session_user: dict[str, 
         "errorMessage": "",
         "publishedTicket": {},
         "publishedAttachments": {},
+        "deviceLock": {
+            "singleDevice": bool(qr_settings.get("singleDeviceLock", True)),
+            "claimed": False,
+        },
     }
 
-    document_payload = _build_document_payload_from_detail(
-        current_detail,
+    refreshed_detail = _save_detail_signature_workflow(
+        detail_with_owner,
         existing_document,
+        signature_workflow,
         status_ui="Emitida",
-        assignment_date=current_detail.get("assignmentDate") or "",
-        evidence_date=current_detail.get("evidenceDate") or "",
-        generated_documents=current_detail.get("generatedDocuments") or [],
-        evidence_attachments=current_detail.get("evidenceAttachments") or [],
-        signature_workflow=signature_workflow,
     )
-    item_payloads = _build_item_payloads_from_detail(current_detail.get("items") or [])
-    save_handover_document(document_id, document_payload, item_payloads)
-    refreshed_detail = get_handover_document_detail(document_id)
-    return _build_signature_session_response(refreshed_detail, refreshed_detail.get("signatureWorkflow") or {})
+    refreshed_workflow = refreshed_detail.get("signatureWorkflow") or signature_workflow
+    _persist_mobile_signature_session(
+        refreshed_detail,
+        refreshed_workflow,
+        session_status="pending",
+    )
+    return _build_signature_session_response(refreshed_detail, refreshed_workflow)
 
 
 def get_handover_signature_session(document_id: int) -> dict[str, Any]:
@@ -2792,9 +3116,29 @@ def get_handover_signature_session(document_id: int) -> dict[str, Any]:
     return _build_signature_session_response(current_detail, current_detail.get("signatureWorkflow") or {})
 
 
-def get_public_handover_signature_session(signature_token: str) -> dict[str, Any]:
+def get_public_handover_signature_session(
+    signature_token: str,
+    *,
+    claim_token: str = "",
+    client_ip: str = "",
+    user_agent: str = "",
+) -> dict[str, Any]:
     detail, signature_workflow = _get_public_signature_detail(signature_token)
-    return _build_signature_session_response(detail, signature_workflow)
+    resolved_workflow, owner_claim_token, occupied = _claim_public_signature_session(
+        detail,
+        signature_workflow,
+        claim_token=claim_token,
+        client_ip=client_ip,
+        user_agent=user_agent,
+    )
+    if resolved_workflow is not signature_workflow:
+        detail = get_handover_document_detail(int(detail["id"]))
+    return _build_signature_session_response(
+        detail,
+        detail.get("signatureWorkflow") or resolved_workflow,
+        owner_claim_token=owner_claim_token,
+        occupied=occupied,
+    )
 
 
 def submit_public_handover_signature(
@@ -2803,15 +3147,23 @@ def submit_public_handover_signature(
     signature_data_url: str,
     signer_name: str = "",
     signer_role: str = "",
+    observation: str = "",
+    claim_token: str = "",
+    client_ip: str = "",
+    user_agent: str = "",
+    device_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     detail, signature_workflow = _get_public_signature_detail(signature_token)
     current_status = _coerce_str(detail.get("status"))
     workflow_status = _get_signature_workflow_status(signature_workflow)
+    normalized_claim_token = _coerce_str(claim_token)
 
     if current_status == "Firmada" and workflow_status in {"signed", "published"}:
-        return _build_signature_session_response(detail, signature_workflow)
-    if current_status != "Emitida" or workflow_status != "pending":
+        return _build_signature_session_response(detail, signature_workflow, owner_claim_token=normalized_claim_token)
+    if current_status != "Emitida" or workflow_status not in {"pending", "claimed"}:
         raise HTTPException(status_code=410, detail="La sesión de firma ya no está disponible para este documento.")
+    if _is_qr_single_device_lock_enabled() and _coerce_str(signature_workflow.get("claimToken")) != normalized_claim_token:
+        raise HTTPException(status_code=409, detail="Este código QR ya está siendo utilizado desde otro dispositivo.")
 
     existing_document = fetch_handover_document_row(int(detail["id"]))
     if not existing_document:
@@ -2831,12 +3183,18 @@ def submit_public_handover_signature(
             "name": _coerce_str(signer_name) or _coerce_str(receiver.get("name")),
             "role": _coerce_str(signer_role) or _coerce_str(receiver.get("role")),
         },
+        "signerObservation": _coerce_str(observation),
         "signature": validated_signature,
+        "deviceLock": {
+            "singleDevice": bool(signature_workflow.get("deviceLock", {}).get("singleDevice", _is_qr_single_device_lock_enabled())),
+            "claimed": True,
+        },
     }
 
     detail_for_pdf = {
         **detail,
         "status": "Firmada",
+        "signerObservation": _coerce_str(observation),
         "signatureWorkflow": updated_workflow,
     }
     main_stored_name = f"{_coerce_str(detail.get('documentNumber'))}.pdf"
@@ -2874,20 +3232,27 @@ def submit_public_handover_signature(
         else:
             generated_documents.append(item)
 
-    document_payload = _build_document_payload_from_detail(
+    refreshed_detail = _save_detail_signature_workflow(
         detail_for_pdf,
         existing_document,
+        updated_workflow,
         status_ui="Firmada",
-        assignment_date=detail.get("assignmentDate") or "",
-        evidence_date=detail.get("evidenceDate") or "",
         generated_documents=generated_documents,
-        evidence_attachments=detail.get("evidenceAttachments") or [],
-        signature_workflow=updated_workflow,
     )
-    item_payloads = _build_item_payloads_from_detail(detail.get("items") or [])
-    save_handover_document(int(detail["id"]), document_payload, item_payloads)
-    refreshed_detail = get_handover_document_detail(int(detail["id"]))
-    return _build_signature_session_response(refreshed_detail, refreshed_detail.get("signatureWorkflow") or {})
+    refreshed_workflow = refreshed_detail.get("signatureWorkflow") or updated_workflow
+    _persist_mobile_signature_session(
+        refreshed_detail,
+        refreshed_workflow,
+        session_status="signed",
+        client_ip=client_ip,
+        user_agent=user_agent,
+        device_context=device_context,
+    )
+    return _build_signature_session_response(
+        refreshed_detail,
+        refreshed_workflow,
+        owner_claim_token=normalized_claim_token,
+    )
 
 
 def publish_signed_handover_document(
@@ -2963,27 +3328,37 @@ def publish_signed_handover_document(
             "itopAssignment": assignment_updates,
         },
     }
-    document_payload = _build_document_payload_from_detail(
-        current_detail,
+    refreshed_detail = _save_detail_signature_workflow(
+        {
+            **current_detail,
+            "status": "Confirmada",
+        },
         existing_document,
+        published_workflow,
         status_ui="Confirmada",
-        assignment_date=current_detail.get("assignmentDate") or _serialize_signature_timestamp(),
-        evidence_date=_serialize_signature_timestamp(),
         generated_documents=current_detail.get("generatedDocuments") or [],
-        evidence_attachments=current_detail.get("evidenceAttachments") or [],
-        signature_workflow=published_workflow,
     )
-    item_payloads = _build_item_payloads_from_detail(current_detail.get("items") or [])
-    save_handover_document(document_id, document_payload, item_payloads)
-    refreshed_detail = get_handover_document_detail(document_id)
+    _persist_mobile_signature_session(
+        refreshed_detail,
+        refreshed_detail.get("signatureWorkflow") or published_workflow,
+        session_status="published",
+    )
     return refreshed_detail
 
 
 def get_public_handover_signature_document(
     signature_token: str,
     document_kind: str,
+    *,
+    claim_token: str = "",
 ) -> tuple[Path, str]:
-    detail, _ = _get_public_signature_detail(signature_token)
+    detail, signature_workflow = _get_public_signature_detail(signature_token)
+    workflow_status = _get_signature_workflow_status(signature_workflow)
+    if workflow_status == "claimed" and _is_qr_single_device_lock_enabled():
+        if _coerce_str(signature_workflow.get("claimToken")) != _coerce_str(claim_token):
+            raise HTTPException(status_code=409, detail="Este código QR ya está siendo utilizado desde otro dispositivo.")
+    if Path(_coerce_str(document_kind)).name.lower() == "detail" and not bool(_get_qr_settings().get("allowDetailDocumentPreview", True)):
+        raise HTTPException(status_code=404, detail="El documento solicitado no está disponible en la firma móvil.")
     document = _resolve_signature_document_by_kind(detail, document_kind)
     if document is None:
         raise HTTPException(status_code=404, detail="Documento no disponible para esta sesión de firma.")

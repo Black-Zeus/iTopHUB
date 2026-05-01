@@ -36,6 +36,9 @@ class HandoverSignatureSubmitRequest(BaseModel):
     signatureDataUrl: str = ""
     signerName: str = ""
     signerRole: str = ""
+    observation: str = ""
+    claimToken: str = ""
+    deviceContext: dict[str, Any] = Field(default_factory=dict)
 
 
 class HandoverSignedPublicationRequest(BaseModel):

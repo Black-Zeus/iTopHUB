@@ -256,10 +256,13 @@ def deserialize_signature_workflow(raw_value: Any) -> dict[str, Any]:
         "channel": coerce_str(payload.get("channel")),
         "status": coerce_str(payload.get("status")),
         "token": coerce_str(payload.get("token")),
+        "publicUrl": coerce_str(payload.get("publicUrl")),
         "requestedAt": coerce_str(payload.get("requestedAt")),
         "expiresAt": coerce_str(payload.get("expiresAt")),
+        "claimedAt": coerce_str(payload.get("claimedAt")),
         "completedAt": coerce_str(payload.get("completedAt")),
         "cancelledAt": coerce_str(payload.get("cancelledAt")),
+        "claimToken": coerce_str(payload.get("claimToken")),
         "requestedBy": {
             "userId": requested_by.get("userId"),
             "name": coerce_str(requested_by.get("name")),
@@ -277,6 +280,7 @@ def deserialize_signature_workflow(raw_value: Any) -> dict[str, Any]:
         "errorMessage": coerce_str(payload.get("errorMessage")),
         "publishedTicket": published_ticket,
         "publishedAttachments": published_attachments,
+        "deviceLock": payload.get("deviceLock") if isinstance(payload.get("deviceLock"), dict) else {},
     }
 
 
@@ -295,10 +299,13 @@ def normalize_signature_workflow(payload: Any) -> str:
         "channel": coerce_str(payload.get("channel")),
         "status": coerce_str(payload.get("status")),
         "token": coerce_str(payload.get("token")),
+        "publicUrl": coerce_str(payload.get("publicUrl")),
         "requestedAt": coerce_str(payload.get("requestedAt")),
         "expiresAt": coerce_str(payload.get("expiresAt")),
+        "claimedAt": coerce_str(payload.get("claimedAt")),
         "completedAt": coerce_str(payload.get("completedAt")),
         "cancelledAt": coerce_str(payload.get("cancelledAt")),
+        "claimToken": coerce_str(payload.get("claimToken")),
         "requestedBy": {
             "userId": requested_by.get("userId"),
             "name": coerce_str(requested_by.get("name")),
@@ -316,6 +323,7 @@ def normalize_signature_workflow(payload: Any) -> str:
         "errorMessage": coerce_str(payload.get("errorMessage")),
         "publishedTicket": normalize_itop_ticket_summary(payload.get("publishedTicket")),
         "publishedAttachments": published_attachments,
+        "deviceLock": payload.get("deviceLock") if isinstance(payload.get("deviceLock"), dict) else {},
     }
     if not any(
         [
@@ -567,18 +575,27 @@ def build_document_payload_from_detail(
         int(current_detail.get("receiver", {}).get("id")) if current_detail.get("receiver", {}).get("id") else 0,
     )
 
+    owner = current_detail.get("owner") if isinstance(current_detail.get("owner"), dict) else {}
+    owner_user_id = owner.get("userId")
+    owner_name = coerce_str(owner.get("name"))
+    try:
+        parsed_owner_user_id = int(owner_user_id) if owner_user_id not in (None, "") else int(existing_document["owner_user_id"])
+    except (TypeError, ValueError):
+        parsed_owner_user_id = int(existing_document["owner_user_id"])
+
     return {
         "document_number": existing_document["document_number"],
         "generated_at": creation_at.strftime("%Y-%m-%d %H:%M:%S"),
         "creation_date": creation_at.strftime("%Y-%m-%d %H:%M:%S"),
         "assignment_date": assignment_at.strftime("%Y-%m-%d %H:%M:%S") if assignment_at else None,
         "evidence_date": evidence_at.strftime("%Y-%m-%d %H:%M:%S") if evidence_at else None,
-        "owner_user_id": int(existing_document["owner_user_id"]),
-        "owner_name": existing_document["owner_name"],
+        "owner_user_id": parsed_owner_user_id,
+        "owner_name": owner_name or existing_document["owner_name"],
         "status": STATUS_UI_TO_DB[status_ui],
         "handover_type": type_definition.code,
         "reason": coerce_str(current_detail.get("reason")),
         "notes": coerce_str(current_detail.get("notes")) or None,
+        "signer_observation": coerce_str(current_detail.get("signerObservation")) or None,
         "additional_receivers": additional_receivers or None,
         "generated_documents": normalize_generated_documents(generated_documents) or None,
         "evidence_attachments": normalize_evidence_attachments(evidence_attachments) or None,
