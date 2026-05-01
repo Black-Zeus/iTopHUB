@@ -6,6 +6,8 @@ import unicodedata
 
 from modules.settings.service import is_requirement_ticket_enabled
 
+HANDOVER_DOCUMENT_LEGEND_TOKEN = "__handover_document_legend__"
+
 
 @dataclass(frozen=True)
 class HandoverTypeDefinition:
@@ -56,7 +58,7 @@ HANDOVER_TYPE_DEFINITIONS: dict[str, HandoverTypeDefinition] = {
         prefix_setting_key="handoverPrefix",
         default_prefix="ENT",
         main_title="Acta de Entrega de Activos",
-        main_subtitle="Documento emitido desde iTop HUB",
+        main_subtitle=HANDOVER_DOCUMENT_LEGEND_TOKEN,
         main_code_label="Codigo de acta",
         main_reason_section_title="Descripción y observaciones del acta",
         main_reason_label="Motivo de entrega",
@@ -77,7 +79,7 @@ HANDOVER_TYPE_DEFINITIONS: dict[str, HandoverTypeDefinition] = {
         prefix_setting_key="handoverReturnPrefix",
         default_prefix="DEV",
         main_title="Acta de Devolucion de Activos",
-        main_subtitle="Documento emitido desde iTop HUB",
+        main_subtitle=HANDOVER_DOCUMENT_LEGEND_TOKEN,
         main_code_label="Codigo de acta",
         main_reason_section_title="Descripción y observaciones del acta",
         main_reason_label="Motivo de devolucion",
@@ -100,7 +102,7 @@ HANDOVER_TYPE_DEFINITIONS: dict[str, HandoverTypeDefinition] = {
         prefix_setting_key="handoverReassignmentPrefix",
         default_prefix="REA",
         main_title="Acta de Reasignacion de Activos",
-        main_subtitle="Documento emitido desde iTop HUB",
+        main_subtitle=HANDOVER_DOCUMENT_LEGEND_TOKEN,
         main_code_label="Codigo de acta",
         main_reason_section_title="Descripción y observaciones del acta",
         main_reason_label="Motivo de reasignacion",
@@ -123,7 +125,7 @@ HANDOVER_TYPE_DEFINITIONS: dict[str, HandoverTypeDefinition] = {
         prefix_setting_key="handoverReplacementPrefix",
         default_prefix="REP",
         main_title="Acta de Reposicion de Activos",
-        main_subtitle="Documento emitido desde iTop HUB",
+        main_subtitle=HANDOVER_DOCUMENT_LEGEND_TOKEN,
         main_code_label="Codigo de acta",
         main_reason_section_title="Descripción y observaciones del acta",
         main_reason_label="Motivo de reposicion",
@@ -144,7 +146,7 @@ HANDOVER_TYPE_DEFINITIONS: dict[str, HandoverTypeDefinition] = {
         prefix_setting_key="handoverNormalizationPrefix",
         default_prefix="NOR",
         main_title="Acta de Normalizacion de Activos",
-        main_subtitle="Documento emitido desde iTop HUB",
+        main_subtitle=HANDOVER_DOCUMENT_LEGEND_TOKEN,
         main_code_label="Codigo de acta",
         main_reason_section_title="Descripción y observaciones del acta",
         main_reason_label="Motivo de normalizacion",
@@ -168,7 +170,7 @@ HANDOVER_TYPE_DEFINITIONS: dict[str, HandoverTypeDefinition] = {
         prefix_setting_key="handoverLaboratoryPrefix",
         default_prefix="LAB",
         main_title="Acta de Laboratorio",
-        main_subtitle="Documento emitido desde iTop HUB",
+        main_subtitle=HANDOVER_DOCUMENT_LEGEND_TOKEN,
         main_code_label="Codigo de acta",
         main_reason_section_title="Descripción y observaciones del acta",
         main_reason_label="Motivo de laboratorio",

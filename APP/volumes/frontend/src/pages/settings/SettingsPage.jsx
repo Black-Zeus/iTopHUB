@@ -1544,6 +1544,26 @@ export function SettingsPage() {
                           checked={Boolean(drafts.docs?.headerShowOrganizationName)}
                           onChange={(e) => updateField("docs", "headerShowOrganizationName", e.target.checked)}
                         />
+                        <label className="md:col-span-2 rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-4">
+                          <span className="flex items-start gap-3">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(drafts.docs?.handoverDocumentLegendEnabled)}
+                              onChange={(e) => updateField("docs", "handoverDocumentLegendEnabled", e.target.checked)}
+                              className="mt-1 h-4 w-4 accent-[var(--accent-strong)]"
+                            />
+                            <span className="min-w-0 flex-1">
+                              <span className="block text-sm font-semibold text-[var(--text-primary)]">Mostrar leyenda documental</span>
+                              <span className={`${drafts.docs?.handoverDocumentLegendEnabled ? "" : "pointer-events-none opacity-50"} mt-3 block`}>
+                                <Field
+                                 rows={2}
+                                  value={drafts.docs?.handoverDocumentLegendText || ""}
+                                  onChange={(e) => updateField("docs", "handoverDocumentLegendText", e.target.value)}
+                                />
+                              </span>
+                            </span>
+                          </span>
+                        </label>
                       </div>
                     </div>
                     <div className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-4">

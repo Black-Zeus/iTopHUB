@@ -5,7 +5,7 @@ from html import escape
 from typing import Any
 import unicodedata
 
-from modules.handover.handover_types import get_handover_type_definition
+from modules.handover.handover_types import HANDOVER_DOCUMENT_LEGEND_TOKEN, get_handover_type_definition
 from modules.settings.service import get_settings_panel, read_organization_logo_data_url
 
 
@@ -181,6 +181,24 @@ def _build_footer_template(
 </html>"""
 
 
+def _resolve_handover_document_legend(docs_settings: dict[str, Any]) -> str:
+    if not bool(docs_settings.get("handoverDocumentLegendEnabled", True)):
+        return ""
+    return _coerce_str(docs_settings.get("handoverDocumentLegendText"), "Documento emitido desde iTop HUB")
+
+
+def _resolve_document_subtitle(subtitle: str, docs_settings: dict[str, Any]) -> str:
+    normalized_subtitle = _coerce_str(subtitle)
+    if normalized_subtitle == HANDOVER_DOCUMENT_LEGEND_TOKEN:
+        return _resolve_handover_document_legend(docs_settings)
+    return normalized_subtitle
+
+
+def _resolve_signature_owner_support_text(owner: dict[str, Any]) -> str:
+    docs_settings = get_settings_panel("docs")
+    return _coerce_str(owner.get("role")) or _resolve_handover_document_legend(docs_settings)
+
+
 def _build_base_html(
     title: str,
     subtitle: str,
@@ -213,9 +231,9 @@ def _build_base_html(
         if organization_logo
         else f'<div style="font-weight:700;color:#16324f;font-size:18px;">{_escape(organization_acronym or organization_name[:3])}</div>'
     )
-    organization_subtitle = _escape(subtitle)
-    if header_show_organization_name:
-        organization_subtitle = f"{organization_subtitle} · {_escape(organization_name)}"
+    resolved_subtitle = _resolve_document_subtitle(subtitle, docs_settings)
+    subtitle_parts = [part for part in (resolved_subtitle, organization_name if header_show_organization_name else "") if _coerce_str(part)]
+    organization_subtitle = " · ".join(_escape(part) for part in subtitle_parts) or "&nbsp;"
     header_html = f"""
     <header class="header">
         <div class="header-grid">
@@ -498,6 +516,33 @@ def _build_reassignment_footer_note() -> str:
     return f'<p class="muted" style="font-size:11px; margin:12px 0 0; text-align:justify;">{_escape(note)}</p>'
 
 
+def _resolve_person_responsibility(person: dict[str, Any], fallback: str = "Responsable") -> str:
+    return _coerce_str(person.get("assignmentRole")) or fallback
+
+
+def _build_reassignment_person_rows(person: dict[str, Any], *, responsibility: str) -> list[tuple[str, str]]:
+    return [
+        ("Responsabilidad", responsibility or "Sin dato"),
+        ("Nombre", _coerce_str(person.get("name")) or "Sin dato"),
+        ("Cargo", _coerce_str(person.get("role")) or "Sin dato"),
+    ]
+
+
+def _build_reassignment_person_block(title: str, person: dict[str, Any], *, responsibility: str) -> str:
+    rows_html = "".join(
+        f"<tr><td class=\"label-cell\">{_escape(label)}</td><td>{_escape(value)}</td></tr>"
+        for label, value in _build_reassignment_person_rows(person, responsibility=responsibility)
+    )
+    return f"""
+    <div class="block-space">
+        <h3 class="subsection-title">{_escape(title)}</h3>
+        <table>
+            <tbody>{rows_html}</tbody>
+        </table>
+    </div>
+    """
+
+
 def _build_return_main_html(detail: dict[str, Any], type_definition: Any) -> tuple[str, str | None]:
     document_number = _coerce_str(detail.get("documentNumber"))
     generated_at = _format_datetime_label(detail.get("assignmentDate") or detail.get("generatedAt") or detail.get("creationDate"))
@@ -536,16 +581,16 @@ def _build_return_main_html(detail: dict[str, Any], type_definition: Any) -> tup
             <table>
                 <thead>
                     <tr>
-                        <th style="width:18%;">Rol</th>
-                        <th style="width:24%;">Nombre</th>
-                        <th style="width:22%;">Correo</th>
+                        <th style="width:34%;">Responsabilidad</th>
+                        <th style="width:33%;">Nombre</th>
+                        <th style="width:33%;">Cargo</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr>
                         <td>Responsable</td>
                         <td>{_escape(receiver.get("name"))}</td>
-                        <td>{_escape(receiver.get("email"))}</td>
+                        <td>{_escape(receiver.get("role"))}</td>
                     </tr>
                 </tbody>
             </table>
@@ -599,14 +644,14 @@ def _build_return_main_html(detail: dict[str, Any], type_definition: Any) -> tup
                     <div class="signature-line">
                         <div><strong>{_escape(receiver.get("name"))}</strong></div>
                         <div class="muted">{_escape(type_definition.main_signature_receiver_label)}</div>
-                        <div class="muted">{_escape(_join_non_empty([receiver.get("code"), receiver.get("email")], " · "))}</div>
+                        <div class="muted">{_escape(receiver.get("role") or "Sin cargo")}</div>
                     </div>
                 </div>
                 <div class="signature-box">
                     <div class="signature-line">
                         <div><strong>{_escape(owner.get("name"))}</strong></div>
                         <div class="muted">{_escape(type_definition.main_signature_issuer_label)}</div>
-                        <div class="muted">Documento generado desde iTop HUB</div>
+                        <div class="muted">{_escape(_resolve_signature_owner_support_text(owner))}</div>
                     </div>
                 </div>
             </div>
@@ -664,24 +709,21 @@ def _build_reassignment_main_html(detail: dict[str, Any], type_definition: Any) 
             <table>
                 <thead>
                     <tr>
-                        <th style="width:20%;">Rol</th>
-                        <th style="width:28%;">Nombre</th>
-                        <th style="width:24%;">Correo</th>
-                        <th style="width:28%;">Referencia</th>
+                        <th style="width:34%;">Responsabilidad</th>
+                        <th style="width:33%;">Nombre</th>
+                        <th style="width:33%;">Cargo</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr>
                         <td>Responsable origen</td>
                         <td>{_escape(source_person.get("name"))}</td>
-                        <td>{_escape(source_person.get("email"))}</td>
-                        <td>{_escape(_join_non_empty([source_person.get("code"), source_person.get("role")]))}</td>
+                        <td>{_escape(source_person.get("role"))}</td>
                     </tr>
                     <tr>
                         <td>Responsable destino</td>
                         <td>{_escape(destination_person.get("name"))}</td>
-                        <td>{_escape(destination_person.get("email"))}</td>
-                        <td>{_escape(_join_non_empty([destination_person.get("code"), destination_person.get("role")]))}</td>
+                        <td>{_escape(destination_person.get("role"))}</td>
                     </tr>
                 </tbody>
             </table>
@@ -735,21 +777,21 @@ def _build_reassignment_main_html(detail: dict[str, Any], type_definition: Any) 
                     <div class="signature-line">
                         <div><strong>{_escape(source_person.get("name"))}</strong></div>
                         <div class="muted">Responsable origen</div>
-                        <div class="muted">{_escape(_join_non_empty([source_person.get("code"), source_person.get("email")], " · "))}</div>
+                        <div class="muted">{_escape(source_person.get("role") or "Sin cargo")}</div>
                     </div>
                 </div>
                 <div class="signature-box">
                     <div class="signature-line">
                         <div><strong>{_escape(destination_person.get("name"))}</strong></div>
                         <div class="muted">{_escape(type_definition.main_signature_receiver_label)}</div>
-                        <div class="muted">{_escape(_join_non_empty([destination_person.get("code"), destination_person.get("email")], " · "))}</div>
+                        <div class="muted">{_escape(destination_person.get("role") or "Sin cargo")}</div>
                     </div>
                 </div>
                 <div class="signature-box">
                     <div class="signature-line">
                         <div><strong>{_escape(owner.get("name"))}</strong></div>
                         <div class="muted">{_escape(type_definition.main_signature_issuer_label)}</div>
-                        <div class="muted">Documento generado desde iTop HUB</div>
+                        <div class="muted">{_escape(_resolve_signature_owner_support_text(owner))}</div>
                     </div>
                 </div>
             </div>
@@ -804,11 +846,18 @@ def _build_reassignment_detail_html(detail: dict[str, Any], type_definition: Any
             if _coerce_str(value)
         )
 
-        transfer_rows = [
-            f"<tr><td class=\"label-cell\">Responsable origen</td><td>{_escape(_join_non_empty([source_person.get('name'), source_person.get('email')], ' · ') or 'Sin dato')}</td></tr>",
-            f"<tr><td class=\"label-cell\">Responsable destino</td><td>{_escape(_join_non_empty([destination_person.get('name'), destination_person.get('email')], ' · ') or 'Sin dato')}</td></tr>",
-            f"<tr><td class=\"label-cell\">Observacion</td><td>{_escape(item.get('notes') or 'Sin observacion registrada')}</td></tr>",
-        ]
+        transfer_block = f"""
+        {_build_reassignment_person_block("Responsable origen", source_person, responsibility="Responsable origen")}
+        {_build_reassignment_person_block("Responsable destino", destination_person, responsibility="Responsable destino")}
+        <div class="block-space">
+            <h3 class="subsection-title">Trazabilidad de reasignacion</h3>
+            <table>
+                <tbody>
+                    <tr><td class="label-cell">Observacion</td><td>{_escape(item.get('notes') or 'Sin observacion registrada')}</td></tr>
+                </tbody>
+            </table>
+        </div>
+        """
 
         blocks.append(
             f"""
@@ -821,12 +870,7 @@ def _build_reassignment_detail_html(detail: dict[str, Any], type_definition: Any
                             <tbody>{specification_html}</tbody>
                         </table>
                     </div>
-                    <div class="block-space">
-                        <h3 class="subsection-title">Trazabilidad de reasignacion</h3>
-                        <table>
-                            <tbody>{''.join(transfer_rows)}</tbody>
-                        </table>
-                    </div>
+                    {transfer_block}
                 </div>
             </section>
             """
@@ -971,12 +1015,7 @@ def _build_return_detail_html(detail: dict[str, Any], type_definition: Any) -> t
     )
 
 
-def build_handover_main_html(detail: dict[str, Any]) -> tuple[str, str | None]:
-    type_definition = get_handover_type_definition(detail.get("handoverTypeCode") or detail.get("handoverType"))
-    if _coerce_str(type_definition.code) == "return":
-        return _build_return_main_html(detail, type_definition)
-    if _coerce_str(type_definition.code) == "reassignment":
-        return _build_reassignment_main_html(detail, type_definition)
+def _build_delivery_main_html(detail: dict[str, Any], type_definition: Any) -> tuple[str, str | None]:
     document_number = _coerce_str(detail.get("documentNumber"))
     generated_at = _format_datetime_label(detail.get("assignmentDate") or detail.get("generatedAt") or detail.get("creationDate"))
     receiver = detail.get("receiver") or {}
@@ -989,7 +1028,7 @@ def build_handover_main_html(detail: dict[str, Any]) -> tuple[str, str | None]:
         <tr>
             <td>Responsable</td>
             <td>{_escape(receiver.get("name"))}</td>
-            <td>{_escape(receiver.get("email"))}</td>
+            <td>{_escape(receiver.get("role"))}</td>
         </tr>
         """
     ]
@@ -997,9 +1036,9 @@ def build_handover_main_html(detail: dict[str, Any]) -> tuple[str, str | None]:
         receiver_rows.append(
             f"""
             <tr>
-                <td>{_escape(item.get("assignmentRole") or "Contacto adicional")}</td>
+                <td>{_escape(_resolve_person_responsibility(item, "Contacto adicional"))}</td>
                 <td>{_escape(item.get("name"))}</td>
-                <td>{_escape(item.get("email"))}</td>
+                <td>{_escape(item.get("role"))}</td>
             </tr>
             """
         )
@@ -1035,9 +1074,9 @@ def build_handover_main_html(detail: dict[str, Any]) -> tuple[str, str | None]:
             <table>
                 <thead>
                     <tr>
-                        <th style="width:18%;">Tipo de responsabilidad</th>
-                        <th style="width:24%;">Nombre</th>
-                        <th style="width:22%;">Correo</th>
+                        <th style="width:34%;">Responsabilidad</th>
+                        <th style="width:33%;">Nombre</th>
+                        <th style="width:33%;">Cargo</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -1094,14 +1133,14 @@ def build_handover_main_html(detail: dict[str, Any]) -> tuple[str, str | None]:
                     <div class="signature-line">
                         <div><strong>{_escape(receiver.get("name"))}</strong></div>
                         <div class="muted">{_escape(type_definition.main_signature_receiver_label)}</div>
-                        <div class="muted">{_escape(_join_non_empty([receiver.get("code"), receiver.get("email")], " · "))}</div>
+                        <div class="muted">{_escape(receiver.get("role") or "Sin cargo")}</div>
                     </div>
                 </div>
                 <div class="signature-box">
                     <div class="signature-line">
                         <div><strong>{_escape(owner.get("name"))}</strong></div>
                         <div class="muted">{_escape(type_definition.main_signature_issuer_label)}</div>
-                        <div class="muted">Documento generado desde iTop HUB</div>
+                        <div class="muted">{_escape(_resolve_signature_owner_support_text(owner))}</div>
                     </div>
                 </div>
             </div>
@@ -1120,12 +1159,7 @@ def build_handover_main_html(detail: dict[str, Any]) -> tuple[str, str | None]:
     )
 
 
-def build_handover_detail_html(detail: dict[str, Any]) -> tuple[str, str | None]:
-    type_definition = get_handover_type_definition(detail.get("handoverTypeCode") or detail.get("handoverType"))
-    if _coerce_str(type_definition.code) == "return":
-        return _build_return_detail_html(detail, type_definition)
-    if _coerce_str(type_definition.code) == "reassignment":
-        return _build_reassignment_detail_html(detail, type_definition)
+def _build_delivery_detail_html(detail: dict[str, Any], type_definition: Any) -> tuple[str, str | None]:
     detail_number = build_detail_document_number(_coerce_str(detail.get("documentNumber")))
     generated_at = _format_datetime_label(detail.get("assignmentDate") or detail.get("generatedAt") or detail.get("creationDate"))
 
@@ -1222,3 +1256,34 @@ def build_handover_detail_html(detail: dict[str, Any]) -> tuple[str, str | None]
         generated_at=generated_at,
         eyebrow="Entrega de activos",
     )
+
+
+_MAIN_TEMPLATE_BUILDERS = {
+    "initial_assignment": _build_delivery_main_html,
+    "return": _build_return_main_html,
+    "reassignment": _build_reassignment_main_html,
+    "replacement": _build_delivery_main_html,
+    "normalization": _build_delivery_main_html,
+    "laboratory": _build_delivery_main_html,
+}
+
+_DETAIL_TEMPLATE_BUILDERS = {
+    "initial_assignment": _build_delivery_detail_html,
+    "return": _build_return_detail_html,
+    "reassignment": _build_reassignment_detail_html,
+    "replacement": _build_delivery_detail_html,
+    "normalization": _build_delivery_detail_html,
+    "laboratory": _build_delivery_detail_html,
+}
+
+
+def build_handover_main_html(detail: dict[str, Any]) -> tuple[str, str | None]:
+    type_definition = get_handover_type_definition(detail.get("handoverTypeCode") or detail.get("handoverType"))
+    builder = _MAIN_TEMPLATE_BUILDERS.get(_coerce_str(type_definition.code), _build_delivery_main_html)
+    return builder(detail, type_definition)
+
+
+def build_handover_detail_html(detail: dict[str, Any]) -> tuple[str, str | None]:
+    type_definition = get_handover_type_definition(detail.get("handoverTypeCode") or detail.get("handoverType"))
+    builder = _DETAIL_TEMPLATE_BUILDERS.get(_coerce_str(type_definition.code), _build_delivery_detail_html)
+    return builder(detail, type_definition)
