@@ -27,7 +27,11 @@ async function parsePublicApiResponse(response, fallbackMessage) {
     rawText ||
     fallbackMessage;
 
-  throw new Error(message || fallbackMessage);
+  const error = new Error(message || fallbackMessage);
+  if (detail && typeof detail === "object" && detail.brand) {
+    error.brand = detail.brand;
+  }
+  throw error;
 }
 
 

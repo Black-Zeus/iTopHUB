@@ -48,7 +48,7 @@ function ensureLocalClaimToken(token, currentClaimToken = "") {
   return provisionalClaimToken;
 }
 
-function SignatureStatusLayout({ brand = {}, tone = "default", badge = "", title, description, children }) {
+function SignatureStatusLayout({ brand = {}, tone = "default", title, description, children }) {
   const toneClasses = {
     success: "border-[#bbf7d0] bg-[#f0fdf4] text-[#166534]",
     danger: "border-[#fecaca] bg-[#fef2f2] text-[#b91c1c]",
@@ -83,13 +83,8 @@ function SignatureStatusLayout({ brand = {}, tone = "default", badge = "", title
         </header>
         <main className="space-y-4 p-5">
           <section className={`rounded-[20px] border px-5 py-4 ${toneClasses[tone] || toneClasses.default}`}>
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-lg font-bold">{title}</h2>
-                <p className="mt-1 text-sm leading-6 opacity-80">{description}</p>
-              </div>
-              {badge ? <span className="rounded-full border border-current px-3 py-1 text-[11px] font-bold uppercase tracking-[0.1em]">{badge}</span> : null}
-            </div>
+            <h2 className="text-lg font-bold">{title}</h2>
+            <p className="mt-1 text-sm leading-6 opacity-80">{description}</p>
           </section>
           {children}
         </main>
@@ -106,6 +101,7 @@ export function MobileSignatureSessionPage({
 }) {
   const signaturePadRef = useRef(null);
   const [session, setSession] = useState(null);
+  const [brand, setBrand] = useState({});
   const [busy, setBusy] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -129,9 +125,15 @@ export function MobileSignatureSessionPage({
         persistClaimToken(token, resolvedClaimToken);
         setClaimToken(resolvedClaimToken);
       }
+      if (payload?.brand) {
+        setBrand(payload.brand);
+      }
       setSession(payload);
     } catch (loadError) {
       setError(loadError.message || "No fue posible cargar la sesión de firma.");
+      if (loadError.brand) {
+        setBrand(loadError.brand);
+      }
       setSession(null);
     } finally {
       setBusy(false);
@@ -152,7 +154,6 @@ export function MobileSignatureSessionPage({
     [session?.messages?.completionHint],
   );
 
-  const activeBrand = session?.brand || {};
   const sessionStatus = `${session?.status || ""}`.trim().toLowerCase();
   const documentStatus = `${session?.documentStatus || ""}`.trim();
   const isUnavailable = !session || ["expired", "cancelled", "occupied"].includes(sessionStatus) || !["Emitida", "Firmada", "Confirmada"].includes(documentStatus);
@@ -204,7 +205,7 @@ export function MobileSignatureSessionPage({
   if (busy) {
     return (
       <SignatureStatusLayout
-        brand={activeBrand}
+        brand={brand}
         title="Preparando firma digital"
         description="Estamos validando el código QR y cargando la información del acta."
       >
@@ -221,9 +222,8 @@ export function MobileSignatureSessionPage({
   if (error && !session) {
     return (
       <SignatureStatusLayout
-        brand={activeBrand}
+        brand={brand}
         tone="danger"
-        badge="Error"
         title="No fue posible abrir la firma"
         description={error}
       >
@@ -241,9 +241,8 @@ export function MobileSignatureSessionPage({
       : "Esta sesión ya no está disponible o el estado del acta cambió en iTop Hub.";
     return (
       <SignatureStatusLayout
-        brand={activeBrand}
+        brand={brand}
         tone="warning"
-        badge={sessionStatus === "occupied" ? "En uso" : "No disponible"}
         title={unavailableTitle}
         description={unavailableDescription}
       >
@@ -259,9 +258,8 @@ export function MobileSignatureSessionPage({
   if (isCompleted) {
     return (
       <SignatureStatusLayout
-        brand={activeBrand}
+        brand={brand}
         tone="success"
-        badge="Completada"
         title="Firma registrada correctamente"
         description={completionMessage}
       >
@@ -285,8 +283,7 @@ export function MobileSignatureSessionPage({
 
   return (
     <SignatureStatusLayout
-      brand={activeBrand}
-      badge={isClaimed ? "En uso" : "Pendiente"}
+      brand={brand}
       title={`Firma de ${session?.handoverType || "Acta"}`}
       description={isClaimed
         ? "Este QR ya quedó reservado para este dispositivo. Revisa la información y firma cuando estés listo."
