@@ -45,6 +45,7 @@ def _build_user_row(row: dict[str, Any]) -> dict[str, Any]:
         "tokenMasked": masked,
         "hasToken": bool(row.get("cipher_token")) and row.get("auth_status") == "active",
         "isAdmin": bool(row.get("is_admin")),
+        "itopPersonKey": row.get("itop_person_key") or "",
     }
 
 
@@ -56,6 +57,7 @@ def list_users() -> list[dict[str, Any]]:
             u.username,
             u.email,
             u.full_name,
+            u.itop_person_key,
             u.status AS user_status,
             u.updated_at,
             r.code AS role_code,
@@ -110,6 +112,7 @@ def update_user(user_id: int, payload: dict[str, Any]) -> dict[str, Any] | None:
             u.username,
             u.email,
             u.full_name,
+            u.itop_person_key,
             u.status AS user_status,
             u.updated_at,
             r.code AS role_code,
@@ -159,6 +162,7 @@ def create_user(payload: dict[str, Any]) -> dict[str, Any] | None:
             u.username,
             u.email,
             u.full_name,
+            u.itop_person_key,
             u.status AS user_status,
             u.updated_at,
             r.code AS role_code,
@@ -184,6 +188,7 @@ def create_user(payload: dict[str, Any]) -> dict[str, Any] | None:
                 raise ValueError("El usuario ya esta vinculado al Hub.")
 
             username = payload["username"].strip()
+            itop_person_key = str(payload.get("itopPersonKey") or "").strip() or None
             cursor.execute(
                 insert_user_query,
                 (
@@ -193,7 +198,7 @@ def create_user(payload: dict[str, Any]) -> dict[str, Any] | None:
                     payload["fullName"].strip() or username,
                     "0" * 64,
                     payload["statusCode"],
-                    None,
+                    itop_person_key,
                 ),
             )
             user_id = cursor.lastrowid
@@ -227,6 +232,7 @@ def get_user(user_id: int) -> dict[str, Any] | None:
             u.username,
             u.email,
             u.full_name,
+            u.itop_person_key,
             u.status AS user_status,
             u.updated_at,
             r.code AS role_code,
@@ -279,7 +285,7 @@ def search_itop_users(query: str, runtime_token: str) -> list[dict[str, Any]]:
                     where_clauses.append(f"contactid_friendlyname LIKE '%{safe_term}%'")
                 items = connector.oql(
                     f"SELECT {class_name} WHERE {' OR '.join(where_clauses)}",
-                    output_fields="login,status,friendlyname,contactid_friendlyname",
+                    output_fields="login,status,friendlyname,contactid,contactid_friendlyname",
                 )
             except Exception:
                 continue
@@ -298,6 +304,7 @@ def search_itop_users(query: str, runtime_token: str) -> list[dict[str, Any]]:
                     "fullName": full_name or username,
                     "status": str(item.get("status") or "").strip(),
                     "itopClass": item.itop_class,
+                    "itopPersonKey": str(item.get("contactid") or "").strip(),
                 }
     finally:
         connector.close()

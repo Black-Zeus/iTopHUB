@@ -15,3 +15,4 @@ class UserCreateRequest(BaseModel):
     roleCode: str
     statusCode: str
     tokenValue: str = ""
+    itopPersonKey: str = ""

@@ -70,6 +70,7 @@ function UserFormModalContent({ mode = "create", user = null, roles, onCancel, o
     statusCode: user?.statusCode || "active",
     tokenValue: user?.tokenMasked || "",
     tokenChanged: false,
+    itopPersonKey: user?.itopPersonKey || "",
   });
   const [suggestions, setSuggestions] = useState([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
@@ -112,6 +113,7 @@ function UserFormModalContent({ mode = "create", user = null, roles, onCancel, o
               setForm((current) => ({
                 ...current,
                 fullName: exactMatch.fullName || exactMatch.username,
+                itopPersonKey: exactMatch.itopPersonKey || "",
               }));
             }
           }
@@ -141,6 +143,7 @@ function UserFormModalContent({ mode = "create", user = null, roles, onCancel, o
       ...current,
       username: item.username,
       fullName: item.fullName || item.username,
+      itopPersonKey: item.itopPersonKey || "",
     }));
     setFullNameTouched(false);
     setSuggestions([]);
@@ -156,6 +159,7 @@ function UserFormModalContent({ mode = "create", user = null, roles, onCancel, o
         fullName: form.fullName.trim() || form.username.trim(),
         roleCode: form.roleCode,
         statusCode: form.statusCode,
+        itopPersonKey: form.itopPersonKey,
       };
 
       if (isCreate) {
