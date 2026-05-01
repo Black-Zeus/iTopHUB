@@ -2985,6 +2985,7 @@ def _normalize_handover_payload(
         "handover_type": type_definition.code,
         "reason": reason,
         "notes": notes or None,
+        "signer_observation": _coerce_str(payload.get("signerObservation")) or None,
         "additional_receivers": additional_receivers or None,
         "generated_documents": generated_documents or None,
         "evidence_attachments": evidence_attachments or None,
