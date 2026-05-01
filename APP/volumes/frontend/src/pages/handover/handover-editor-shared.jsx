@@ -112,11 +112,13 @@ export function createEmptyForm(bootstrap, options = {}) {
     evidenceDate: bootstrap?.defaults?.evidenceDate || "",
     generatedDocuments: [],
     evidenceAttachments: bootstrap?.defaults?.evidenceAttachments || [],
+    mobileSignatureSession: null,
     itopTicket: null,
     status: "En creacion",
     handoverType: options.defaultHandoverType || moduleConfig.handoverType,
     reason: "",
     notes: "",
+    signerObservation: "",
     owner: bootstrap?.sessionUser || { id: null, name: "", username: "" },
     receiver: null,
     additionalReceivers: [],
@@ -132,11 +134,13 @@ export function createFormFromDetail(detail, bootstrap) {
     evidenceDate: detail.evidenceDate || "",
     generatedDocuments: detail.generatedDocuments || [],
     evidenceAttachments: detail.evidenceAttachments || [],
+    mobileSignatureSession: detail.mobileSignatureSession || null,
     itopTicket: detail.itopTicket || null,
     status: detail.status || "En creacion",
     handoverType: detail.handoverType || "Entrega inicial",
     reason: detail.reason || "",
     notes: detail.notes || "",
+    signerObservation: detail.signerObservation || "",
     owner: {
       id: detail.owner?.userId || bootstrap?.sessionUser?.id || null,
       name: detail.owner?.name || bootstrap?.sessionUser?.name || "",
@@ -824,6 +828,68 @@ export function HandoverEditorSections({
                     <MessageBanner>No hay documentos asociados todavia.</MessageBanner>
                   )}
                 </div>
+
+                {form.mobileSignatureSession?.status ? (
+                  <div className="grid gap-4 rounded-[20px] border border-[rgba(81,152,194,0.26)] bg-[rgba(81,152,194,0.08)] p-4">
+                    <div>
+                      <p className="text-sm font-semibold text-[var(--text-primary)]">Firma móvil registrada</p>
+                      <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                        Esta tarjeta muestra trazabilidad de la sesión móvil que registró la firma digital. No modifica el PDF.
+                      </p>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                      <div className="rounded-[16px] bg-[var(--bg-app)] px-4 py-3">
+                        <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Canal</p>
+                        <p className="mt-1 text-sm font-semibold text-[var(--text-primary)]">
+                          {form.mobileSignatureSession.channel === "qr" ? "QR móvil" : form.mobileSignatureSession.channel}
+                        </p>
+                      </div>
+                      <div className="rounded-[16px] bg-[var(--bg-app)] px-4 py-3">
+                        <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Estado sesión</p>
+                        <p className="mt-1 text-sm font-semibold text-[var(--text-primary)]">{form.mobileSignatureSession.status || "-"}</p>
+                      </div>
+                      <div className="rounded-[16px] bg-[var(--bg-app)] px-4 py-3">
+                        <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Firma registrada</p>
+                        <p className="mt-1 text-sm font-semibold text-[var(--text-primary)]">{form.mobileSignatureSession.signedAt || "-"}</p>
+                      </div>
+                      <div className="rounded-[16px] bg-[var(--bg-app)] px-4 py-3">
+                        <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Dispositivo</p>
+                        <p className="mt-1 text-sm font-semibold text-[var(--text-primary)]">{form.mobileSignatureSession.devicePlatform || "No informado"}</p>
+                      </div>
+                      <div className="rounded-[16px] bg-[var(--bg-app)] px-4 py-3">
+                        <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Firmante</p>
+                        <p className="mt-1 text-sm font-semibold text-[var(--text-primary)]">
+                          {[form.mobileSignatureSession.signerName, form.mobileSignatureSession.signerRole].filter(Boolean).join(" / ") || "No informado"}
+                        </p>
+                      </div>
+                      <div className="rounded-[16px] bg-[var(--bg-app)] px-4 py-3">
+                        <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Idioma / zona</p>
+                        <p className="mt-1 text-sm font-semibold text-[var(--text-primary)]">
+                          {[form.mobileSignatureSession.deviceLanguage, form.mobileSignatureSession.deviceTimezone].filter(Boolean).join(" / ") || "No informado"}
+                        </p>
+                      </div>
+                      <div className="rounded-[16px] bg-[var(--bg-app)] px-4 py-3">
+                        <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">IP / navegador</p>
+                        <p className="mt-1 text-sm font-semibold text-[var(--text-primary)] break-words">
+                          {[form.mobileSignatureSession.clientIp, form.mobileSignatureSession.userAgent].filter(Boolean).join(" / ") || "No informado"}
+                        </p>
+                      </div>
+                      <div className="rounded-[16px] bg-[var(--bg-app)] px-4 py-3">
+                        <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Pantalla / ventana</p>
+                        <p className="mt-1 text-sm font-semibold text-[var(--text-primary)]">
+                          {[
+                            form.mobileSignatureSession.screenWidth && form.mobileSignatureSession.screenHeight
+                              ? `${form.mobileSignatureSession.screenWidth}x${form.mobileSignatureSession.screenHeight}`
+                              : "",
+                            form.mobileSignatureSession.viewportWidth && form.mobileSignatureSession.viewportHeight
+                              ? `${form.mobileSignatureSession.viewportWidth}x${form.mobileSignatureSession.viewportHeight}`
+                              : "",
+                          ].filter(Boolean).join(" / ") || "No informado"}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
               </div>
             ) : null}
             <div className="md:col-span-2">
@@ -840,6 +906,11 @@ export function HandoverEditorSections({
                   ? <ReadOnlyValue value={form.notes} placeholder="Sin observaciones registradas" />
                   : <textarea rows="4" value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} className={TEXTAREA_CLASS_NAME} placeholder={notesPlaceholder || "Registra condiciones de entrega, accesorios, estado visible y acuerdos relevantes"} />
                 }
+              </Field>
+            </div>
+            <div className="md:col-span-2">
+              <Field label="Observación firmante">
+                <ReadOnlyValue value={form.signerObservation} placeholder="Sin observación del firmante" />
               </Field>
             </div>
           </div>

@@ -6,6 +6,7 @@ import { SearchFilterInput } from "../../components/ui/general/SearchFilterInput
 import { StatusChip } from "../../components/ui/general/StatusChip";
 import { Icon } from "../../components/ui/icon/Icon";
 import { Button } from "../../ui/Button";
+import { Spinner } from "../../ui/Spinner";
 import { useToast } from "../../ui";
 import {
   createHandoverSignatureSession,
@@ -36,19 +37,10 @@ import { getHandoverModuleConfig } from "./handover-module-config";
 const HANDOVER_FILTER_CONTROL_HEIGHT = "h-[66px]";
 const MAX_EVIDENCE_UPLOAD_FILES = 2;
 
-function buildHubPublicSignatureUrl(token = "") {
-  const normalizedToken = String(token || "").trim();
-  if (!normalizedToken || typeof window === "undefined") {
-    return "";
-  }
-  const basePath = String(import.meta.env.BASE_URL || "/").replace(/\/+$/, "");
-  return `${window.location.origin}${basePath}/firma/h/${encodeURIComponent(normalizedToken)}`;
-}
-
 function buildQrImageUrl(value = "") {
   const normalizedValue = String(value || "").trim();
   return normalizedValue
-    ? `https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(normalizedValue)}`
+    ? `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(normalizedValue)}`
     : "";
 }
 
@@ -57,6 +49,7 @@ function buildKpis(rows) {
   const issuedCount = rows.filter((row) => row.status === "Emitida").length;
   const signedCount = rows.filter((row) => row.status === "Firmada").length;
   const confirmedCount = rows.filter((row) => row.status === "Confirmada").length;
+  const cancelledCount = rows.filter((row) => row.status === "Anulada").length;
 
   return [
     {
@@ -64,32 +57,52 @@ function buildKpis(rows) {
       value: String(rows.length).padStart(2, "0"),
       helper: "Registros guardados",
       tone: "default",
+      filterValue: "",
     },
     {
       label: "En creacion",
       value: String(draftCount).padStart(2, "0"),
       helper: "Pendientes de cierre",
       tone: "warning",
+      filterValue: "draft",
     },
     {
       label: "Emitidas",
       value: String(issuedCount).padStart(2, "0"),
       helper: "En circulacion",
       tone: "default",
+      filterValue: "issued",
     },
     {
       label: "Firmadas",
       value: String(signedCount).padStart(2, "0"),
       helper: "Pendientes de ticket",
       tone: "default",
+      filterValue: "signed",
     },
     {
       label: "Confirmadas",
       value: String(confirmedCount).padStart(2, "0"),
       helper: "Cierre completo",
       tone: "success",
+      filterValue: "confirmed",
+    },
+    {
+      label: "Anuladas",
+      value: String(cancelledCount).padStart(2, "0"),
+      helper: "Fuera de flujo",
+      tone: "danger",
+      filterValue: "cancelled",
     },
   ];
+}
+
+function chunkActions(actions = [], size = 3) {
+  const rows = [];
+  for (let index = 0; index < actions.length; index += size) {
+    rows.push(actions.slice(index, index + size));
+  }
+  return rows;
 }
 
 function renderHandoverFilterSelection({ label, selectedOptions }) {
@@ -176,6 +189,72 @@ function buildTicketDescription(row, template, detail, moduleConfig) {
   }
   lines.push(`* ${assetLine}`);
   return lines.join("\n");
+}
+
+const TICKET_PROGRESS_STEPS = [
+  "Validando acta y parámetros",
+  "Generando ticket iTop",
+  "Asociando agente responsable",
+  "Asociando contactos relacionados",
+  "Asociando activo CMDB",
+  "Adjuntando evidencias y documentos",
+  "Ejecutando validaciones finales",
+];
+
+function openTicketProgressModal(title, currentStep = 0) {
+  return ModalManager.progress({
+    title,
+    steps: TICKET_PROGRESS_STEPS,
+    currentStep,
+    progress: Math.round(((currentStep + 1) / TICKET_PROGRESS_STEPS.length) * 100),
+    message: TICKET_PROGRESS_STEPS[currentStep] || "Procesando...",
+    showProgress: true,
+    allowCancel: false,
+  });
+}
+
+function updateTicketProgressModal(modalId, currentStep) {
+  ModalManager.update(modalId, {
+    steps: TICKET_PROGRESS_STEPS,
+    currentStep,
+    progress: Math.round(((Math.min(currentStep, TICKET_PROGRESS_STEPS.length - 1) + 1) / TICKET_PROGRESS_STEPS.length) * 100),
+    message: TICKET_PROGRESS_STEPS[currentStep] || "Procesando...",
+    allowCancel: false,
+  });
+}
+
+function startTicketProgressPulse(modalId, fromStep = 1, toStep = TICKET_PROGRESS_STEPS.length - 2) {
+  const stepScheduleMs = [900, 1300, 1800, 2600, 3600];
+  let step = fromStep;
+  let timeoutId = null;
+  let stopped = false;
+
+  const advanceStep = () => {
+    if (stopped) {
+      return;
+    }
+    updateTicketProgressModal(modalId, step);
+    const currentDelay = stepScheduleMs[Math.min(Math.max(step - fromStep, 0), stepScheduleMs.length - 1)];
+    if (step < toStep) {
+      timeoutId = window.setTimeout(() => {
+        step += 1;
+        advanceStep();
+      }, currentDelay);
+      return;
+    }
+    timeoutId = window.setTimeout(() => {
+      updateTicketProgressModal(modalId, toStep);
+      advanceStep();
+    }, currentDelay);
+  };
+
+  advanceStep();
+  return () => {
+    stopped = true;
+    if (timeoutId) {
+      window.clearTimeout(timeoutId);
+    }
+  };
 }
 
 function downloadListCsv(rows, moduleConfig) {
@@ -889,16 +968,17 @@ function DocumentLibraryModal({ row, detail, onClose, onOpenGeneratedDocument, o
   );
 }
 
-function SignatureQrModal({ row, sessionData, onRefresh, onClose }) {
-  const [copyMessage, setCopyMessage] = useState("");
-  const publicUrl = buildHubPublicSignatureUrl(sessionData?.token);
+function SignatureQrModal({ row, sessionData, onRefresh, onRegenerate, onClose }) {
+  const publicUrl = String(sessionData?.publicUrl || "").trim();
   const qrImageUrl = buildQrImageUrl(publicUrl);
+  const [qrLoading, setQrLoading] = useState(Boolean(qrImageUrl));
+  const [qrFailed, setQrFailed] = useState(false);
 
   useEffect(() => {
     if (!sessionData?.documentId) {
       return undefined;
     }
-    if (!["pending", "signed", "published"].includes(sessionData.status)) {
+    if (!["pending", "claimed", "signed", "published"].includes(sessionData.status)) {
       return undefined;
     }
     const intervalId = window.setInterval(() => {
@@ -907,17 +987,24 @@ function SignatureQrModal({ row, sessionData, onRefresh, onClose }) {
     return () => window.clearInterval(intervalId);
   }, [onRefresh, sessionData?.documentId, sessionData?.status]);
 
-  const copyUrl = async () => {
-    if (!publicUrl || !navigator?.clipboard?.writeText) {
-      return;
-    }
-    await navigator.clipboard.writeText(publicUrl);
-    setCopyMessage("Enlace copiado");
-    window.setTimeout(() => setCopyMessage(""), 1800);
-  };
+  useEffect(() => {
+    setQrLoading(Boolean(qrImageUrl));
+    setQrFailed(false);
+  }, [qrImageUrl]);
 
   const isSigned = ["signed", "published"].includes(sessionData?.status) || sessionData?.documentStatus === "Firmada";
   const isExpired = sessionData?.status === "expired";
+  const isClaimed = sessionData?.status === "claimed";
+  const isOccupied = sessionData?.status === "occupied";
+  const canRenderQr = Boolean(qrImageUrl) && !isExpired && !isOccupied && !qrFailed;
+  const statusLabel = isSigned ? "Firmada" : isExpired ? "Expirada" : isOccupied ? "Ocupada" : isClaimed ? "En uso" : "Disponible";
+  const statusClassName = isSigned
+    ? "bg-[#dcfce7] text-[#15803d]"
+    : isExpired || isOccupied
+      ? "bg-[#fef3c7] text-[#92400e]"
+      : isClaimed
+        ? "bg-[#e0f2fe] text-[#0369a1]"
+        : "bg-[#dbeafe] text-[#1d4ed8]";
 
   return (
     <div className="grid gap-5">
@@ -926,71 +1013,109 @@ function SignatureQrModal({ row, sessionData, onRefresh, onClose }) {
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-300">Firma digital</p>
             <h2 className="mt-2 text-xl font-bold">QR para {row.code}</h2>
-            <p className="mt-2 text-sm leading-6 text-slate-300">El contacto destino puede escanear este código desde su móvil, revisar el PDF y firmarlo sin subir adjuntos manualmente.</p>
+            <p className="mt-2 text-sm leading-6 text-slate-300">
+              El destinatario debe escanear este código desde su móvil para revisar el acta y registrar su firma digital.
+            </p>
           </div>
-          <span className={`rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-[0.08em] ${isSigned ? "bg-[#dcfce7] text-[#15803d]" : isExpired ? "bg-[#fef3c7] text-[#92400e]" : "bg-[#dbeafe] text-[#1d4ed8]"}`}>
-            {isSigned ? "Firmada" : isExpired ? "Expirada" : "Esperando firma"}
+          <span className={`rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-[0.08em] ${statusClassName}`}>
+            {statusLabel}
           </span>
         </div>
 
         <div className="grid gap-5 p-6 lg:grid-cols-[320px_1fr]">
           <section className="rounded-[20px] border border-[var(--border-color)] bg-[var(--bg-app)] p-5 text-center">
-            <div className="mx-auto flex h-[260px] w-[260px] items-center justify-center overflow-hidden rounded-[18px] border border-[#cbd5e1] bg-white shadow-[0_16px_34px_rgba(15,23,42,0.08)]">
-              {qrImageUrl && !isExpired ? (
-                <img src={qrImageUrl} alt={`QR de firma para ${row.code}`} className="h-[260px] w-[260px] object-contain" />
+            <div className="relative mx-auto flex h-[260px] w-[260px] items-center justify-center overflow-hidden rounded-[18px] border border-[#2d465b] bg-[#edf3fa] shadow-[0_16px_34px_rgba(15,23,42,0.08)]">
+              {canRenderQr ? (
+                <>
+                  {qrLoading ? (
+                    <div className="absolute inset-0 flex items-center justify-center bg-[#edf3fa]">
+                      <div className="flex flex-col items-center gap-3">
+                        <Spinner size="lg" className="border-[#bfd0e4] border-t-[#2563eb]" />
+                        <span className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
+                          Generando QR...
+                        </span>
+                      </div>
+                    </div>
+                  ) : null}
+                  <img
+                    src={qrImageUrl}
+                    alt={`QR de firma para ${row.code}`}
+                    className={`h-[250px] w-[250px] object-contain transition-opacity duration-200 ${qrLoading ? "opacity-0" : "opacity-100"}`}
+                    onLoad={() => setQrLoading(false)}
+                    onError={() => {
+                      setQrLoading(false);
+                      setQrFailed(true);
+                    }}
+                  />
+                </>
               ) : (
-                <span className="px-6 text-sm font-semibold text-slate-500">Genera una nueva sesión QR para continuar.</span>
+                <span className="px-6 text-sm font-semibold text-slate-500">
+                  {isExpired || isOccupied ? "Genera una nueva sesión QR para continuar." : "No fue posible preparar el código QR."}
+                </span>
               )}
             </div>
-            <p className="mt-4 text-sm text-slate-500">Si el QR no carga, el enlace directo igualmente queda disponible para copiar o abrir.</p>
+            <p className="mt-4 text-sm text-slate-500">
+              Este QR está pensado para uso móvil y queda reservado al primer dispositivo que lo abra.
+            </p>
           </section>
 
           <section className="grid gap-4">
-            <div className="grid gap-3 rounded-[20px] border border-[var(--border-color)] bg-white p-4 md:grid-cols-2">
-              <div className="rounded-[16px] bg-[var(--bg-app)] px-4 py-3">
-                <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Acta</p>
-                <p className="mt-1 text-sm font-semibold text-[var(--text-primary)]">{sessionData?.documentNumber || row.code}</p>
+            <div className="grid gap-3 rounded-[20px] border border-[#2d465b] bg-[var(--bg-app)] p-4 md:grid-cols-2">
+              <div className="rounded-[16px] bg-[#101b28] px-4 py-3">
+                <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-[#8fa9be]">Acta</p>
+                <p className="mt-1 text-sm font-semibold text-slate-100">{sessionData?.documentNumber || row.code}</p>
               </div>
-              <div className="rounded-[16px] bg-[var(--bg-app)] px-4 py-3">
-                <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Expira</p>
-                <p className="mt-1 text-sm font-semibold text-[var(--text-primary)]">{sessionData?.expiresAt || "-"}</p>
+              <div className="rounded-[16px] bg-[#101b28] px-4 py-3">
+                <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-[#8fa9be]">Expira</p>
+                <p className="mt-1 text-sm font-semibold text-slate-100">{sessionData?.expiresAt || "-"}</p>
               </div>
-              <div className="rounded-[16px] bg-[var(--bg-app)] px-4 py-3">
-                <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Destino</p>
-                <p className="mt-1 text-sm font-semibold text-[var(--text-primary)]">{sessionData?.receiver?.name || row.person || "-"}</p>
+              <div className="rounded-[16px] bg-[#101b28] px-4 py-3">
+                <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-[#8fa9be]">Destino</p>
+                <p className="mt-1 text-sm font-semibold text-slate-100">{sessionData?.receiver?.name || row.person || "-"}</p>
               </div>
-              <div className="rounded-[16px] bg-[var(--bg-app)] px-4 py-3">
-                <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Estado Hub</p>
-                <p className="mt-1 text-sm font-semibold text-[var(--text-primary)]">{sessionData?.documentStatus || row.status || "-"}</p>
+              <div className="rounded-[16px] bg-[#101b28] px-4 py-3">
+                <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-[#8fa9be]">Estado Hub</p>
+                <p className="mt-1 text-sm font-semibold text-slate-100">{sessionData?.documentStatus || row.status || "-"}</p>
               </div>
             </div>
 
-            <div className="rounded-[20px] border border-[var(--border-color)] bg-white p-4">
-              <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Enlace móvil</p>
-              <div className="mt-2 rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-app)] px-3 py-2 text-sm break-all text-[var(--text-primary)]">
-                {publicUrl || "No disponible"}
-              </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Button variant="secondary" onClick={copyUrl} disabled={!publicUrl}>Copiar enlace</Button>
-                <Button variant="secondary" onClick={() => publicUrl && window.open(publicUrl, "_blank", "noopener,noreferrer")} disabled={!publicUrl}>Abrir</Button>
-                <Button variant="secondary" onClick={onRefresh}>Actualizar</Button>
-              </div>
-              {copyMessage ? <p className="mt-2 text-xs font-semibold text-[var(--success)]">{copyMessage}</p> : null}
-            </div>
-
-            <div className={`rounded-[20px] border px-4 py-4 ${isSigned ? "border-[#bbf7d0] bg-[#f0fdf4]" : isExpired ? "border-[#fde68a] bg-[#fffbeb]" : "border-[#bfdbfe] bg-[#eff6ff]"}`}>
-              <p className="text-sm font-semibold text-[var(--text-primary)]">
+            <div className={`rounded-[20px] border px-4 py-4 ${
+              isSigned
+                ? "border-[#1f6a45] bg-[#112c21]"
+                : isExpired || isOccupied
+                  ? "border-[#7c5b18] bg-[#33250d]"
+                  : "border-[#2d5f88] bg-[#11283f]"
+            }`}>
+              <p className="text-sm font-semibold text-slate-100">
                 {isSigned
-                  ? "La firma ya fue registrada. El acta quedó lista para continuar directo al ticket."
+                  ? "La firma del destinatario ya fue registrada. El acta quedó lista para que el agente continúe con la generación del ticket."
                   : isExpired
-                    ? "La sesión expiró. Genera un nuevo QR para retomar la firma."
-                    : "Esperando la firma del destinatario. Esta ventana se actualiza automáticamente."}
+                    ? "La vigencia del QR terminó. Genera una nueva sesión para retomar la firma."
+                    : isOccupied
+                      ? "Este QR fue abierto desde otro dispositivo. Genera una nueva sesión si necesitas reiniciar el proceso."
+                      : isClaimed
+                        ? "La sesión ya fue abierta desde un dispositivo móvil y quedó bloqueada para ese equipo hasta que firme o expire."
+                        : "Esperando que el destinatario abra el QR desde su móvil. Esta ventana se actualiza automáticamente."}
               </p>
+              {sessionData?.claimedAt && !isSigned ? (
+                <p className="mt-2 text-xs font-semibold uppercase tracking-[0.08em] text-slate-300">
+                  Abierto en dispositivo móvil: {sessionData.claimedAt}
+                </p>
+              ) : null}
               {sessionData?.completedAt ? (
-                <p className="mt-2 text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+                <p className="mt-2 text-xs font-semibold uppercase tracking-[0.08em] text-slate-300">
                   Firmada en {sessionData.completedAt}
                 </p>
               ) : null}
+            </div>
+
+            <div className="flex justify-end">
+              <div className="flex flex-wrap justify-end gap-3">
+                {!isSigned ? (
+                  <Button variant="secondary" onClick={onRegenerate}>Regenerar QR</Button>
+                ) : null}
+                <Button variant="secondary" onClick={onRefresh}>Actualizar estado</Button>
+              </div>
             </div>
           </section>
         </div>
@@ -1012,7 +1137,12 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
   const [error, setError] = useState("");
   const [filters, setFilters] = useState({ query: "", status: "" });
   const [catalog, setCatalog] = useState({ statusOptions: [] });
-  const [actionConfig, setActionConfig] = useState({ allowEvidenceUpload: true, evidenceAllowedExtensions: ["pdf", "doc", "docx"] });
+  const [actionConfig, setActionConfig] = useState({
+    allowEvidenceUpload: true,
+    allowQrSignature: true,
+    qrSessionTtlMinutes: 20,
+    evidenceAllowedExtensions: ["pdf", "doc", "docx"],
+  });
   const [itopIntegrationUrl, setItopIntegrationUrl] = useState("");
 
   const kpis = useMemo(() => buildKpis(rows), [rows]);
@@ -1041,6 +1171,8 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
       });
       setActionConfig({
         allowEvidenceUpload: Boolean(bootstrap?.actions?.allowEvidenceUpload ?? true),
+        allowQrSignature: Boolean(bootstrap?.actions?.allowQrSignature ?? true),
+        qrSessionTtlMinutes: Number(bootstrap?.actions?.qrSessionTtlMinutes || 20) || 20,
         evidenceAllowedExtensions: bootstrap?.actions?.evidenceAllowedExtensions || ["pdf", "doc", "docx"],
       });
       setItopIntegrationUrl(String(bootstrap?.itopIntegrationUrl || "").replace(/\/+$/, ""));
@@ -1057,6 +1189,12 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
   const handleFilterSubmit = async (event) => {
     event.preventDefault();
     await loadDocuments(filters);
+  };
+
+  const handleKpiFilter = async (statusValue = "") => {
+    const nextFilters = { ...filters, status: statusValue };
+    setFilters(nextFilters);
+    await loadDocuments(nextFilters);
   };
 
   const handleProcess = async (row) => {
@@ -1108,7 +1246,7 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
       title: "Preparando ticket iTop",
       message: "Cargando configuracion, catalogos y grupos del usuario conectado...",
       showProgress: false,
-      cancelLabel: "Cerrar",
+      showCancel: false,
     });
 
     try {
@@ -1394,7 +1532,7 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
                     title: "Confirmando acta",
                     message: "Registrando evidencias y actualizando el acta...",
                     showProgress: false,
-                    cancelLabel: "Cerrar",
+                    showCancel: false,
                   });
                   try {
                     await uploadHandoverEvidence(row.id, items);
@@ -1422,14 +1560,12 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
                   detail,
                   items,
                   onSuccess: async (ticketPayload) => {
-                    const publishLoadingModalId = ModalManager.loading({
-                      title: "Publicando en iTop",
-                      message: "Registrando ticket, vinculando activos y cargando adjuntos...",
-                      showProgress: false,
-                      cancelLabel: "Cerrar",
-                    });
+                    const publishLoadingModalId = openTicketProgressModal("Finalizando acta en iTop", 0);
+                    const stopProgressPulse = startTicketProgressPulse(publishLoadingModalId, 1);
                     try {
                       await uploadHandoverEvidence(row.id, items, ticketPayload);
+                      stopProgressPulse();
+                      updateTicketProgressModal(publishLoadingModalId, TICKET_PROGRESS_STEPS.length - 1);
                       ModalManager.close(publishLoadingModalId);
                       ModalManager.close(modalId);
                       setError("");
@@ -1440,6 +1576,7 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
                       });
                       await loadDocuments(filters);
                     } catch (publishError) {
+                      stopProgressPulse();
                       ModalManager.close(publishLoadingModalId);
                       ModalManager.error({
                         title: "No fue posible publicar el acta",
@@ -1474,17 +1611,34 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
   const openQrModal = async (row) => {
     const loadingModalId = ModalManager.loading({
       title: `Preparando QR ${row.code}`,
-      message: "Generando la sesión de firma móvil y su enlace público...",
+      message: "Generando la sesión de firma móvil...",
       showProgress: false,
-      cancelLabel: "Cerrar",
+      showCancel: false,
     });
 
     try {
       const sessionData = await createHandoverSignatureSession(row.id);
       ModalManager.close(loadingModalId);
       let modalId = null;
+      let transitioningToTicket = false;
       const refreshSession = async () => {
         const refreshed = await getHandoverSignatureSession(row.id);
+        if ((["signed", "published"].includes(refreshed.status) || refreshed.documentStatus === "Firmada") && !transitioningToTicket) {
+          transitioningToTicket = true;
+          if (modalId) {
+            ModalManager.close(modalId);
+          }
+          try {
+            await loadDocuments(filters);
+            await handlePublishSigned({ ...row, status: "Firmada" });
+          } catch (autoPublishError) {
+            ModalManager.error({
+              title: "No fue posible continuar con el ticket",
+              message: autoPublishError.message || "La firma fue recibida, pero no se pudo abrir la finalización del ticket.",
+            });
+          }
+          return;
+        }
         if (modalId) {
           ModalManager.update(modalId, {
             content: (
@@ -1492,13 +1646,60 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
                 row={row}
                 sessionData={refreshed}
                 onRefresh={refreshSession}
+                onRegenerate={regenerateSession}
                 onClose={() => ModalManager.close(modalId)}
               />
             ),
           });
         }
-        if (["signed", "published"].includes(refreshed.status) || refreshed.documentStatus === "Firmada") {
-          await loadDocuments(filters);
+      };
+
+      const regenerateSession = async () => {
+        const confirmed = await ModalManager.confirm({
+          title: "Regenerar QR",
+          message: `Se invalidará el QR actual de ${row.code}.`,
+          content: "El código actualmente abierto quedará dado de baja y se emitirá uno nuevo para continuar la firma desde otro dispositivo.",
+          buttons: { cancel: "Cancelar", confirm: "Regenerar QR" },
+        });
+
+        if (!confirmed) {
+          return;
+        }
+
+        const regenerateLoadingId = ModalManager.loading({
+          title: "Regenerando QR",
+          message: "Dando de baja la sesión actual y emitiendo un nuevo código...",
+          showProgress: false,
+          showCancel: false,
+        });
+
+        try {
+          const refreshed = await createHandoverSignatureSession(row.id, { forceNew: true });
+          if (modalId) {
+            ModalManager.update(modalId, {
+              content: (
+                <SignatureQrModal
+                  row={row}
+                  sessionData={refreshed}
+                  onRefresh={refreshSession}
+                  onRegenerate={regenerateSession}
+                  onClose={() => ModalManager.close(modalId)}
+                />
+              ),
+            });
+          }
+          add({
+            title: "QR regenerado",
+            description: `El código anterior de ${row.code} quedó invalidado y ya puedes usar el nuevo QR.`,
+            tone: "success",
+          });
+        } catch (regenerateError) {
+          ModalManager.error({
+            title: "No fue posible regenerar el QR",
+            message: regenerateError.message || "No fue posible invalidar la sesión actual de firma.",
+          });
+        } finally {
+          ModalManager.close(regenerateLoadingId);
         }
       };
 
@@ -1511,6 +1712,7 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
             row={row}
             sessionData={sessionData}
             onRefresh={refreshSession}
+            onRegenerate={regenerateSession}
             onClose={() => ModalManager.close(modalId)}
           />
         ),
@@ -1532,14 +1734,12 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
         detail,
         items: [],
         onSuccess: async (ticketPayload) => {
-          const publishLoadingModalId = ModalManager.loading({
-            title: "Publicando ticket",
-            message: "Registrando el ticket y vinculando el PDF firmado en iTop...",
-            showProgress: false,
-            cancelLabel: "Cerrar",
-          });
+          const publishLoadingModalId = openTicketProgressModal("Finalizando ticket del acta firmada", 0);
+          const stopProgressPulse = startTicketProgressPulse(publishLoadingModalId, 1);
           try {
             await publishSignedHandover(row.id, ticketPayload);
+            stopProgressPulse();
+            updateTicketProgressModal(publishLoadingModalId, TICKET_PROGRESS_STEPS.length - 1);
             ModalManager.close(publishLoadingModalId);
             setError("");
             add({
@@ -1549,6 +1749,7 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
             });
             await loadDocuments(filters);
           } catch (publishError) {
+            stopProgressPulse();
             ModalManager.close(publishLoadingModalId);
             ModalManager.error({
               title: "No fue posible publicar el ticket",
@@ -1650,6 +1851,9 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
             icon: "paperclip",
             onClick: () => openEvidenceModal(row),
           });
+        }
+
+        if (actionConfig.allowQrSignature && isIssued) {
           actions.push({
             key: "qr",
             label: "QR",
@@ -1715,36 +1919,19 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
           </Button>
         );
 
-        const totalActions = actions.length;
-
-        if (totalActions <= 2) {
-          return (
-            <div className="ml-auto grid w-full max-w-[20rem] grid-cols-2 gap-1.5">
-              {actions.map(renderActionButton)}
-            </div>
-          );
-        }
-
-        if (totalActions === 3) {
-          return (
-            <div className="ml-auto grid w-full max-w-[20rem] grid-cols-3 gap-1.5">
-              {actions.map(renderActionButton)}
-            </div>
-          );
-        }
-
-        const firstRow = actions.slice(0, 3);
-        const secondRow = actions.slice(3);
+        const rows = chunkActions(actions, 3);
 
         return (
           <div className="ml-auto flex w-full max-w-[20rem] flex-col gap-1.5">
-            <div className="grid grid-cols-3 gap-1.5">
-              {firstRow.map(renderActionButton)}
-            </div>
-
-            <div className={`grid gap-1.5 ${secondRow.length === 1 ? "grid-cols-1" : "grid-cols-2"}`}>
-              {secondRow.map(renderActionButton)}
-            </div>
+            {rows.map((actionRow, index) => (
+              <div
+                key={`action-row-${row.id}-${index}`}
+                className="grid gap-1.5"
+                style={{ gridTemplateColumns: `repeat(${Math.max(actionRow.length, 1)}, minmax(0, 1fr))` }}
+              >
+                {actionRow.map(renderActionButton)}
+              </div>
+            ))}
           </div>
         );
       },
@@ -1754,8 +1941,15 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
 
   return (
     <div className="grid gap-5">
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {kpis.map((kpi) => <KpiCard key={kpi.label} {...kpi} />)}
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+        {kpis.map((kpi) => (
+          <KpiCard
+            key={kpi.label}
+            {...kpi}
+            active={(filters.status || "") === (kpi.filterValue || "")}
+            onClick={() => handleKpiFilter(kpi.filterValue || "")}
+          />
+        ))}
       </div>
 
       {error ? <MessageBanner tone="danger">{error}</MessageBanner> : null}
@@ -1838,7 +2032,15 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
           )}
         />
 
-        <DataTable columns={tableColumns} rows={rows} loading={loading} emptyMessage={moduleConfig.emptyListMessage} />
+        <DataTable
+          columns={tableColumns}
+          rows={rows}
+          loading={loading}
+          emptyMessage={moduleConfig.emptyListMessage}
+          pagination
+          pageSize={30}
+          paginationAlwaysVisible
+        />
       </Panel>
     </div>
   );

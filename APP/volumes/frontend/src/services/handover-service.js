@@ -2,6 +2,59 @@ import { apiRequest } from "@services/api-client";
 import { searchItopAssets, searchItopPeople } from "./itop-service";
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
+const PUBLIC_API_BASE_URL = "/api";
+
+
+async function parsePublicApiResponse(response, fallbackMessage) {
+  let payload = null;
+  let rawText = "";
+
+  try {
+    rawText = await response.text();
+    payload = rawText ? JSON.parse(rawText) : null;
+  } catch {
+    payload = null;
+  }
+
+  if (response.ok) {
+    return payload;
+  }
+
+  const detail = payload?.detail;
+  const message =
+    (detail && typeof detail === "object" ? detail.message : null) ||
+    (typeof detail === "string" ? detail : null) ||
+    rawText ||
+    fallbackMessage;
+
+  throw new Error(message || fallbackMessage);
+}
+
+
+async function publicApiRequest(path, options = {}) {
+  const {
+    fallbackMessage = "No fue posible completar la solicitud pública.",
+    ...fetchOptions
+  } = options;
+  const isFormDataBody = typeof FormData !== "undefined" && fetchOptions.body instanceof FormData;
+  const requestHeaders = {
+    Accept: "application/json",
+    ...(!isFormDataBody && fetchOptions.body ? { "Content-Type": "application/json" } : {}),
+    ...(fetchOptions.headers || {}),
+  };
+
+  let response;
+  try {
+    response = await fetch(`${PUBLIC_API_BASE_URL}${path}`, {
+      headers: requestHeaders,
+      ...fetchOptions,
+    });
+  } catch {
+    throw new Error(fallbackMessage);
+  }
+
+  return parsePublicApiResponse(response, fallbackMessage);
+}
 
 
 function readFileAsBase64(file) {
@@ -152,8 +205,9 @@ export async function uploadHandoverEvidence(documentId, items = [], ticketPaylo
 }
 
 
-export async function createHandoverSignatureSession(documentId) {
-  const response = await apiRequest(`/v1/handover/documents/${documentId}/signature-session`, {
+export async function createHandoverSignatureSession(documentId, { forceNew = false } = {}) {
+  const suffix = forceNew ? "?force_new=true" : "";
+  const response = await apiRequest(`/v1/handover/documents/${documentId}/signature-session${suffix}`, {
     method: "POST",
     fallbackMessage: "No fue posible abrir la sesión QR de firma.",
     retryOnRevalidate: true,
@@ -182,8 +236,9 @@ export async function publishSignedHandover(documentId, ticketPayload = null) {
 }
 
 
-export async function getPublicHandoverSignatureSession(token) {
-  const response = await apiRequest(`/v1/handover/signature-sessions/${encodeURIComponent(token)}`, {
+export async function getPublicHandoverSignatureSession(token, { claimToken = "" } = {}) {
+  const suffix = claimToken ? `?claim_token=${encodeURIComponent(claimToken)}` : "";
+  const response = await publicApiRequest(`/v1/handover/signature-sessions/${encodeURIComponent(token)}${suffix}`, {
     fallbackMessage: "No fue posible cargar la sesión pública de firma.",
   });
   return response.item;
@@ -191,7 +246,7 @@ export async function getPublicHandoverSignatureSession(token) {
 
 
 export async function submitPublicHandoverSignature(token, payload) {
-  const response = await apiRequest(`/v1/handover/signature-sessions/${encodeURIComponent(token)}/submit`, {
+  const response = await publicApiRequest(`/v1/handover/signature-sessions/${encodeURIComponent(token)}/submit`, {
     method: "POST",
     body: JSON.stringify(payload || {}),
     fallbackMessage: "No fue posible registrar la firma digital.",
@@ -230,13 +285,34 @@ export async function fetchHandoverGeneratedPdfBlob(documentId, documentKind) {
 }
 
 
-export async function fetchPublicHandoverSignatureDocumentBlob(token, documentKind) {
-  const response = await fetch(
-    `${API_BASE_URL}/v1/handover/signature-sessions/${encodeURIComponent(token)}/documents/${encodeURIComponent(documentKind)}`,
-    { credentials: "include" }
-  );
-  if (!response.ok) {
+export async function fetchPublicHandoverSignatureDocumentBlob(token, documentKind, { claimToken = "" } = {}) {
+  const suffix = claimToken ? `?claim_token=${encodeURIComponent(claimToken)}` : "";
+  let response;
+  try {
+    response = await fetch(
+      `${PUBLIC_API_BASE_URL}/v1/handover/signature-sessions/${encodeURIComponent(token)}/documents/${encodeURIComponent(documentKind)}${suffix}`
+    );
+  } catch {
     throw new Error("No fue posible obtener el documento de la sesión de firma.");
+  }
+  if (!response.ok) {
+    let rawText = "";
+    try {
+      rawText = await response.text();
+      const payload = rawText ? JSON.parse(rawText) : null;
+      const detail = payload?.detail;
+      throw new Error(
+        (detail && typeof detail === "object" ? detail.message : null)
+        || (typeof detail === "string" ? detail : null)
+        || rawText
+        || "No fue posible obtener el documento de la sesión de firma."
+      );
+    } catch (error) {
+      if (error instanceof Error && error.message) {
+        throw error;
+      }
+      throw new Error("No fue posible obtener el documento de la sesión de firma.");
+    }
   }
   const blob = await response.blob();
   const disposition = response.headers.get("Content-Disposition") || "";
