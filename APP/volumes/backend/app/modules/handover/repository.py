@@ -80,6 +80,7 @@ def fetch_handover_document_rows(
             d.additional_receivers,
             d.generated_documents,
             d.evidence_attachments,
+            d.signature_workflow,
             COUNT(i.id) AS asset_count,
             SUBSTRING_INDEX(
                 GROUP_CONCAT(i.asset_name ORDER BY i.sort_order ASC SEPARATOR '||'),
@@ -112,7 +113,8 @@ def fetch_handover_document_rows(
             d.receiver_status,
             d.additional_receivers,
             d.generated_documents,
-            d.evidence_attachments
+            d.evidence_attachments,
+            d.signature_workflow
         ORDER BY d.generated_at DESC, d.id DESC
     """
     with get_db_connection() as connection:
@@ -146,6 +148,7 @@ def fetch_handover_document_row(document_id: int) -> dict[str, Any] | None:
             additional_receivers,
             generated_documents,
             evidence_attachments,
+            signature_workflow,
             created_at,
             updated_at
         FROM hub_handover_documents
@@ -155,6 +158,45 @@ def fetch_handover_document_row(document_id: int) -> dict[str, Any] | None:
     with get_db_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(query, (document_id,))
+            return cursor.fetchone()
+
+
+def fetch_handover_document_row_by_signature_token(signature_token: str) -> dict[str, Any] | None:
+    query = """
+        SELECT
+            id,
+            document_number,
+            generated_at,
+            creation_date,
+            assignment_date,
+            evidence_date,
+            owner_user_id,
+            owner_name,
+            status,
+            handover_type,
+            reason,
+            notes,
+            receiver_person_id,
+            receiver_code,
+            receiver_name,
+            receiver_email,
+            receiver_phone,
+            receiver_role,
+            receiver_status,
+            additional_receivers,
+            generated_documents,
+            evidence_attachments,
+            signature_workflow,
+            created_at,
+            updated_at
+        FROM hub_handover_documents
+        WHERE signature_workflow LIKE %s
+        ORDER BY id DESC
+        LIMIT 1
+    """
+    with get_db_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(query, (f'%"{str(signature_token or "").strip()}"%',))
             return cursor.fetchone()
 
 
@@ -391,9 +433,10 @@ def save_handover_document(
             receiver_status,
             additional_receivers,
             generated_documents,
-            evidence_attachments
+            evidence_attachments,
+            signature_workflow
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """
     update_document_query = """
         UPDATE hub_handover_documents
@@ -415,7 +458,8 @@ def save_handover_document(
             receiver_status = %s,
             additional_receivers = %s,
             generated_documents = %s,
-            evidence_attachments = %s
+            evidence_attachments = %s,
+            signature_workflow = %s
         WHERE id = %s
     """
     delete_items_query = "DELETE FROM hub_handover_document_items WHERE document_id = %s"
@@ -490,6 +534,7 @@ def save_handover_document(
                             document["additional_receivers"],
                             document["generated_documents"],
                             document["evidence_attachments"],
+                            document["signature_workflow"],
                         ),
                     )
                     saved_document_id = int(cursor.lastrowid)
@@ -515,6 +560,7 @@ def save_handover_document(
                             document["additional_receivers"],
                             document["generated_documents"],
                             document["evidence_attachments"],
+                            document["signature_workflow"],
                             document_id,
                         ),
                     )

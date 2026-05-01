@@ -8,12 +8,15 @@ import { Icon } from "../../components/ui/icon/Icon";
 import { Button } from "../../ui/Button";
 import { useToast } from "../../ui";
 import {
+  createHandoverSignatureSession,
   emitHandoverDocument,
   fetchHandoverEvidenceBlob,
   fetchHandoverGeneratedPdfBlob,
   getHandoverBootstrap,
   getHandoverDocument,
+  getHandoverSignatureSession,
   listHandoverDocuments,
+  publishSignedHandover,
   rollbackHandoverDocument,
   uploadHandoverEvidence,
   updateHandoverDocumentStatus,
@@ -33,9 +36,26 @@ import { getHandoverModuleConfig } from "./handover-module-config";
 const HANDOVER_FILTER_CONTROL_HEIGHT = "h-[66px]";
 const MAX_EVIDENCE_UPLOAD_FILES = 2;
 
+function buildHubPublicSignatureUrl(token = "") {
+  const normalizedToken = String(token || "").trim();
+  if (!normalizedToken || typeof window === "undefined") {
+    return "";
+  }
+  const basePath = String(import.meta.env.BASE_URL || "/").replace(/\/+$/, "");
+  return `${window.location.origin}${basePath}/firma/h/${encodeURIComponent(normalizedToken)}`;
+}
+
+function buildQrImageUrl(value = "") {
+  const normalizedValue = String(value || "").trim();
+  return normalizedValue
+    ? `https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(normalizedValue)}`
+    : "";
+}
+
 function buildKpis(rows) {
   const draftCount = rows.filter((row) => row.status === "En creacion").length;
   const issuedCount = rows.filter((row) => row.status === "Emitida").length;
+  const signedCount = rows.filter((row) => row.status === "Firmada").length;
   const confirmedCount = rows.filter((row) => row.status === "Confirmada").length;
 
   return [
@@ -55,6 +75,12 @@ function buildKpis(rows) {
       label: "Emitidas",
       value: String(issuedCount).padStart(2, "0"),
       helper: "En circulacion",
+      tone: "default",
+    },
+    {
+      label: "Firmadas",
+      value: String(signedCount).padStart(2, "0"),
+      helper: "Pendientes de ticket",
       tone: "default",
     },
     {
@@ -863,6 +889,120 @@ function DocumentLibraryModal({ row, detail, onClose, onOpenGeneratedDocument, o
   );
 }
 
+function SignatureQrModal({ row, sessionData, onRefresh, onClose }) {
+  const [copyMessage, setCopyMessage] = useState("");
+  const publicUrl = buildHubPublicSignatureUrl(sessionData?.token);
+  const qrImageUrl = buildQrImageUrl(publicUrl);
+
+  useEffect(() => {
+    if (!sessionData?.documentId) {
+      return undefined;
+    }
+    if (!["pending", "signed", "published"].includes(sessionData.status)) {
+      return undefined;
+    }
+    const intervalId = window.setInterval(() => {
+      onRefresh?.();
+    }, 4000);
+    return () => window.clearInterval(intervalId);
+  }, [onRefresh, sessionData?.documentId, sessionData?.status]);
+
+  const copyUrl = async () => {
+    if (!publicUrl || !navigator?.clipboard?.writeText) {
+      return;
+    }
+    await navigator.clipboard.writeText(publicUrl);
+    setCopyMessage("Enlace copiado");
+    window.setTimeout(() => setCopyMessage(""), 1800);
+  };
+
+  const isSigned = ["signed", "published"].includes(sessionData?.status) || sessionData?.documentStatus === "Firmada";
+  const isExpired = sessionData?.status === "expired";
+
+  return (
+    <div className="grid gap-5">
+      <div className="rounded-[24px] border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-[var(--shadow-soft)]">
+        <div className="flex items-start justify-between gap-4 rounded-t-[24px] bg-[#0f172a] px-6 py-5 text-white">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-300">Firma digital</p>
+            <h2 className="mt-2 text-xl font-bold">QR para {row.code}</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-300">El contacto destino puede escanear este código desde su móvil, revisar el PDF y firmarlo sin subir adjuntos manualmente.</p>
+          </div>
+          <span className={`rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-[0.08em] ${isSigned ? "bg-[#dcfce7] text-[#15803d]" : isExpired ? "bg-[#fef3c7] text-[#92400e]" : "bg-[#dbeafe] text-[#1d4ed8]"}`}>
+            {isSigned ? "Firmada" : isExpired ? "Expirada" : "Esperando firma"}
+          </span>
+        </div>
+
+        <div className="grid gap-5 p-6 lg:grid-cols-[320px_1fr]">
+          <section className="rounded-[20px] border border-[var(--border-color)] bg-[var(--bg-app)] p-5 text-center">
+            <div className="mx-auto flex h-[260px] w-[260px] items-center justify-center overflow-hidden rounded-[18px] border border-[#cbd5e1] bg-white shadow-[0_16px_34px_rgba(15,23,42,0.08)]">
+              {qrImageUrl && !isExpired ? (
+                <img src={qrImageUrl} alt={`QR de firma para ${row.code}`} className="h-[260px] w-[260px] object-contain" />
+              ) : (
+                <span className="px-6 text-sm font-semibold text-slate-500">Genera una nueva sesión QR para continuar.</span>
+              )}
+            </div>
+            <p className="mt-4 text-sm text-slate-500">Si el QR no carga, el enlace directo igualmente queda disponible para copiar o abrir.</p>
+          </section>
+
+          <section className="grid gap-4">
+            <div className="grid gap-3 rounded-[20px] border border-[var(--border-color)] bg-white p-4 md:grid-cols-2">
+              <div className="rounded-[16px] bg-[var(--bg-app)] px-4 py-3">
+                <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Acta</p>
+                <p className="mt-1 text-sm font-semibold text-[var(--text-primary)]">{sessionData?.documentNumber || row.code}</p>
+              </div>
+              <div className="rounded-[16px] bg-[var(--bg-app)] px-4 py-3">
+                <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Expira</p>
+                <p className="mt-1 text-sm font-semibold text-[var(--text-primary)]">{sessionData?.expiresAt || "-"}</p>
+              </div>
+              <div className="rounded-[16px] bg-[var(--bg-app)] px-4 py-3">
+                <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Destino</p>
+                <p className="mt-1 text-sm font-semibold text-[var(--text-primary)]">{sessionData?.receiver?.name || row.person || "-"}</p>
+              </div>
+              <div className="rounded-[16px] bg-[var(--bg-app)] px-4 py-3">
+                <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Estado Hub</p>
+                <p className="mt-1 text-sm font-semibold text-[var(--text-primary)]">{sessionData?.documentStatus || row.status || "-"}</p>
+              </div>
+            </div>
+
+            <div className="rounded-[20px] border border-[var(--border-color)] bg-white p-4">
+              <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--text-muted)]">Enlace móvil</p>
+              <div className="mt-2 rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-app)] px-3 py-2 text-sm break-all text-[var(--text-primary)]">
+                {publicUrl || "No disponible"}
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button variant="secondary" onClick={copyUrl} disabled={!publicUrl}>Copiar enlace</Button>
+                <Button variant="secondary" onClick={() => publicUrl && window.open(publicUrl, "_blank", "noopener,noreferrer")} disabled={!publicUrl}>Abrir</Button>
+                <Button variant="secondary" onClick={onRefresh}>Actualizar</Button>
+              </div>
+              {copyMessage ? <p className="mt-2 text-xs font-semibold text-[var(--success)]">{copyMessage}</p> : null}
+            </div>
+
+            <div className={`rounded-[20px] border px-4 py-4 ${isSigned ? "border-[#bbf7d0] bg-[#f0fdf4]" : isExpired ? "border-[#fde68a] bg-[#fffbeb]" : "border-[#bfdbfe] bg-[#eff6ff]"}`}>
+              <p className="text-sm font-semibold text-[var(--text-primary)]">
+                {isSigned
+                  ? "La firma ya fue registrada. El acta quedó lista para continuar directo al ticket."
+                  : isExpired
+                    ? "La sesión expiró. Genera un nuevo QR para retomar la firma."
+                    : "Esperando la firma del destinatario. Esta ventana se actualiza automáticamente."}
+              </p>
+              {sessionData?.completedAt ? (
+                <p className="mt-2 text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+                  Firmada en {sessionData.completedAt}
+                </p>
+              ) : null}
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <div className="flex justify-end">
+        <Button variant="secondary" onClick={onClose} className="min-w-[7.5rem]">Cerrar</Button>
+      </div>
+    </div>
+  );
+}
+
 export function HandoverPage({ moduleVariant = "delivery" }) {
   const navigate = useNavigate();
   const { add } = useToast();
@@ -960,6 +1100,112 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
         title: "No fue posible procesar el acta",
         message: processError.message || "Ocurrio un error al iniciar el proceso.",
       });
+    }
+  };
+
+  const openTicketPublicationFlow = async ({ row, detail, items = [], onSuccess }) => {
+    const loadingModalId = ModalManager.loading({
+      title: "Preparando ticket iTop",
+      message: "Cargando configuracion, catalogos y grupos del usuario conectado...",
+      showProgress: false,
+      cancelLabel: "Cerrar",
+    });
+
+    try {
+      const [ticketConfig, catalogPayload, teamsPayload] = await Promise.all([
+        getItopTicketDefaults(),
+        getItopRequirementCatalog(),
+        getItopCurrentUserTeams(),
+      ]);
+
+      ModalManager.close(loadingModalId);
+
+      if (!ticketConfig.requirementEnabled) {
+        await onSuccess?.(null);
+        return;
+      }
+
+      const fallbackTeams = (teamsPayload.items || []).length ? [] : await searchItopTeams({ query: "" });
+      const groupOptions = normalizeTicketOptions((teamsPayload.items || []).length ? teamsPayload.items : fallbackTeams);
+      const initialGroupId = groupOptions.length === 1 ? groupOptions[0].value : "";
+      const initialGroupAnalysts = initialGroupId ? await searchItopTeamPeople({ teamId: initialGroupId }) : [];
+      const analystOptions = normalizeAnalystOptions(initialGroupAnalysts, teamsPayload.sessionUser, Boolean(initialGroupId));
+      const analystOption = findCurrentAnalystOption(analystOptions, teamsPayload.sessionUser) || (analystOptions.length === 1 ? analystOptions[0] : null);
+      const currentAnalystOption = buildAnalystOption(teamsPayload.sessionUser);
+      const requesterOptions = buildRequesterOptions(detail, row);
+      const selectedRequester = requesterOptions[0] || null;
+      const documentItems = buildPublicationDocumentItems(detail, items);
+      let publicationModalId = null;
+      publicationModalId = ModalManager.custom({
+        title: `Registrar en iTop ${row.code}`,
+        size: "personDetail",
+        showFooter: false,
+        closeOnOverlayClick: false,
+        closeOnEscape: false,
+        content: (
+          <ActaPublicationModalContent
+            initialValues={{
+              actaType: row.handoverType || "Acta",
+              requesterId: selectedRequester?.value || "",
+              requester: selectedRequester?.label || row.person || "",
+              groupId: initialGroupId,
+              groupName: initialGroupId ? groupOptions[0].label : "",
+              analystId: analystOption?.value || "",
+              analystName: analystOption?.label || "",
+              subject: ticketConfig.requirementSubject || "",
+              description: buildTicketDescription(row, ticketConfig.requirementTicketTemplate, detail, moduleConfig),
+              origin: ticketConfig.requirementOrigin || "",
+              impact: ticketConfig.requirementImpact || "",
+              urgency: ticketConfig.requirementUrgency || "",
+              priority: ticketConfig.requirementPriority || "",
+              category: ticketConfig.requirementServiceId || "",
+              subcategory: ticketConfig.requirementServiceSubcategoryId || "",
+            }}
+            options={{
+              requesterOptions,
+              originOptions: catalogPayload.origins || [],
+              impactOptions: catalogPayload.impacts || [],
+              urgencyOptions: catalogPayload.urgencies || [],
+              priorityOptions: catalogPayload.priorities || [],
+              categoryOptions: catalogPayload.services || [],
+              subcategoryOptions: catalogPayload.serviceSubcategories || [],
+              groupOptions,
+              analystOptions,
+              currentAnalystOption,
+            }}
+            documents={documentItems}
+            onLoadAnalystOptions={async (teamId) => normalizeAnalystOptions(await searchItopTeamPeople({ teamId }), teamsPayload.sessionUser, Boolean(teamId))}
+            onPreviewDocument={async (document) => {
+              const previewLoadingId = ModalManager.loading({
+                title: `Abriendo ${document.name || "adjunto"}`,
+                message: "Obteniendo el documento para previsualizacion...",
+                showProgress: false,
+                cancelLabel: "Cerrar",
+              });
+              try {
+                await openPublicationDocumentPreview(row, document);
+              } catch (previewError) {
+                ModalManager.error({
+                  title: "No fue posible abrir el adjunto",
+                  message: previewError.message || "El documento seleccionado no esta disponible.",
+                });
+              } finally {
+                ModalManager.close(previewLoadingId);
+              }
+            }}
+            submitLabel="Publicar"
+            submittingLabel="Publicando..."
+            onCancel={() => ModalManager.close(publicationModalId)}
+            onSubmit={async (ticketPayload) => {
+              ModalManager.close(publicationModalId);
+              await onSuccess?.(ticketPayload);
+            }}
+          />
+        ),
+      });
+    } catch (prepareError) {
+      ModalManager.close(loadingModalId);
+      throw prepareError;
     }
   };
 
@@ -1139,23 +1385,9 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
           onCancel={() => ModalManager.close(modalId)}
           onSubmit={async (items) => {
             if (willConfirmStatus) {
-              let loadingModalId = null;
               try {
-                loadingModalId = ModalManager.loading({
-                  title: "Preparando ticket iTop",
-                  message: "Cargando configuracion, catalogos y grupos del usuario conectado...",
-                  showProgress: false,
-                  cancelLabel: "Cerrar",
-                });
-
-                const [ticketConfig, catalogPayload, teamsPayload, detail] = await Promise.all([
-                  getItopTicketDefaults(),
-                  getItopRequirementCatalog(),
-                  getItopCurrentUserTeams(),
-                  getHandoverDocument(row.id),
-                ]);
-
-                ModalManager.close(loadingModalId);
+                const detail = await getHandoverDocument(row.id);
+                const ticketConfig = await getItopTicketDefaults();
 
                 if (!ticketConfig.requirementEnabled) {
                   const confirmLoadingModalId = ModalManager.loading({
@@ -1185,112 +1417,39 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
                   return;
                 }
 
-                const fallbackTeams = (teamsPayload.items || []).length ? [] : await searchItopTeams({ query: "" });
-                const groupOptions = normalizeTicketOptions((teamsPayload.items || []).length ? teamsPayload.items : fallbackTeams);
-                const initialGroupId = groupOptions.length === 1 ? groupOptions[0].value : "";
-                const initialGroupAnalysts = initialGroupId ? await searchItopTeamPeople({ teamId: initialGroupId }) : [];
-                const analystOptions = normalizeAnalystOptions(initialGroupAnalysts, teamsPayload.sessionUser, Boolean(initialGroupId));
-                const analystOption = findCurrentAnalystOption(analystOptions, teamsPayload.sessionUser) || (analystOptions.length === 1 ? analystOptions[0] : null);
-                const currentAnalystOption = buildAnalystOption(teamsPayload.sessionUser);
-                const requesterOptions = buildRequesterOptions(detail, row);
-                const selectedRequester = requesterOptions[0] || null;
-                const documentItems = buildPublicationDocumentItems(detail, items);
-                let publicationModalId = null;
-                publicationModalId = ModalManager.custom({
-                  title: `Registrar en iTop ${row.code}`,
-                  size: "personDetail",
-                  showFooter: false,
-                  closeOnOverlayClick: false,
-                  closeOnEscape: false,
-                  content: (
-                    <ActaPublicationModalContent
-                      initialValues={{
-                        actaType: row.handoverType || "Acta",
-                        requesterId: selectedRequester?.value || "",
-                        requester: selectedRequester?.label || row.person || "",
-                        groupId: initialGroupId,
-                        groupName: initialGroupId ? groupOptions[0].label : "",
-                        analystId: analystOption?.value || "",
-                        analystName: analystOption?.label || "",
-                        subject: ticketConfig.requirementSubject || "",
-                        description: buildTicketDescription(row, ticketConfig.requirementTicketTemplate, detail, moduleConfig),
-                        origin: ticketConfig.requirementOrigin || "",
-                        impact: ticketConfig.requirementImpact || "",
-                        urgency: ticketConfig.requirementUrgency || "",
-                        priority: ticketConfig.requirementPriority || "",
-                        category: ticketConfig.requirementServiceId || "",
-                        subcategory: ticketConfig.requirementServiceSubcategoryId || "",
-                      }}
-                      options={{
-                        requesterOptions,
-                        originOptions: catalogPayload.origins || [],
-                        impactOptions: catalogPayload.impacts || [],
-                        urgencyOptions: catalogPayload.urgencies || [],
-                        priorityOptions: catalogPayload.priorities || [],
-                        categoryOptions: catalogPayload.services || [],
-                        subcategoryOptions: catalogPayload.serviceSubcategories || [],
-                        groupOptions,
-                        analystOptions,
-                        currentAnalystOption,
-                      }}
-                      documents={documentItems}
-                      onLoadAnalystOptions={async (teamId) => normalizeAnalystOptions(await searchItopTeamPeople({ teamId }), teamsPayload.sessionUser, Boolean(teamId))}
-                      onPreviewDocument={async (document) => {
-                        const previewLoadingId = ModalManager.loading({
-                          title: `Abriendo ${document.name || "adjunto"}`,
-                          message: "Obteniendo el documento para previsualizacion...",
-                          showProgress: false,
-                          cancelLabel: "Cerrar",
-                        });
-                        try {
-                          await openPublicationDocumentPreview(row, document);
-                        } catch (previewError) {
-                          ModalManager.error({
-                            title: "No fue posible abrir el adjunto",
-                            message: previewError.message || "El documento seleccionado no esta disponible.",
-                          });
-                        } finally {
-                          ModalManager.close(previewLoadingId);
-                        }
-                      }}
-                      submitLabel="Publicar"
-                      submittingLabel="Publicando..."
-                      onCancel={() => ModalManager.close(publicationModalId)}
-                      onSubmit={async (ticketPayload) => {
-                        ModalManager.close(publicationModalId);
-                        const publishLoadingModalId = ModalManager.loading({
-                          title: "Publicando en iTop",
-                          message: "Registrando ticket, vinculando activos y cargando adjuntos...",
-                          showProgress: false,
-                          cancelLabel: "Cerrar",
-                        });
-                        try {
-                          await uploadHandoverEvidence(row.id, items, ticketPayload);
-                          ModalManager.close(publishLoadingModalId);
-                          ModalManager.close(modalId);
-                          setError("");
-                          add({
-                            title: "Acta confirmada",
-                            description: `El acta ${row.code} quedo Confirmada y las evidencias fueron registradas correctamente.`,
-                            tone: "success",
-                          });
-                          await loadDocuments(filters);
-                        } catch (publishError) {
-                          ModalManager.close(publishLoadingModalId);
-                          ModalManager.error({
-                            title: "No fue posible publicar el acta",
-                            message: publishError.message || "No fue posible registrar el ticket y los adjuntos en iTop.",
-                          });
-                        }
-                      }}
-                    />
-                  ),
+                await openTicketPublicationFlow({
+                  row,
+                  detail,
+                  items,
+                  onSuccess: async (ticketPayload) => {
+                    const publishLoadingModalId = ModalManager.loading({
+                      title: "Publicando en iTop",
+                      message: "Registrando ticket, vinculando activos y cargando adjuntos...",
+                      showProgress: false,
+                      cancelLabel: "Cerrar",
+                    });
+                    try {
+                      await uploadHandoverEvidence(row.id, items, ticketPayload);
+                      ModalManager.close(publishLoadingModalId);
+                      ModalManager.close(modalId);
+                      setError("");
+                      add({
+                        title: "Acta confirmada",
+                        description: `El acta ${row.code} quedo Confirmada y las evidencias fueron registradas correctamente.`,
+                        tone: "success",
+                      });
+                      await loadDocuments(filters);
+                    } catch (publishError) {
+                      ModalManager.close(publishLoadingModalId);
+                      ModalManager.error({
+                        title: "No fue posible publicar el acta",
+                        message: publishError.message || "No fue posible registrar el ticket y los adjuntos en iTop.",
+                      });
+                    }
+                  },
                 });
                 return;
               } catch (prepareError) {
-                if (loadingModalId) {
-                  ModalManager.close(loadingModalId);
-                }
                 throw prepareError;
               }
             }
@@ -1310,6 +1469,100 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
         />
       ),
     });
+  };
+
+  const openQrModal = async (row) => {
+    const loadingModalId = ModalManager.loading({
+      title: `Preparando QR ${row.code}`,
+      message: "Generando la sesión de firma móvil y su enlace público...",
+      showProgress: false,
+      cancelLabel: "Cerrar",
+    });
+
+    try {
+      const sessionData = await createHandoverSignatureSession(row.id);
+      ModalManager.close(loadingModalId);
+      let modalId = null;
+      const refreshSession = async () => {
+        const refreshed = await getHandoverSignatureSession(row.id);
+        if (modalId) {
+          ModalManager.update(modalId, {
+            content: (
+              <SignatureQrModal
+                row={row}
+                sessionData={refreshed}
+                onRefresh={refreshSession}
+                onClose={() => ModalManager.close(modalId)}
+              />
+            ),
+          });
+        }
+        if (["signed", "published"].includes(refreshed.status) || refreshed.documentStatus === "Firmada") {
+          await loadDocuments(filters);
+        }
+      };
+
+      modalId = ModalManager.custom({
+        title: `Firma QR ${row.code}`,
+        size: "clientWide",
+        showFooter: false,
+        content: (
+          <SignatureQrModal
+            row={row}
+            sessionData={sessionData}
+            onRefresh={refreshSession}
+            onClose={() => ModalManager.close(modalId)}
+          />
+        ),
+      });
+    } catch (signatureError) {
+      ModalManager.close(loadingModalId);
+      ModalManager.error({
+        title: "No fue posible abrir el QR",
+        message: signatureError.message || "No fue posible preparar la sesión de firma digital.",
+      });
+    }
+  };
+
+  const handlePublishSigned = async (row) => {
+    try {
+      const detail = await getHandoverDocument(row.id);
+      await openTicketPublicationFlow({
+        row,
+        detail,
+        items: [],
+        onSuccess: async (ticketPayload) => {
+          const publishLoadingModalId = ModalManager.loading({
+            title: "Publicando ticket",
+            message: "Registrando el ticket y vinculando el PDF firmado en iTop...",
+            showProgress: false,
+            cancelLabel: "Cerrar",
+          });
+          try {
+            await publishSignedHandover(row.id, ticketPayload);
+            ModalManager.close(publishLoadingModalId);
+            setError("");
+            add({
+              title: "Acta confirmada",
+              description: `El acta ${row.code} quedó Confirmada y su ticket se registró usando el PDF firmado por QR.`,
+              tone: "success",
+            });
+            await loadDocuments(filters);
+          } catch (publishError) {
+            ModalManager.close(publishLoadingModalId);
+            ModalManager.error({
+              title: "No fue posible publicar el ticket",
+              message: publishError.message || "No fue posible cerrar el acta firmada en iTop.",
+            });
+          }
+        },
+      });
+    } catch (prepareError) {
+      ModalManager.error({
+        title: "No fue posible continuar con el ticket",
+        message: prepareError.message || "No fue posible cargar el detalle del acta firmada.",
+      });
+    }
   };
 
   const identityColumns = moduleConfig.key === "reassignment"
@@ -1357,6 +1610,7 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
       render: (_, row) => {
         const isDraft = row.status === "En creacion";
         const isIssued = row.status === "Emitida";
+        const isSigned = row.status === "Firmada";
         const isConfirmed = row.status === "Confirmada";
         const isCancelled = row.status === "Anulada";
 
@@ -1371,7 +1625,7 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
           });
         }
 
-        if (isConfirmed || isIssued || isCancelled) {
+        if (isConfirmed || isIssued || isSigned || isCancelled) {
           actions.push({
             key: "view",
             label: "Ver",
@@ -1396,9 +1650,24 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
             icon: "paperclip",
             onClick: () => openEvidenceModal(row),
           });
+          actions.push({
+            key: "qr",
+            label: "QR",
+            icon: "comment",
+            onClick: () => openQrModal(row),
+          });
         }
 
-        if (isIssued || isConfirmed) {
+        if (isSigned) {
+          actions.push({
+            key: "publish",
+            label: "Ticket",
+            icon: "paperPlane",
+            onClick: () => handlePublishSigned(row),
+          });
+        }
+
+        if (isIssued || isSigned || isConfirmed) {
           actions.push({
             key: "pdf",
             label: "Docs",

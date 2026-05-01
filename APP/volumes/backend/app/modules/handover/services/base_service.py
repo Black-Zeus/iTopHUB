@@ -372,6 +372,7 @@ class BaseHandoverService:
             "evidenceDate": current_detail.get("evidenceDate") or "",
             "generatedDocuments": [],
             "evidenceAttachments": current_detail.get("evidenceAttachments") or [],
+            "signatureWorkflow": {},
             "status": "En creacion",
             "handoverType": self.type_definition.label,
             "handoverTypeCode": self.type_definition.code,
@@ -637,6 +638,7 @@ class BaseHandoverService:
                 evidence_date=evidence_at,
                 generated_documents=next_generated_documents,
                 evidence_attachments=next_evidence_attachments,
+                signature_workflow=current_detail.get("signatureWorkflow") if current_status == "Confirmada" else {},
             )
             item_payloads = helpers._build_item_payloads_from_detail(current_detail.get("items") or [])
             helpers.save_handover_document(document_id, document_payload, item_payloads)

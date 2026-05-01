@@ -152,6 +152,54 @@ export async function uploadHandoverEvidence(documentId, items = [], ticketPaylo
 }
 
 
+export async function createHandoverSignatureSession(documentId) {
+  const response = await apiRequest(`/v1/handover/documents/${documentId}/signature-session`, {
+    method: "POST",
+    fallbackMessage: "No fue posible abrir la sesión QR de firma.",
+    retryOnRevalidate: true,
+  });
+  return response.item;
+}
+
+
+export async function getHandoverSignatureSession(documentId) {
+  const response = await apiRequest(`/v1/handover/documents/${documentId}/signature-session`, {
+    fallbackMessage: "No fue posible consultar la sesión QR de firma.",
+    retryOnRevalidate: true,
+  });
+  return response.item;
+}
+
+
+export async function publishSignedHandover(documentId, ticketPayload = null) {
+  const response = await apiRequest(`/v1/handover/documents/${documentId}/publish-signed`, {
+    method: "POST",
+    body: JSON.stringify({ ticket: ticketPayload || {} }),
+    fallbackMessage: "No fue posible publicar el ticket del acta firmada.",
+    retryOnRevalidate: true,
+  });
+  return response.item;
+}
+
+
+export async function getPublicHandoverSignatureSession(token) {
+  const response = await apiRequest(`/v1/handover/signature-sessions/${encodeURIComponent(token)}`, {
+    fallbackMessage: "No fue posible cargar la sesión pública de firma.",
+  });
+  return response.item;
+}
+
+
+export async function submitPublicHandoverSignature(token, payload) {
+  const response = await apiRequest(`/v1/handover/signature-sessions/${encodeURIComponent(token)}/submit`, {
+    method: "POST",
+    body: JSON.stringify(payload || {}),
+    fallbackMessage: "No fue posible registrar la firma digital.",
+  });
+  return response.item;
+}
+
+
 export async function fetchHandoverEvidenceBlob(documentId, storedName) {
   const response = await fetch(
     `${API_BASE_URL}/v1/handover/documents/${documentId}/evidence/${encodeURIComponent(storedName)}`,
@@ -172,6 +220,23 @@ export async function fetchHandoverGeneratedPdfBlob(documentId, documentKind) {
   );
   if (!response.ok) {
     throw new Error("No fue posible obtener el PDF generado.");
+  }
+  const blob = await response.blob();
+  const disposition = response.headers.get("Content-Disposition") || "";
+  const match = disposition.match(/filename[^;=\n]*=(['"]?)([^'"\n;]+)\1/i);
+  const filename = match?.[2]?.trim() || null;
+  const namedBlob = filename ? new File([blob], filename, { type: "application/pdf" }) : blob;
+  return { blob, url: URL.createObjectURL(namedBlob), filename };
+}
+
+
+export async function fetchPublicHandoverSignatureDocumentBlob(token, documentKind) {
+  const response = await fetch(
+    `${API_BASE_URL}/v1/handover/signature-sessions/${encodeURIComponent(token)}/documents/${encodeURIComponent(documentKind)}`,
+    { credentials: "include" }
+  );
+  if (!response.ok) {
+    throw new Error("No fue posible obtener el documento de la sesión de firma.");
   }
   const blob = await response.blob();
   const disposition = response.headers.get("Content-Disposition") || "";

@@ -4,19 +4,20 @@ import json
 import logging
 import time
 from base64 import b64decode, b64encode
-from datetime import datetime
+from datetime import datetime, timedelta
 from html import escape
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+import requests
 from fastapi import HTTPException
 
 from core.config import settings
 from integrations.itop_cmdb_connector import iTopCMDBConnector, iTopObject
 from integrations.itop_runtime import get_itop_runtime_config
 from infrastructure.job_manager import create_job
-from modules.handover.document_templates import build_detail_document_number
+from modules.handover.document_templates import build_detail_document_number, build_handover_main_html
 from modules.handover.document_type_registry import (
     build_missing_document_type_error_message,
     resolve_required_document_type_id_for_handover_type,
@@ -34,11 +35,13 @@ from modules.handover.payloads import (
     deserialize_additional_receivers as _deserialize_additional_receivers,
     deserialize_evidence_attachments as _deserialize_evidence_attachments,
     deserialize_generated_documents as _deserialize_generated_documents,
+    deserialize_signature_workflow as _deserialize_signature_workflow,
     normalize_additional_receivers as _normalize_additional_receivers,
     normalize_evidence_attachments as _normalize_evidence_attachments,
     normalize_evidence_document_type as _normalize_evidence_document_type,
     normalize_generated_at as _normalize_generated_at,
     normalize_generated_documents as _normalize_generated_documents,
+    normalize_signature_workflow as _normalize_signature_workflow,
     normalize_itop_ticket_summary as _normalize_itop_ticket_summary,
     normalize_optional_datetime as _normalize_optional_datetime,
     normalize_reassignment_source_receiver as _normalize_reassignment_source_receiver,
@@ -51,6 +54,7 @@ from modules.handover.pdf_pipeline import (
 from modules.handover.repository import (
     fetch_handover_checklist_answer_rows,
     fetch_handover_document_row,
+    fetch_handover_document_row_by_signature_token,
     fetch_handover_document_rows,
     fetch_handover_item_evidence_rows,
     fetch_handover_item_checklist_rows,
@@ -90,6 +94,9 @@ from modules.handover.storage_paths import (
 
 logger = logging.getLogger(__name__)
 
+SIGNATURE_SESSION_TTL_MINUTES = 20
+SIGNATURE_PUBLIC_ROUTE = "firma/h"
+
 
 def _sanitize_attachment_filename(value: Any) -> str:
     name = Path(_coerce_str(value)).name
@@ -103,6 +110,38 @@ def _format_attachment_size(size_bytes: int) -> str:
     if size_bytes < 1024 * 1024:
         return f"{(size_bytes / 1024):.1f} KB"
     return f"{(size_bytes / (1024 * 1024)):.1f} MB"
+
+
+def _serialize_signature_timestamp(value: datetime | None = None) -> str:
+    return (value or datetime.now()).strftime("%Y-%m-%dT%H:%M")
+
+
+def _get_signature_workflow_status(workflow: dict[str, Any]) -> str:
+    if not isinstance(workflow, dict):
+        return ""
+    status = _coerce_str(workflow.get("status"))
+    if status != "pending":
+        return status
+
+    expires_at = _coerce_str(workflow.get("expiresAt"))
+    if not expires_at:
+        return status
+    expires_dt = _normalize_optional_datetime(expires_at)
+    if expires_dt and expires_dt < datetime.now():
+        return "expired"
+    return status
+
+
+def _build_signature_requested_by(session_user: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "userId": int(session_user.get("id") or 0) or None,
+        "name": _coerce_str(session_user.get("name") or session_user.get("username")),
+    }
+
+
+def _build_handover_public_signature_path(token: str) -> str:
+    safe_token = Path(_coerce_str(token)).name
+    return f"/{SIGNATURE_PUBLIC_ROUTE}/{safe_token}" if safe_token else ""
 
 
 def _normalize_ticket_id(value: Any) -> str:
@@ -284,6 +323,19 @@ def _extract_itop_ticket_from_attachments(attachments: list[dict[str, Any]]) -> 
         if ticket.get("id") or ticket.get("number"):
             return ticket
     return {}
+
+
+def _extract_itop_ticket_from_signature_workflow(signature_workflow: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(signature_workflow, dict):
+        return {}
+    return _normalize_itop_ticket_summary(signature_workflow.get("publishedTicket"))
+
+
+def _extract_document_itop_ticket(
+    evidence_attachments: list[dict[str, Any]],
+    signature_workflow: dict[str, Any],
+) -> dict[str, Any]:
+    return _extract_itop_ticket_from_attachments(evidence_attachments) or _extract_itop_ticket_from_signature_workflow(signature_workflow)
 
 
 def _build_evidence_document_code(document_number: Any, document_type: str) -> str:
@@ -876,9 +928,9 @@ def list_handover_documents(
 
     def _build_list_item(row: dict[str, Any]) -> dict[str, Any]:
         type_definition = get_handover_type_definition(row["handover_type"])
-        itop_ticket = _extract_itop_ticket_from_attachments(
-            _deserialize_evidence_attachments(row.get("evidence_attachments"))
-        )
+        evidence_attachments = _deserialize_evidence_attachments(row.get("evidence_attachments"))
+        signature_workflow = _deserialize_signature_workflow(row.get("signature_workflow"))
+        itop_ticket = _extract_document_itop_ticket(evidence_attachments, signature_workflow)
         additional_receivers = _deserialize_additional_receivers(row.get("additional_receivers"))
         source_person = next(
             (
@@ -1009,6 +1061,7 @@ def get_handover_document_detail(document_id: int) -> dict[str, Any]:
 
     generated_documents = _deserialize_generated_documents(document_row.get("generated_documents"))
     evidence_attachments = _deserialize_evidence_attachments(document_row.get("evidence_attachments"))
+    signature_workflow = _deserialize_signature_workflow(document_row.get("signature_workflow"))
 
     return {
         "id": int(document_row["id"]),
@@ -1019,7 +1072,8 @@ def get_handover_document_detail(document_id: int) -> dict[str, Any]:
         "evidenceDate": _serialize_datetime(document_row.get("evidence_date")),
         "generatedDocuments": generated_documents,
         "evidenceAttachments": evidence_attachments,
-        "itopTicket": _extract_itop_ticket_from_attachments(evidence_attachments),
+        "signatureWorkflow": signature_workflow,
+        "itopTicket": _extract_document_itop_ticket(evidence_attachments, signature_workflow),
         "status": STATUS_DB_TO_UI.get(document_row["status"], document_row["status"]),
         "handoverType": type_definition.label,
         "handoverTypeCode": type_definition.code,
@@ -2308,6 +2362,136 @@ def _attach_handover_documents_to_itop_targets(
     return result
 
 
+def _render_handover_pdf_bytes(
+    html: str,
+    footer_html: str | None = None,
+    *,
+    filename: str | None = None,
+) -> bytes:
+    headers = {}
+    if settings.internal_api_secret:
+        headers["X-Internal-Secret"] = settings.internal_api_secret
+
+    try:
+        response = requests.post(
+            f"{settings.pdf_worker_url.rstrip('/')}/internal/render/html-to-pdf",
+            json={
+                "html": html,
+                "footer_html": footer_html,
+                "filename": filename,
+            },
+            headers=headers,
+            timeout=120,
+        )
+    except requests.exceptions.Timeout as exc:
+        raise HTTPException(status_code=504, detail="El servicio PDF tardó demasiado en responder.") from exc
+    except requests.RequestException as exc:
+        raise HTTPException(status_code=502, detail=f"No fue posible conectar con pdf-worker: {exc}") from exc
+
+    if response.status_code >= 400:
+        error_text = response.text.strip()
+        if error_text:
+            raise HTTPException(status_code=502, detail=f"pdf-worker respondió con error {response.status_code}: {error_text[:240]}")
+        raise HTTPException(status_code=502, detail=f"pdf-worker respondió con error {response.status_code}.")
+    if not response.content:
+        raise HTTPException(status_code=502, detail="pdf-worker no devolvió contenido PDF.")
+    return response.content
+
+
+def _validate_signature_data_url(value: Any) -> dict[str, str]:
+    data_url = _coerce_str(value)
+    prefix, separator, raw_base64 = data_url.partition(",")
+    if not separator or ";base64" not in prefix or not prefix.startswith("data:image/"):
+        raise HTTPException(status_code=422, detail="La firma capturada no tiene un formato válido.")
+
+    mime_type = prefix[5:].split(";", 1)[0].strip().lower()
+    if mime_type not in {"image/png", "image/jpeg"}:
+        raise HTTPException(status_code=422, detail="La firma digital solo admite imágenes PNG o JPEG.")
+    if len(raw_base64) > 2_000_000:
+        raise HTTPException(status_code=422, detail="La firma digital es demasiado grande.")
+
+    try:
+        content = b64decode(raw_base64, validate=True)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail="La firma digital no pudo validarse correctamente.") from exc
+    if len(content) < 64:
+        raise HTTPException(status_code=422, detail="La firma digital no contiene suficiente información.")
+
+    return {
+        "dataUrl": data_url,
+        "mimeType": mime_type,
+    }
+
+
+def _build_signature_session_response(
+    detail: dict[str, Any],
+    signature_workflow: dict[str, Any],
+) -> dict[str, Any]:
+    token = _coerce_str(signature_workflow.get("token"))
+    documents = [
+        {
+            "kind": _coerce_str(item.get("kind")),
+            "name": _coerce_str(item.get("name")) or _coerce_str(item.get("storedName")),
+            "storedName": _coerce_str(item.get("storedName")),
+            "mimeType": _coerce_str(item.get("mimeType")) or "application/pdf",
+            "downloadPath": f"/v1/handover/signature-sessions/{token}/documents/{_coerce_str(item.get('kind'))}" if token else "",
+        }
+        for item in detail.get("generatedDocuments") or []
+        if _coerce_str(item.get("kind")) in GENERATED_DOCUMENT_KINDS and _coerce_str(item.get("storedName"))
+    ]
+    status = _get_signature_workflow_status(signature_workflow)
+    return {
+        "documentId": int(detail.get("id") or 0),
+        "documentNumber": _coerce_str(detail.get("documentNumber")),
+        "handoverType": _coerce_str(detail.get("handoverType")),
+        "handoverTypeCode": _coerce_str(detail.get("handoverTypeCode")),
+        "status": status,
+        "documentStatus": _coerce_str(detail.get("status")),
+        "token": token,
+        "publicPath": _build_handover_public_signature_path(token),
+        "requestedAt": _coerce_str(signature_workflow.get("requestedAt")),
+        "expiresAt": _coerce_str(signature_workflow.get("expiresAt")),
+        "completedAt": _coerce_str(signature_workflow.get("completedAt")),
+        "receiver": detail.get("receiver") or {},
+        "owner": detail.get("owner") or {},
+        "reason": _coerce_str(detail.get("reason")),
+        "notes": _coerce_str(detail.get("notes")),
+        "assignmentDate": _coerce_str(detail.get("assignmentDate")),
+        "documents": documents,
+        "signatureWorkflow": signature_workflow,
+    }
+
+
+def _resolve_signature_document_by_kind(detail: dict[str, Any], document_kind: str) -> dict[str, Any] | None:
+    normalized_kind = Path(_coerce_str(document_kind)).name.lower()
+    if normalized_kind not in GENERATED_DOCUMENT_KINDS:
+        return None
+    return next(
+        (
+            item
+            for item in detail.get("generatedDocuments") or []
+            if _coerce_str(item.get("kind")) == normalized_kind and _coerce_str(item.get("storedName"))
+        ),
+        None,
+    )
+
+
+def _get_public_signature_detail(signature_token: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    token = Path(_coerce_str(signature_token)).name
+    if not token:
+        raise HTTPException(status_code=404, detail="La sesión de firma no está disponible.")
+
+    document_row = fetch_handover_document_row_by_signature_token(token)
+    if not document_row:
+        raise HTTPException(status_code=404, detail="La sesión de firma no está disponible.")
+
+    detail = get_handover_document_detail(int(document_row["id"]))
+    signature_workflow = detail.get("signatureWorkflow") or {}
+    if _coerce_str(signature_workflow.get("token")) != token:
+        raise HTTPException(status_code=404, detail="La sesión de firma no está disponible.")
+    return detail, signature_workflow
+
+
 def _normalize_items(
     payload_items: list[dict[str, Any]],
     template_catalog: dict[int, dict[str, Any]],
@@ -2473,6 +2657,7 @@ def _normalize_handover_payload(
         )
     generated_documents = _normalize_generated_documents(payload.get("generatedDocuments") or [])
     evidence_attachments = _normalize_evidence_attachments(payload.get("evidenceAttachments") or [])
+    signature_workflow = _normalize_signature_workflow(payload.get("signatureWorkflow") or {})
     items = _normalize_items(payload.get("items") or [], template_catalog, type_definition=type_definition)
 
     if not type_definition.allow_additional_receivers and additional_receivers:
@@ -2495,7 +2680,7 @@ def _normalize_handover_payload(
 
     if not reason:
         raise HTTPException(status_code=422, detail=f"Debes indicar el {type_definition.main_reason_label.lower()}.")
-    if status_ui in {"Emitida", "Confirmada"}:
+    if status_ui in {"Emitida", "Firmada", "Confirmada"}:
         if type_definition.requires_checklists:
             _validate_required_checklists(
                 [
@@ -2529,6 +2714,7 @@ def _normalize_handover_payload(
         "additional_receivers": additional_receivers or None,
         "generated_documents": generated_documents or None,
         "evidence_attachments": evidence_attachments or None,
+        "signature_workflow": signature_workflow or None,
         **receiver,
     }
     return document_payload, items
@@ -2546,6 +2732,273 @@ def _resolve_handover_service(handover_type: Any):
     from modules.handover.services import resolve_handover_service
 
     return resolve_handover_service(handover_type)
+
+
+def create_handover_signature_session(document_id: int, session_user: dict[str, Any]) -> dict[str, Any]:
+    current_detail = get_handover_document_detail(document_id)
+    if _coerce_str(current_detail.get("status")) != "Emitida":
+        raise HTTPException(status_code=422, detail="Solo puedes abrir un QR de firma sobre actas en estado Emitida.")
+
+    generated_main = _resolve_signature_document_by_kind(current_detail, "main")
+    if generated_main is None:
+        raise HTTPException(status_code=422, detail="El acta todavía no tiene un PDF principal disponible para firma.")
+
+    existing_document = fetch_handover_document_row(document_id)
+    if not existing_document:
+        raise HTTPException(status_code=404, detail="Acta no encontrada.")
+
+    now = datetime.now()
+    existing_workflow = current_detail.get("signatureWorkflow") or {}
+    workflow_status = _get_signature_workflow_status(existing_workflow)
+    if workflow_status == "pending" and _coerce_str(existing_workflow.get("token")):
+        return _build_signature_session_response(current_detail, existing_workflow)
+
+    token = uuid4().hex
+    signature_workflow = {
+        "channel": "qr",
+        "status": "pending",
+        "token": token,
+        "requestedAt": _serialize_signature_timestamp(now),
+        "expiresAt": _serialize_signature_timestamp(now + timedelta(minutes=SIGNATURE_SESSION_TTL_MINUTES)),
+        "completedAt": "",
+        "cancelledAt": "",
+        "requestedBy": _build_signature_requested_by(session_user),
+        "signedBy": {},
+        "signature": {},
+        "errorCode": "",
+        "errorMessage": "",
+        "publishedTicket": {},
+        "publishedAttachments": {},
+    }
+
+    document_payload = _build_document_payload_from_detail(
+        current_detail,
+        existing_document,
+        status_ui="Emitida",
+        assignment_date=current_detail.get("assignmentDate") or "",
+        evidence_date=current_detail.get("evidenceDate") or "",
+        generated_documents=current_detail.get("generatedDocuments") or [],
+        evidence_attachments=current_detail.get("evidenceAttachments") or [],
+        signature_workflow=signature_workflow,
+    )
+    item_payloads = _build_item_payloads_from_detail(current_detail.get("items") or [])
+    save_handover_document(document_id, document_payload, item_payloads)
+    refreshed_detail = get_handover_document_detail(document_id)
+    return _build_signature_session_response(refreshed_detail, refreshed_detail.get("signatureWorkflow") or {})
+
+
+def get_handover_signature_session(document_id: int) -> dict[str, Any]:
+    current_detail = get_handover_document_detail(document_id)
+    return _build_signature_session_response(current_detail, current_detail.get("signatureWorkflow") or {})
+
+
+def get_public_handover_signature_session(signature_token: str) -> dict[str, Any]:
+    detail, signature_workflow = _get_public_signature_detail(signature_token)
+    return _build_signature_session_response(detail, signature_workflow)
+
+
+def submit_public_handover_signature(
+    signature_token: str,
+    *,
+    signature_data_url: str,
+    signer_name: str = "",
+    signer_role: str = "",
+) -> dict[str, Any]:
+    detail, signature_workflow = _get_public_signature_detail(signature_token)
+    current_status = _coerce_str(detail.get("status"))
+    workflow_status = _get_signature_workflow_status(signature_workflow)
+
+    if current_status == "Firmada" and workflow_status in {"signed", "published"}:
+        return _build_signature_session_response(detail, signature_workflow)
+    if current_status != "Emitida" or workflow_status != "pending":
+        raise HTTPException(status_code=410, detail="La sesión de firma ya no está disponible para este documento.")
+
+    existing_document = fetch_handover_document_row(int(detail["id"]))
+    if not existing_document:
+        raise HTTPException(status_code=404, detail="Acta no encontrada.")
+
+    validated_signature = _validate_signature_data_url(signature_data_url)
+    receiver = detail.get("receiver") or {}
+    signed_at = _serialize_signature_timestamp()
+    updated_workflow = {
+        **signature_workflow,
+        "status": "signed",
+        "completedAt": signed_at,
+        "errorCode": "",
+        "errorMessage": "",
+        "signedBy": {
+            "id": receiver.get("id"),
+            "name": _coerce_str(signer_name) or _coerce_str(receiver.get("name")),
+            "role": _coerce_str(signer_role) or _coerce_str(receiver.get("role")),
+        },
+        "signature": validated_signature,
+    }
+
+    detail_for_pdf = {
+        **detail,
+        "status": "Firmada",
+        "signatureWorkflow": updated_workflow,
+    }
+    main_stored_name = f"{_coerce_str(detail.get('documentNumber'))}.pdf"
+    html_main, footer_main = build_handover_main_html(detail_for_pdf)
+    pdf_bytes = _render_handover_pdf_bytes(html_main, footer_main, filename=main_stored_name)
+    storage_directory = build_handover_storage_directory(
+        "documents",
+        int(detail["id"]),
+        detail.get("handoverTypeCode") or detail.get("handoverType"),
+    )
+    storage_directory.mkdir(parents=True, exist_ok=True)
+    main_path = storage_directory / main_stored_name
+    main_path.write_bytes(pdf_bytes)
+
+    generated_documents = []
+    for item in detail.get("generatedDocuments") or []:
+        if _coerce_str(item.get("kind")) == "main":
+            generated_documents.append(
+                {
+                    **item,
+                    "name": main_stored_name,
+                    "storedName": main_stored_name,
+                    "mimeType": "application/pdf",
+                    "size": _format_attachment_size(len(pdf_bytes)),
+                    "source": build_handover_storage_source(
+                        settings.env_name,
+                        "documents",
+                        int(detail["id"]),
+                        detail.get("handoverTypeCode") or detail.get("handoverType"),
+                        main_stored_name,
+                    ),
+                    "uploadedAt": signed_at,
+                }
+            )
+        else:
+            generated_documents.append(item)
+
+    document_payload = _build_document_payload_from_detail(
+        detail_for_pdf,
+        existing_document,
+        status_ui="Firmada",
+        assignment_date=detail.get("assignmentDate") or "",
+        evidence_date=detail.get("evidenceDate") or "",
+        generated_documents=generated_documents,
+        evidence_attachments=detail.get("evidenceAttachments") or [],
+        signature_workflow=updated_workflow,
+    )
+    item_payloads = _build_item_payloads_from_detail(detail.get("items") or [])
+    save_handover_document(int(detail["id"]), document_payload, item_payloads)
+    refreshed_detail = get_handover_document_detail(int(detail["id"]))
+    return _build_signature_session_response(refreshed_detail, refreshed_detail.get("signatureWorkflow") or {})
+
+
+def publish_signed_handover_document(
+    document_id: int,
+    *,
+    runtime_token: str,
+    ticket_payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    existing_document = fetch_handover_document_row(document_id)
+    if not existing_document:
+        raise HTTPException(status_code=404, detail="Acta no encontrada.")
+
+    current_detail = get_handover_document_detail(document_id)
+    current_status = _coerce_str(current_detail.get("status"))
+    signature_workflow = current_detail.get("signatureWorkflow") or {}
+    if current_status != "Firmada" or _get_signature_workflow_status(signature_workflow) not in {"signed", "published"}:
+        raise HTTPException(status_code=422, detail="Solo puedes publicar ticket sobre un acta ya firmada por QR.")
+
+    handover_service = _resolve_handover_service(current_detail.get("handoverTypeCode") or current_detail.get("handoverType"))
+    handover_service.validate_assets(
+        current_detail,
+        runtime_token=runtime_token,
+        action_label="publicar el ticket del acta firmada",
+        stage="confirm",
+    )
+    handover_service._validate_confirmation_documents(current_detail, [{"documentType": "Acta"}])
+
+    docs_settings = get_settings_panel("docs")
+    ticket_rules = _resolve_handover_ticket_rules(docs_settings)
+    existing_ticket = _extract_document_itop_ticket(current_detail.get("evidenceAttachments") or [], signature_workflow)
+    normalized_ticket_payload = _normalize_itop_ticket_summary(ticket_payload)
+    if ticket_rules["enabled"] and not (_normalize_ticket_id(existing_ticket.get("id")) or normalized_ticket_payload):
+        raise HTTPException(status_code=422, detail="La configuración actual exige registrar un Ticket iTop antes de cerrar el acta firmada.")
+
+    itop_ticket = existing_ticket
+    if ticket_rules["enabled"] and not _normalize_ticket_id(itop_ticket.get("id")):
+        handover_service.pre_ticket_creation(current_detail, runtime_token)
+        itop_ticket = _create_itop_handover_ticket(
+            current_detail,
+            normalized_ticket_payload,
+            runtime_token,
+            contact_ids=handover_service.get_ticket_contact_ids(current_detail),
+        )
+
+    assignment_updates = (
+        handover_service.handle_evidence_sync(
+            current_detail,
+            runtime_token,
+            ticket_id=_coerce_str(itop_ticket.get("id") if itop_ticket else ""),
+        )
+        if handover_service.type_definition.sync_assignment_on_evidence
+        else []
+    )
+    itop_documents = _build_itop_handover_document_files(
+        document_id,
+        handover_service.type_definition.code,
+        current_detail.get("generatedDocuments") or [],
+        current_detail.get("evidenceAttachments") or [],
+        [],
+    )
+    itop_attachment_updates = (
+        _attach_handover_documents_to_itop_targets(current_detail, runtime_token, itop_ticket, itop_documents)
+        if handover_service.type_definition.attach_documents_on_evidence
+        else {}
+    )
+
+    published_workflow = {
+        **signature_workflow,
+        "status": "published",
+        "publishedTicket": itop_ticket if isinstance(itop_ticket, dict) else {},
+        "publishedAttachments": {
+            "itopAttachments": itop_attachment_updates,
+            "itopAssignment": assignment_updates,
+        },
+    }
+    document_payload = _build_document_payload_from_detail(
+        current_detail,
+        existing_document,
+        status_ui="Confirmada",
+        assignment_date=current_detail.get("assignmentDate") or _serialize_signature_timestamp(),
+        evidence_date=_serialize_signature_timestamp(),
+        generated_documents=current_detail.get("generatedDocuments") or [],
+        evidence_attachments=current_detail.get("evidenceAttachments") or [],
+        signature_workflow=published_workflow,
+    )
+    item_payloads = _build_item_payloads_from_detail(current_detail.get("items") or [])
+    save_handover_document(document_id, document_payload, item_payloads)
+    refreshed_detail = get_handover_document_detail(document_id)
+    return refreshed_detail
+
+
+def get_public_handover_signature_document(
+    signature_token: str,
+    document_kind: str,
+) -> tuple[Path, str]:
+    detail, _ = _get_public_signature_detail(signature_token)
+    document = _resolve_signature_document_by_kind(detail, document_kind)
+    if document is None:
+        raise HTTPException(status_code=404, detail="Documento no disponible para esta sesión de firma.")
+
+    safe_name = Path(_coerce_str(document.get("storedName"))).name
+    file_path = resolve_existing_handover_storage_file(
+        "documents",
+        int(detail["id"]),
+        safe_name,
+        handover_type=detail.get("handoverTypeCode") or detail.get("handoverType"),
+        include_legacy=True,
+    )
+    if file_path is None:
+        raise HTTPException(status_code=404, detail="Documento no disponible para esta sesión de firma.")
+    return file_path, safe_name
 
 
 def create_handover_document(

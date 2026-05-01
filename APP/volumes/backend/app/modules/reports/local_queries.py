@@ -17,6 +17,7 @@ _HANDOVER_TYPE_LABEL = {
 _STATUS_LABEL = {
     "draft": "Borrador",
     "issued": "Emitida",
+    "signed": "Firmada",
     "confirmed": "Confirmada",
     "cancelled": "Cancelada",
 }
@@ -132,7 +133,7 @@ def handover_documents_by_period(filters: dict[str, Any], pagination: dict) -> t
 
 
 def pending_delivery_confirmations(filters: dict[str, Any], pagination: dict) -> tuple[list[dict], int]:
-    conditions: list[str] = ["d.status = 'issued'", "LOWER(d.receiver_status) = 'active'"]
+    conditions: list[str] = ["d.status IN ('issued', 'signed')", "LOWER(d.receiver_status) = 'active'"]
     params: list[Any] = []
 
     from_date = filters.get("from_date")
@@ -344,7 +345,7 @@ def lab_equipment_current(filters: dict[str, Any], pagination: dict) -> tuple[li
 
 
 def incomplete_handover_documents(filters: dict[str, Any], pagination: dict) -> tuple[list[dict], int]:
-    conditions: list[str] = ["d.status IN ('draft', 'issued')", "LOWER(d.receiver_status) = 'active'"]
+    conditions: list[str] = ["d.status IN ('draft', 'issued', 'signed')", "LOWER(d.receiver_status) = 'active'"]
     params: list[Any] = []
 
     from_date = filters.get("from_date")
@@ -402,7 +403,7 @@ def incomplete_handover_documents(filters: dict[str, Any], pagination: dict) -> 
                 r.get("receiver_name"),
                 r.get("additional_receivers"),
             ),
-            "faltante": "Pendiente de confirmacion" if r["status"] == "issued" else "Borrador sin emitir",
+            "faltante": "Pendiente de confirmacion" if r["status"] in {"issued", "signed"} else "Borrador sin emitir",
             "estado": _STATUS_LABEL.get(r["status"], r["status"]),
         }
         for r in rows_raw

@@ -11,6 +11,7 @@ import { HandoverDocumentPage } from "@pages/handover/HandoverDocumentPage";
 import { ReturnHandoverPage } from "@pages/handover/ReturnHandoverPage";
 import { ReturnHandoverDocumentPage } from "@pages/handover/ReturnHandoverDocumentPage";
 import { NormalizationMockPage } from "@pages/handover/NormalizationMockPage";
+import { HandoverSignaturePage } from "@pages/handover/HandoverSignaturePage";
 import { ReassignmentPage } from "@pages/reassignment/ReassignmentPage";
 import { LabPage } from "@pages/lab/LabPage";
 import { DevicesPage } from "@pages/devices/DevicesPage";
@@ -93,6 +94,7 @@ const basename = import.meta.env.BASE_URL;
 export const router = createBrowserRouter(
   [
     { path: "/login", element: <LoginPage /> },
+    { path: "/firma/h/:token", element: <HandoverSignaturePage /> },
     {
       path: "/",
       element: (

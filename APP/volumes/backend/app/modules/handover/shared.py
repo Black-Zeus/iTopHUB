@@ -9,6 +9,7 @@ from modules.handover.handover_types import HANDOVER_TYPE_DEFINITIONS
 STATUS_DB_TO_UI = {
     "draft": "En creacion",
     "issued": "Emitida",
+    "signed": "Firmada",
     "confirmed": "Confirmada",
     "cancelled": "Anulada",
 }

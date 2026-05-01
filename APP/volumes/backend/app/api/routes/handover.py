@@ -9,17 +9,28 @@ from api.deps import ensure_any_module_access, ensure_session, model_to_dict, ra
 from modules.auth.service import AuthenticationError, get_runtime_token
 from modules.handover.service import (
     attach_handover_document_evidence,
+    create_handover_signature_session,
     create_handover_document,
     emit_handover_document,
+    get_handover_signature_session,
     get_handover_bootstrap,
     get_handover_document_detail,
+    get_public_handover_signature_document,
+    get_public_handover_signature_session,
     list_handover_documents,
+    publish_signed_handover_document,
     rollback_handover_document,
+    submit_public_handover_signature,
     update_handover_document,
 )
 from modules.handover.shared import GENERATED_DOCUMENT_KINDS
 from modules.handover.storage_paths import resolve_existing_handover_storage_file
-from schemas.handover import HandoverEvidenceUploadRequest, HandoverSaveRequest
+from schemas.handover import (
+    HandoverEvidenceUploadRequest,
+    HandoverSaveRequest,
+    HandoverSignatureSubmitRequest,
+    HandoverSignedPublicationRequest,
+)
 
 
 router = APIRouter(prefix="/v1/handover", tags=["handover"])
@@ -178,6 +189,109 @@ def handover_document_attach_evidence(
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"No fue posible cargar la evidencia del acta: {exc}") from exc
+
+
+@router.post("/documents/{document_id}/signature-session")
+def handover_document_signature_session_create(
+    document_id: int,
+    hub_session_id: str | None = Cookie(default=None),
+) -> dict[str, Any]:
+    session_id = ensure_session(hub_session_id)
+    try:
+        session_user = _ensure_handover_family_access(session_id, write=True)
+        return {"item": create_handover_signature_session(document_id, session_user)}
+    except AuthenticationError as exc:
+        raise_auth_error(exc)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"No fue posible abrir la sesión QR de firma: {exc}") from exc
+
+
+@router.get("/documents/{document_id}/signature-session")
+def handover_document_signature_session_detail(
+    document_id: int,
+    hub_session_id: str | None = Cookie(default=None),
+) -> dict[str, Any]:
+    session_id = ensure_session(hub_session_id)
+    try:
+        _ensure_handover_family_access(session_id)
+        return {"item": get_handover_signature_session(document_id)}
+    except AuthenticationError as exc:
+        raise_auth_error(exc)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"No fue posible consultar la sesión QR de firma: {exc}") from exc
+
+
+@router.post("/documents/{document_id}/publish-signed")
+def handover_document_publish_signed(
+    document_id: int,
+    payload: HandoverSignedPublicationRequest,
+    hub_session_id: str | None = Cookie(default=None),
+) -> dict[str, Any]:
+    session_id = ensure_session(hub_session_id)
+    try:
+        _ensure_handover_family_access(session_id, write=True)
+        runtime_token = get_runtime_token(session_id)
+        return {"item": publish_signed_handover_document(document_id, runtime_token=runtime_token, ticket_payload=payload.ticket)}
+    except AuthenticationError as exc:
+        raise_auth_error(exc)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"No fue posible publicar el ticket del acta firmada: {exc}") from exc
+
+
+@router.get("/signature-sessions/{signature_token}")
+def handover_public_signature_session_detail(signature_token: str) -> dict[str, Any]:
+    try:
+        return {"item": get_public_handover_signature_session(signature_token)}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"No fue posible cargar la sesión pública de firma: {exc}") from exc
+
+
+@router.post("/signature-sessions/{signature_token}/submit")
+def handover_public_signature_session_submit(
+    signature_token: str,
+    payload: HandoverSignatureSubmitRequest,
+) -> dict[str, Any]:
+    try:
+        return {
+            "item": submit_public_handover_signature(
+                signature_token,
+                signature_data_url=payload.signatureDataUrl,
+                signer_name=payload.signerName,
+                signer_role=payload.signerRole,
+            )
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"No fue posible registrar la firma digital: {exc}") from exc
+
+
+@router.get("/signature-sessions/{signature_token}/documents/{document_kind}")
+def handover_public_signature_session_document_download(
+    signature_token: str,
+    document_kind: str,
+) -> FileResponse:
+    try:
+        file_path, safe_name = get_public_handover_signature_document(signature_token, document_kind)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"No fue posible descargar el documento de firma: {exc}") from exc
+
+    media_type, _ = mimetypes.guess_type(file_path.name)
+    return FileResponse(
+        path=str(file_path),
+        filename=safe_name,
+        media_type=media_type or "application/pdf",
+    )
 
 
 @router.get("/documents/{document_id}/evidence/{stored_name}")

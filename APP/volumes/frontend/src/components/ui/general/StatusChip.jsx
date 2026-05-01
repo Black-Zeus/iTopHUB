@@ -12,6 +12,7 @@ const STATUS_MAP = {
   pendiente: { label: "Pendiente", cls: "bg-[rgba(224,181,107,0.14)] text-[var(--warning)]" },
   "en-creacion": { label: "En creacion", cls: "bg-[rgba(224,181,107,0.14)] text-[var(--warning)]" },
   emitida: { label: "Emitida", cls: "bg-[var(--accent-soft)] text-[var(--accent-strong)]" },
+  firmada: { label: "Firmada", cls: "bg-[rgba(81,152,194,0.16)] text-[var(--accent-strong)]" },
   confirmada: { label: "Confirmada", cls: "bg-[rgba(127,191,156,0.14)] text-[var(--success)]" },
   anulada: { label: "Anulada", cls: "bg-[rgba(210,138,138,0.14)] text-[var(--danger)]" },
   produccion: { label: "Produccion", cls: "bg-[rgba(127,191,156,0.14)] text-[var(--success)]" },

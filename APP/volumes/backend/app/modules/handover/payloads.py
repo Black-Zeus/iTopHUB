@@ -233,6 +233,102 @@ def deserialize_generated_documents(raw_value: Any) -> list[dict[str, Any]]:
     return normalized
 
 
+def deserialize_signature_workflow(raw_value: Any) -> dict[str, Any]:
+    text = coerce_str(raw_value)
+    if not text:
+        return {}
+
+    try:
+        payload = json.loads(text)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+
+    if not isinstance(payload, dict):
+        return {}
+
+    signature = payload.get("signature") if isinstance(payload.get("signature"), dict) else {}
+    signed_by = payload.get("signedBy") if isinstance(payload.get("signedBy"), dict) else {}
+    requested_by = payload.get("requestedBy") if isinstance(payload.get("requestedBy"), dict) else {}
+    published_ticket = normalize_itop_ticket_summary(payload.get("publishedTicket"))
+    published_attachments = payload.get("publishedAttachments") if isinstance(payload.get("publishedAttachments"), dict) else {}
+
+    return {
+        "channel": coerce_str(payload.get("channel")),
+        "status": coerce_str(payload.get("status")),
+        "token": coerce_str(payload.get("token")),
+        "requestedAt": coerce_str(payload.get("requestedAt")),
+        "expiresAt": coerce_str(payload.get("expiresAt")),
+        "completedAt": coerce_str(payload.get("completedAt")),
+        "cancelledAt": coerce_str(payload.get("cancelledAt")),
+        "requestedBy": {
+            "userId": requested_by.get("userId"),
+            "name": coerce_str(requested_by.get("name")),
+        },
+        "signedBy": {
+            "id": signed_by.get("id"),
+            "name": coerce_str(signed_by.get("name")),
+            "role": coerce_str(signed_by.get("role")),
+        },
+        "signature": {
+            "dataUrl": coerce_str(signature.get("dataUrl")),
+            "mimeType": coerce_str(signature.get("mimeType")),
+        },
+        "errorCode": coerce_str(payload.get("errorCode")),
+        "errorMessage": coerce_str(payload.get("errorMessage")),
+        "publishedTicket": published_ticket,
+        "publishedAttachments": published_attachments,
+    }
+
+
+def normalize_signature_workflow(payload: Any) -> str:
+    if not payload:
+        return ""
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=422, detail="El workflow de firma no tiene un formato valido.")
+
+    signature = payload.get("signature") if isinstance(payload.get("signature"), dict) else {}
+    signed_by = payload.get("signedBy") if isinstance(payload.get("signedBy"), dict) else {}
+    requested_by = payload.get("requestedBy") if isinstance(payload.get("requestedBy"), dict) else {}
+    published_attachments = payload.get("publishedAttachments") if isinstance(payload.get("publishedAttachments"), dict) else {}
+
+    normalized = {
+        "channel": coerce_str(payload.get("channel")),
+        "status": coerce_str(payload.get("status")),
+        "token": coerce_str(payload.get("token")),
+        "requestedAt": coerce_str(payload.get("requestedAt")),
+        "expiresAt": coerce_str(payload.get("expiresAt")),
+        "completedAt": coerce_str(payload.get("completedAt")),
+        "cancelledAt": coerce_str(payload.get("cancelledAt")),
+        "requestedBy": {
+            "userId": requested_by.get("userId"),
+            "name": coerce_str(requested_by.get("name")),
+        },
+        "signedBy": {
+            "id": signed_by.get("id"),
+            "name": coerce_str(signed_by.get("name")),
+            "role": coerce_str(signed_by.get("role")),
+        },
+        "signature": {
+            "dataUrl": coerce_str(signature.get("dataUrl")),
+            "mimeType": coerce_str(signature.get("mimeType")),
+        },
+        "errorCode": coerce_str(payload.get("errorCode")),
+        "errorMessage": coerce_str(payload.get("errorMessage")),
+        "publishedTicket": normalize_itop_ticket_summary(payload.get("publishedTicket")),
+        "publishedAttachments": published_attachments,
+    }
+    if not any(
+        [
+            normalized["token"],
+            normalized["status"],
+            normalized["signature"]["dataUrl"],
+            normalized["publishedTicket"],
+        ]
+    ):
+        return ""
+    return json.dumps(normalized, ensure_ascii=True)
+
+
 def normalize_additional_receivers(payload: Any, primary_receiver_id: int) -> str:
     if not payload:
         return ""
@@ -458,6 +554,7 @@ def build_document_payload_from_detail(
     evidence_date: str,
     generated_documents: list[dict[str, Any]],
     evidence_attachments: list[dict[str, Any]],
+    signature_workflow: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     creation_at = normalize_generated_at(current_detail.get("creationDate") or current_detail.get("generatedAt"))
     assignment_at = normalize_optional_datetime(assignment_date)
@@ -485,5 +582,8 @@ def build_document_payload_from_detail(
         "additional_receivers": additional_receivers or None,
         "generated_documents": normalize_generated_documents(generated_documents) or None,
         "evidence_attachments": normalize_evidence_attachments(evidence_attachments) or None,
+        "signature_workflow": normalize_signature_workflow(
+            signature_workflow if signature_workflow is not None else (current_detail.get("signatureWorkflow") or {})
+        ) or None,
         **build_receiver_payload(current_detail.get("receiver") or {}),
     }

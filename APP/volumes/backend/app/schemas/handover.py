@@ -10,6 +10,7 @@ class HandoverSaveRequest(BaseModel):
     evidenceDate: str = ""
     generatedDocuments: list[dict[str, Any]] = Field(default_factory=list)
     evidenceAttachments: list[dict[str, Any]] = Field(default_factory=list)
+    signatureWorkflow: dict[str, Any] = Field(default_factory=dict)
     status: str = "En creacion"
     handoverType: str = "Entrega inicial"
     reason: str = ""
@@ -28,4 +29,14 @@ class HandoverEvidenceFileRequest(BaseModel):
 
 class HandoverEvidenceUploadRequest(BaseModel):
     files: list[HandoverEvidenceFileRequest] = Field(default_factory=list)
+    ticket: dict[str, Any] = Field(default_factory=dict)
+
+
+class HandoverSignatureSubmitRequest(BaseModel):
+    signatureDataUrl: str = ""
+    signerName: str = ""
+    signerRole: str = ""
+
+
+class HandoverSignedPublicationRequest(BaseModel):
     ticket: dict[str, Any] = Field(default_factory=dict)

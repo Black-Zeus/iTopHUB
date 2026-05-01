@@ -199,6 +199,42 @@ def _resolve_signature_owner_support_text(owner: dict[str, Any]) -> str:
     return _coerce_str(owner.get("role")) or _resolve_handover_document_legend(docs_settings)
 
 
+def _build_receiver_signature_box(detail: dict[str, Any], receiver: dict[str, Any], signature_label: str) -> str:
+    signature_workflow = detail.get("signatureWorkflow") or {}
+    signature_status = _coerce_str(signature_workflow.get("status")).lower()
+    signature = signature_workflow.get("signature") if isinstance(signature_workflow.get("signature"), dict) else {}
+    signed_by = signature_workflow.get("signedBy") if isinstance(signature_workflow.get("signedBy"), dict) else {}
+    signature_data_url = _coerce_str(signature.get("dataUrl"))
+    signed_at = _coerce_str(signature_workflow.get("completedAt"))
+
+    signature_image_html = ""
+    signature_meta_html = ""
+    signature_line_class = "signature-line"
+    if signature_status in {"signed", "published"} and signature_data_url:
+        signature_image_html = (
+            f'<div class="signature-image-wrap"><img src="{signature_data_url}" alt="Firma digital" class="signature-image" /></div>'
+        )
+        signature_meta_html = (
+            f'<div class="signature-meta">Firmado digitalmente'
+            f'{f" el {_escape(signed_at)}" if signed_at else ""}</div>'
+        )
+        signature_line_class = "signature-line signature-line-signed"
+
+    signed_name = _coerce_str(signed_by.get("name")) or _coerce_str(receiver.get("name"))
+    signed_role = _coerce_str(signed_by.get("role")) or _coerce_str(receiver.get("role")) or "Sin cargo"
+    return f"""
+        <div class="signature-box">
+            {signature_image_html}
+            <div class="{signature_line_class}">
+                <div><strong>{_escape(signed_name)}</strong></div>
+                <div class="muted">{_escape(signature_label)}</div>
+                <div class="muted">{_escape(signed_role)}</div>
+                {signature_meta_html}
+            </div>
+        </div>
+    """
+
+
 def _build_base_html(
     title: str,
     subtitle: str,
@@ -414,11 +450,32 @@ def _build_base_html(
             min-height: 108px;
             padding: 10px;
             text-align: center;
+            position: relative;
         }}
         .signature-line {{
             border-top: 1px solid var(--line-strong);
             margin-top: 52px;
             padding-top: 7px;
+        }}
+        .signature-line-signed {{
+            margin-top: 18px;
+        }}
+        .signature-image-wrap {{
+            align-items: center;
+            display: flex;
+            justify-content: center;
+            min-height: 48px;
+        }}
+        .signature-image {{
+            display: block;
+            max-height: 56px;
+            max-width: 180px;
+            object-fit: contain;
+        }}
+        .signature-meta {{
+            color: var(--muted);
+            font-size: 9px;
+            margin-top: 6px;
         }}
         .muted {{
             color: var(--muted);
@@ -640,13 +697,7 @@ def _build_return_main_html(detail: dict[str, Any], type_definition: Any) -> tup
         <h2 class="section-title">Recepcion y conformidad</h2>
         <div class="section-body">
             <div class="signature-grid">
-                <div class="signature-box">
-                    <div class="signature-line">
-                        <div><strong>{_escape(receiver.get("name"))}</strong></div>
-                        <div class="muted">{_escape(type_definition.main_signature_receiver_label)}</div>
-                        <div class="muted">{_escape(receiver.get("role") or "Sin cargo")}</div>
-                    </div>
-                </div>
+                {_build_receiver_signature_box(detail, receiver, type_definition.main_signature_receiver_label)}
                 <div class="signature-box">
                     <div class="signature-line">
                         <div><strong>{_escape(owner.get("name"))}</strong></div>
@@ -780,13 +831,7 @@ def _build_reassignment_main_html(detail: dict[str, Any], type_definition: Any) 
                         <div class="muted">{_escape(source_person.get("role") or "Sin cargo")}</div>
                     </div>
                 </div>
-                <div class="signature-box">
-                    <div class="signature-line">
-                        <div><strong>{_escape(destination_person.get("name"))}</strong></div>
-                        <div class="muted">{_escape(type_definition.main_signature_receiver_label)}</div>
-                        <div class="muted">{_escape(destination_person.get("role") or "Sin cargo")}</div>
-                    </div>
-                </div>
+                {_build_receiver_signature_box(detail, destination_person, type_definition.main_signature_receiver_label)}
                 <div class="signature-box">
                     <div class="signature-line">
                         <div><strong>{_escape(owner.get("name"))}</strong></div>
@@ -1129,13 +1174,7 @@ def _build_delivery_main_html(detail: dict[str, Any], type_definition: Any) -> t
         <h2 class="section-title">Aceptación y conformidad</h2>
         <div class="section-body">
             <div class="signature-grid">
-                <div class="signature-box">
-                    <div class="signature-line">
-                        <div><strong>{_escape(receiver.get("name"))}</strong></div>
-                        <div class="muted">{_escape(type_definition.main_signature_receiver_label)}</div>
-                        <div class="muted">{_escape(receiver.get("role") or "Sin cargo")}</div>
-                    </div>
-                </div>
+                {_build_receiver_signature_box(detail, receiver, type_definition.main_signature_receiver_label)}
                 <div class="signature-box">
                     <div class="signature-line">
                         <div><strong>{_escape(owner.get("name"))}</strong></div>

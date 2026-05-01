@@ -215,6 +215,7 @@ def process_handover_emit_job(job: dict[str, Any]) -> dict[str, Any]:
                 },
             ],
             evidence_attachments=current_detail.get("evidenceAttachments") or [],
+            signature_workflow={},
         )
         item_payloads = build_item_payloads_from_detail(current_detail.get("items") or [])
 
