@@ -5,7 +5,7 @@ import { SidebarToggle } from "./SidebarToggle";
 /**
  * Sidebar - aside principal de la app.
  */
-export function Sidebar({ collapsed, onToggle }) {
+export function Sidebar({ collapsed, onToggle, brand = {} }) {
   return (
     <>
       <aside
@@ -14,7 +14,7 @@ export function Sidebar({ collapsed, onToggle }) {
         }`}
         style={{ scrollbarGutter: "stable" }}
       >
-        <SidebarBrand collapsed={collapsed} />
+        <SidebarBrand collapsed={collapsed} brand={brand} />
         <SidebarNav collapsed={collapsed} />
       </aside>
 

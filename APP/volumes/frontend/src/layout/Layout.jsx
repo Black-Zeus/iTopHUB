@@ -1,12 +1,12 @@
 import { Outlet } from "react-router-dom";
-import { useContext, useEffect } from "react";
+import { useContext, useEffect, useState } from "react";
 import { Sidebar } from "./sidebar/Sidebar";
 import { HeaderContainer } from "./header/HeaderContainer";
 import { useSidebar } from "../hooks/useSidebar";
 import { AuthContext } from "@/App";
 import { Icon } from "@/components/ui/icon/Icon";
 import { setPdqModuleEnabled } from "../services/module-visibility-service";
-import { getSettings } from "../services/settings-service";
+import { getOrganizationBrand, getSettings } from "../services/settings-service";
 import { canViewModule } from "../services/authz-service";
 
 /**
@@ -16,32 +16,44 @@ import { canViewModule } from "../services/authz-service";
 export function Layout() {
   const { user } = useContext(AuthContext);
   const { collapsed, toggle } = useSidebar();
+  const [orgBrand, setOrgBrand] = useState({});
 
   useEffect(() => {
     let cancelled = false;
 
-    const loadModuleVisibility = async () => {
-      if (!user) {
-        return;
+    const loadBrand = async () => {
+      if (!user) return;
+      try {
+        const payload = await getOrganizationBrand();
+        if (!cancelled) {
+          setOrgBrand({
+            organizationName: payload?.organizationName || "",
+            organizationAcronym: payload?.organizationAcronym || "",
+            organizationLogoUrl: payload?.organizationLogoDataUrl || "",
+          });
+        }
+      } catch {
+        // silencioso: fallback a "IH"
       }
+    };
 
+    const loadModuleVisibility = async () => {
+      if (!user) return;
       if (!canViewModule(user, "settings")) {
         setPdqModuleEnabled(true);
         return;
       }
-
       try {
         const payload = await getSettings();
         if (!cancelled) {
           setPdqModuleEnabled(payload?.panels?.pdq?.moduleEnabled !== false);
         }
       } catch {
-        if (!cancelled) {
-          setPdqModuleEnabled(true);
-        }
+        if (!cancelled) setPdqModuleEnabled(true);
       }
     };
 
+    loadBrand();
     loadModuleVisibility();
 
     return () => {
@@ -55,7 +67,7 @@ export function Layout() {
         collapsed ? "[grid-template-columns:112px_minmax(0,1fr)]" : "[grid-template-columns:280px_minmax(0,1fr)]"
       } max-[1024px]:[grid-template-columns:112px_minmax(0,1fr)] max-[768px]:grid-cols-1`}
     >
-      <Sidebar collapsed={collapsed} onToggle={toggle} />
+      <Sidebar collapsed={collapsed} onToggle={toggle} brand={orgBrand} />
       <div className="flex min-w-0 flex-col max-[768px]:min-h-screen">
         <HeaderContainer />
         {user?.notice ? (

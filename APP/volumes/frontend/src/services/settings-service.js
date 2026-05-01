@@ -6,6 +6,12 @@ export async function getSettings() {
   });
 }
 
+export async function getOrganizationBrand() {
+  return apiRequest("/v1/brand", {
+    fallbackMessage: "No fue posible cargar el branding de la organizacion.",
+  });
+}
+
 export async function updateSettingsPanel(panelCode, config) {
   return apiRequest(`/v1/settings/${panelCode}`, {
     method: "PUT",
