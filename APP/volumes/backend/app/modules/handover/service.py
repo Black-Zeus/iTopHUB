@@ -213,6 +213,13 @@ def _build_public_signature_branding() -> dict[str, Any]:
     }
 
 
+def get_public_signature_branding() -> dict[str, Any]:
+    try:
+        return _build_public_signature_branding()
+    except Exception:
+        return {}
+
+
 def _normalize_ticket_id(value: Any) -> str:
     text = _coerce_str(value)
     return text if text.isdigit() else ""

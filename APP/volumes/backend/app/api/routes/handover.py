@@ -17,6 +17,7 @@ from modules.handover.service import (
     get_handover_document_detail,
     get_public_handover_signature_document,
     get_public_handover_signature_session,
+    get_public_signature_branding,
     list_handover_documents,
     publish_signed_handover_document,
     rollback_handover_document,
@@ -260,8 +261,13 @@ def handover_public_signature_session_detail(
                 user_agent=request.headers.get("user-agent", ""),
             )
         }
-    except HTTPException:
-        raise
+    except HTTPException as exc:
+        raw_detail = exc.detail
+        message = raw_detail if isinstance(raw_detail, str) else (raw_detail.get("message") if isinstance(raw_detail, dict) else str(raw_detail))
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"message": message, "brand": get_public_signature_branding()},
+        ) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"No fue posible cargar la sesión pública de firma: {exc}") from exc
 
