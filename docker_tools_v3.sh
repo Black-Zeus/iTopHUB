@@ -131,41 +131,6 @@ build_compose_cmd() {
     echo "$COMPOSE_CMD -f $COMPOSE_FILE --env-file .env --env-file .env.$ENV ${profile_args} ${action} ${service_args}"
 }
 
-get_all_compose_profile_args() {
-    local profile_names=()
-    local profile_name=""
-
-    if [[ ! -f "$COMPOSE_FILE" ]]; then
-        echo ""
-        return
-    fi
-
-    while IFS= read -r profile_name; do
-        [[ -n "$profile_name" ]] && profile_names+=("$profile_name")
-    done < <(
-        grep -oE 'profiles:[[:space:]]*\[[^]]+\]' "$COMPOSE_FILE" 2>/dev/null |
-            sed -E 's/.*\[//; s/\].*//' |
-            tr ',' '\n' |
-            sed -E "s/^[[:space:]]*['\"]?//; s/['\"]?[[:space:]]*$//" |
-            sort -u
-    )
-
-    if [[ ${#profile_names[@]} -eq 0 ]]; then
-        echo ""
-        return
-    fi
-
-    printf -- '--profile %s ' "${profile_names[@]}"
-}
-
-build_full_stack_down_cmd() {
-    local down_action="${1:-down}"
-    local all_profile_args=""
-
-    all_profile_args="$(get_all_compose_profile_args)"
-    build_compose_cmd "$down_action" "$all_profile_args"
-}
-
 get_service_block_from_compose() {
     local compose_file="$1"
     local service_name="$2"
@@ -472,14 +437,8 @@ get_current_ip() {
     local ip=""
     
     if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || -n "$MSYSTEM" ]]; then
-        if command -v powershell.exe &> /dev/null; then
-            ip=$(powershell.exe -NoProfile -Command "\$route = Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | Sort-Object RouteMetric | Select-Object -First 1; if (\$route) { Get-NetIPAddress -InterfaceIndex \$route.IfIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { \$_.IPAddress -notlike '127.*' -and \$_.IPAddress -notlike '169.254.*' } | Select-Object -ExpandProperty IPAddress -First 1 }" 2>/dev/null | tr -d '\r')
-        fi
-        if [[ -z "$ip" ]] && command -v powershell.exe &> /dev/null; then
-            ip=$(powershell.exe -NoProfile -Command "Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { \$_.IPAddress -notlike '127.*' -and \$_.IPAddress -notlike '169.254.*' } | Select-Object -ExpandProperty IPAddress -First 1" 2>/dev/null | tr -d '\r')
-        fi
-        if [[ -z "$ip" ]] && command -v ipconfig &> /dev/null; then
-            ip=$(ipconfig 2>/dev/null | grep -aEo '([0-9]{1,3}\.){3}[0-9]{1,3}' | grep -vE '^(127|169\.254)\.' | head -1 | tr -d '\r')
+        if command -v ipconfig &> /dev/null; then
+            ip=$(ipconfig 2>/dev/null | grep -a "IPv4" | grep -v "127.0.0.1" | head -1 | sed 's/.*: //' | tr -d '\r')
         fi
     else
         if command -v ip &> /dev/null; then
@@ -639,25 +598,6 @@ check_file_exists() {
         return 1
     fi
     return 0
-}
-
-run_interruptible_cmd() {
-    local cmd="$1"
-    local interrupted=0
-    local exit_code=0
-
-    trap 'interrupted=1' INT
-    eval "$cmd"
-    exit_code=$?
-    trap - INT
-
-    if [[ $interrupted -eq 1 || $exit_code -eq 130 ]]; then
-        echo ""
-        echo -e "${YELLOW}⏭️  Ejecución interrumpida. Volviendo al menú...${NC}"
-        return 130
-    fi
-
-    return $exit_code
 }
 
 # Verificar que el stack tenga contenedores
@@ -901,9 +841,10 @@ menu_contenedores() {
     echo -e "  ${CYAN}2)${NC} 🛑 Detener y eliminar contenedores"
     echo -e "  ${CYAN}3)${NC} 🔄 Reiniciar contenedores"
     echo -e "  ${CYAN}4)${NC} 🔃 Reiniciar contenedor unico"
-    echo -e "  ${CYAN}5)${NC} 🔨 Construir imágenes"
-    echo -e "  ${CYAN}6)${NC} 🔍 Validar Docker Compose"
-    echo -e "  ${CYAN}7)${NC} 📏 Validar reglas del proyecto"
+    echo -e "  ${CYAN}5)${NC} ♻️ Recrear contenedor unico"
+    echo -e "  ${CYAN}6)${NC} 🔨 Construir imágenes"
+    echo -e "  ${CYAN}7)${NC} 🔍 Validar Docker Compose"
+    echo -e "  ${CYAN}8)${NC} 📏 Validar reglas del proyecto"
     echo ""
     echo -e "  ${CYAN}V)${NC} ⬅️ Volver"
     echo -e "  ${CYAN}S)${NC} 🚪 Salir"
@@ -916,9 +857,10 @@ menu_contenedores() {
         2) down ;;
         3) restart ;;
         4) restart_single_container ;;
-        5) build ;;
-        6) validate_compose ;;
-        7) validate_compose_rules ;;
+        5) recreate_single_container ;;
+        6) build ;;
+        7) validate_compose ;;
+        8) validate_compose_rules ;;
         [Vv]) menu ;;
         [Ss]) exit_script ;;
         *)
@@ -974,8 +916,9 @@ menu_limpieza() {
     echo -e "  ${CYAN}1)${NC} 🧹 Limpiar contenedores, redes y volúmenes"
     echo -e "  ${CYAN}2)${NC} 🖼️ Limpiar imágenes no utilizadas"
     echo -e "  ${CYAN}3)${NC} 💾 Limpiar volúmenes no utilizados"
-    echo -e "  ${CYAN}4)${NC} 🗑️ Limpiar todo"
-    echo -e "  ${CYAN}5)${NC} 🔥 Eliminar Persistencias"
+    echo -e "  ${CYAN}4)${NC} 🏗️ Limpiar caché de builds"
+    echo -e "  ${CYAN}5)${NC} 🗑️ Limpiar todo"
+    echo -e "  ${CYAN}6)${NC} 🔥 Eliminar Persistencias"
     echo ""
     echo -e "  ${CYAN}V)${NC} ⬅️ Volver"
     echo -e "  ${CYAN}S)${NC} 🚪 Salir"
@@ -987,8 +930,9 @@ menu_limpieza() {
         1) clean ;;
         2) clean_images_enhanced ;;
         3) clean_volumes ;;
-        4) clean_all ;;
-        5) drop_persistence ;;
+        4) clean_build_cache ;;
+        5) clean_all ;;
+        6) drop_persistence ;;
         [Vv]) menu ;;
         [Ss]) exit_script ;;
         *)
@@ -1086,7 +1030,7 @@ down() {
         return
     fi
     if confirm_action "¿Detener y eliminar todos los contenedores del stack?" "no"; then
-        run_cmd "$(build_full_stack_down_cmd "down")" \
+        run_cmd "$COMPOSE_CMD -f $COMPOSE_FILE --env-file .env --env-file .env.$ENV down" \
                 "Error al detener contenedores" \
                 "Contenedores detenidos exitosamente"
     fi
@@ -1103,7 +1047,7 @@ restart() {
     fi
     if confirm_action "¿Reiniciar todos los contenedores del stack?" "no"; then
         ask_service_groups
-        run_cmd "$(build_full_stack_down_cmd "down")" \
+        run_cmd "$(build_compose_cmd "down")" \
                 "Error al detener contenedores"
         run_cmd "$(build_compose_cmd "up -d --build" "$SELECTED_PROFILE_ARGS" "$SELECTED_SERVICE_ARGS")" \
                 "Error al iniciar contenedores" \
@@ -1131,6 +1075,68 @@ restart_single_container() {
     menu_contenedores
 }
 
+get_compose_service_from_container() {
+    local container_id="$1"
+    docker inspect --format '{{ index .Config.Labels "com.docker.compose.service" }}' "$container_id" 2>/dev/null
+}
+
+get_profile_args_for_service() {
+    local service_name="$1"
+    local service_block=""
+    local group_value=""
+
+    service_block="$(get_service_block_from_compose "$COMPOSE_FILE" "$service_name")"
+    group_value="$(echo "$service_block" | sed -n 's/^[[:space:]]*service\.group: //p' | head -1)"
+
+    if [[ "$group_value" == "tools" ]]; then
+        echo "--profile tools"
+    else
+        echo ""
+    fi
+}
+
+recreate_single_container() {
+    banner_principal "RECREAR CONTENEDOR ÚNICO"
+
+    if ! validate_compose_env_files; then
+        pause
+        menu_contenedores
+        return
+    fi
+
+    if ! select_container_from_stack "Seleccione contenedor a recrear" true false; then
+        menu_contenedores
+        return
+    fi
+
+    local selected_service=""
+    local selected_profile_args=""
+
+    selected_service="$(get_compose_service_from_container "$SELECTED_CONTAINER_ID")"
+    if [[ -z "$selected_service" || "$selected_service" == "<no value>" ]]; then
+        echo -e "${RED}❌ No se pudo resolver el servicio Docker Compose para ${SELECTED_CONTAINER_NAME}${NC}"
+        echo -e "${YELLOW}   └─ Verifique que el contenedor pertenezca al stack gestionado por Compose.${NC}"
+        pause
+        menu_contenedores
+        return
+    fi
+
+    selected_profile_args="$(get_profile_args_for_service "$selected_service")"
+
+    echo ""
+    echo -e "${BLUE}Servicio asociado:${NC} ${BOLD}${selected_service}${NC}"
+    [[ -n "$selected_profile_args" ]] && echo -e "${BLUE}Perfil requerido:${NC} ${BOLD}${selected_profile_args}${NC}"
+
+    if confirm_action "¿Recrear contenedor ${SELECTED_CONTAINER_NAME} usando el servicio ${selected_service}? Esto removerá y volverá a crear solo ese servicio." "no"; then
+        run_cmd "$(build_compose_cmd "up -d --force-recreate --no-deps" "$selected_profile_args" "$selected_service")" \
+                "Error al recrear contenedor" \
+                "Contenedor recreado exitosamente"
+    fi
+
+    pause
+    menu_contenedores
+}
+
 build() {
     banner_principal "CONSTRUIR IMÁGENES"
     if ! validate_compose_env_files; then
@@ -1153,7 +1159,7 @@ logs() {
         menu_monitoreo
         return
     fi
-    run_interruptible_cmd "$(build_compose_cmd "logs -f")"
+    $(build_compose_cmd "logs -f")
     pause
     menu_monitoreo
 }
@@ -1166,7 +1172,7 @@ logs_single_container() {
         return
     fi
 
-    run_interruptible_cmd "docker logs -f $SELECTED_CONTAINER_ID"
+    docker logs -f "$SELECTED_CONTAINER_ID"
     pause
     menu_monitoreo
 }
@@ -1190,52 +1196,6 @@ list_stack() {
     menu_monitoreo
 }
 
-ask_terminal_user_mode() {
-    local choice=""
-
-    echo ""
-    echo -e "${CYAN}${BOLD}MODO DE ACCESO A LA TERMINAL${NC}"
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "  ${CYAN}1)${NC} Usuario normal del contenedor"
-    echo -e "  ${CYAN}2)${NC} root"
-    echo ""
-
-    read -p "$(echo -e ${CYAN}"Seleccione el usuario para la terminal [1/2]: "${NC})" choice
-
-    case "$choice" in
-        1|"")
-            TERMINAL_EXEC_USER=""
-            TERMINAL_EXEC_LABEL="usuario normal"
-            return 0
-            ;;
-        2)
-            TERMINAL_EXEC_USER="root"
-            TERMINAL_EXEC_LABEL="root"
-            return 0
-            ;;
-        *)
-            echo -e "${RED}❌ Opción inválida${NC}"
-            sleep 2
-            return 1
-            ;;
-    esac
-}
-
-open_container_shell() {
-    local container_id="$1"
-    local exec_args=(-it)
-
-    if [[ -n "$TERMINAL_EXEC_USER" ]]; then
-        exec_args+=(-u "$TERMINAL_EXEC_USER")
-    fi
-
-    if docker exec "${exec_args[@]}" "$container_id" bash -c "echo" >/dev/null 2>&1; then
-        docker exec "${exec_args[@]}" "$container_id" bash
-    else
-        docker exec "${exec_args[@]}" "$container_id" sh
-    fi
-}
-
 exec_stack() {
     banner_principal "TERMINAL EN CONTENEDOR"
     
@@ -1243,14 +1203,15 @@ exec_stack() {
         menu_monitoreo
         return
     fi
-
-    if ! ask_terminal_user_mode; then
-        exec_stack
-        return
-    fi
     
-    echo -e "${GREEN}Conectando a $SELECTED_CONTAINER_NAME como ${TERMINAL_EXEC_LABEL}...${NC}"
-    open_container_shell "$SELECTED_CONTAINER_ID"
+    echo -e "${GREEN}Conectando a $SELECTED_CONTAINER_NAME...${NC}"
+    
+    # Intentar bash, luego sh
+    if docker exec -it "$SELECTED_CONTAINER_ID" bash -c "echo" 2>/dev/null; then
+        docker exec -it "$SELECTED_CONTAINER_ID" bash
+    else
+        docker exec -it "$SELECTED_CONTAINER_ID" sh
+    fi
     
     pause
     menu_monitoreo
@@ -1264,7 +1225,7 @@ clean() {
         return
     fi
     if confirm_action "¿Limpiar contenedores, redes y volúmenes del stack?" "no"; then
-        run_cmd "$(build_full_stack_down_cmd "down --volumes --remove-orphans")" \
+        run_cmd "$(build_compose_cmd "down --volumes --remove-orphans")" \
                 "Error durante la limpieza" \
                 "Limpieza completada"
     fi
@@ -1279,6 +1240,29 @@ clean_volumes() {
                 "Error al limpiar volúmenes" \
                 "Volúmenes no utilizados eliminados"
     fi
+    pause
+    menu_limpieza
+}
+
+clean_build_cache() {
+    banner_principal "LIMPIAR CACHÉ DE BUILDS"
+
+    echo -e "${YELLOW}Se eliminará la caché de construcción de Docker.${NC}"
+    echo -e "${YELLOW}Esto no borra contenedores, volúmenes ni imágenes en uso.${NC}"
+    echo ""
+
+    if confirm_action "¿Eliminar la caché de builds de Docker?" "no"; then
+        run_cmd "docker builder prune -af" \
+                "Error al limpiar caché de builds" \
+                "Caché de builds eliminada"
+
+        if docker buildx version >/dev/null 2>&1; then
+            run_cmd "docker buildx prune -af" \
+                    "Error al limpiar caché de buildx" \
+                    "Caché de buildx eliminada"
+        fi
+    fi
+
     pause
     menu_limpieza
 }
@@ -1311,7 +1295,7 @@ clean_all() {
     echo -e "\n${CYAN}${BOLD}📦 PASO 1/3: Limpiando recursos del stack...${NC}"
     echo -e "${CYAN}────────────────────────────────────────────────${NC}"
     
-    run_cmd "$(build_full_stack_down_cmd "down --volumes --remove-orphans")" \
+    run_cmd "$(build_compose_cmd "down --volumes --remove-orphans")" \
             "Error al limpiar recursos del stack" \
             "Recursos del stack eliminados"
     
@@ -1436,6 +1420,9 @@ clean_all() {
     # Limpiar caché de builds (automático)
     echo -e "\n${CYAN}${BOLD}🧹 Limpiando caché de builds...${NC}"
     docker builder prune -af >/dev/null 2>&1
+    if docker buildx version >/dev/null 2>&1; then
+        docker buildx prune -af >/dev/null 2>&1
+    fi
     echo -e "${GREEN}✅ Caché de builds eliminada${NC}"
     
     # RESUMEN FINAL
@@ -1557,6 +1544,7 @@ change_env() {
             ;;
     esac
     
+    export ENV
     define_compose_file
     echo -e "${GREEN}✅ Entorno cambiado a: $(get_env_color)${NC}"
     pause
@@ -2252,16 +2240,16 @@ menu_portainer() {
             if confirm_action "¿Recrear contenedor Portainer?" "no"; then
                 docker stop "$PORTAINER_NAME" >/dev/null 2>&1
                 docker rm "$PORTAINER_NAME" >/dev/null 2>&1
-                docker volume create portainer_data >/dev/null
+                docker volume create portainer_data >/dev/null 2>&1 || true
                 docker run -d \
                     --name $PORTAINER_NAME \
                     --restart unless-stopped \
                     -p 9000:9000 \
                     -v /var/run/docker.sock:/var/run/docker.sock \
                     -v portainer_data:/data \
-                    $PORTAINER_IMAGE >/dev/null 2>&1 && \
-                    echo -e "${GREEN}✅ Portainer recreado${NC}" || \
-                    echo -e "${RED}❌ Error al recrear${NC}"
+                    $PORTAINER_IMAGE && \
+                        echo -e "${GREEN}✅ Portainer iniciado en http://localhost:9000${NC}" || \
+                        echo -e "${RED}❌ Error al iniciar Portainer${NC}"
             fi
             pause
             menu_portainer 
@@ -2307,6 +2295,7 @@ main() {
     
     # Variables iniciales
     ENV="dev"
+    export ENV
     PROJECT_NAME=$(read_project_name)
     STACK="${PROJECT_NAME:-NoExiteStackName}"
     LABEL_FILTER="stack=${STACK}"
@@ -2314,6 +2303,11 @@ main() {
     CURRENT_IP=""
     BACKUP_DIR="docker-backups"
     
+    # ── AGREGADO: Portainer ──────────────────
+    PORTAINER_NAME="portainer"
+    PORTAINER_IMAGE="portainer/portainer-ce:latest"
+    # ─────────────────────────────────────────
+
     # Definir archivo compose inicial
     define_compose_file
     
