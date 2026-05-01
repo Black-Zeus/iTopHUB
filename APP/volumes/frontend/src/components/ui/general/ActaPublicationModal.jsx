@@ -34,11 +34,20 @@ function removeResponsibleSuffix(subject) {
 
 function resolveActaSubjectSuffix(actaType) {
   const normalizedActaType = normalizeText(actaType).toLowerCase();
+  if (normalizedActaType.includes("reasign")) {
+    return "Reasignacion de Activo";
+  }
   if (normalizedActaType.includes("devolucion")) {
     return "Devolucion de Activo";
   }
+  if (normalizedActaType.includes("reposicion")) {
+    return "Reposicion de Activo";
+  }
   if (normalizedActaType.includes("normalizacion")) {
     return "Normalizacion de Activo";
+  }
+  if (normalizedActaType.includes("laboratorio")) {
+    return "Laboratorio de Activo";
   }
   return "Asignacion de Activo";
 }

@@ -415,7 +415,7 @@ function EvidenceUploadModal({ row, willConfirmStatus, allowedExtensions, onCanc
     });
 
     if (limitReached) {
-      setError(`Solo puedes preparar hasta ${MAX_EVIDENCE_UPLOAD_FILES} adjuntos por carga. Usa un archivo de tipo Acta y otro de tipo Detalle.`);
+      setError(`Solo puedes preparar hasta ${MAX_EVIDENCE_UPLOAD_FILES} adjuntos por carga. El archivo Acta es obligatorio y Detalle es opcional.`);
       return;
     }
 
@@ -508,11 +508,13 @@ function EvidenceUploadModal({ row, willConfirmStatus, allowedExtensions, onCanc
   const selectedNonEmptyTypes = selectedTypes.filter((value) => value);
   const hasMissingDocumentType = selectedTypes.some((value) => !value);
   const hasRepeatedDocumentType = new Set(selectedNonEmptyTypes).size !== selectedNonEmptyTypes.length;
+  const hasActaDocument = selectedNonEmptyTypes.includes("acta");
   const submitDisabled = busy
     || selectedFiles.length === 0
     || (willConfirmStatus && !acknowledged)
     || hasMissingDocumentType
-    || hasRepeatedDocumentType;
+    || hasRepeatedDocumentType
+    || !hasActaDocument;
 
   const handleSubmit = async () => {
     if (!selectedFiles.length) {
@@ -533,7 +535,11 @@ function EvidenceUploadModal({ row, willConfirmStatus, allowedExtensions, onCanc
       return;
     }
     if (new Set(selectedTypes).size !== selectedTypes.length) {
-      setError("Solo puedes cargar un archivo Acta y un archivo Detalle por vez.");
+      setError("Solo puedes cargar un archivo Acta y, si lo necesitas, un archivo Detalle por vez.");
+      return;
+    }
+    if (!selectedTypes.includes("acta")) {
+      setError("Debes cargar obligatoriamente un adjunto de tipo Acta. El tipo Detalle es opcional.");
       return;
     }
 
@@ -668,7 +674,7 @@ function EvidenceUploadModal({ row, willConfirmStatus, allowedExtensions, onCanc
               </ol>
             ) : (
               <div className="flex h-full min-h-[18rem] items-center justify-center px-5 text-center text-sm text-[var(--text-muted)]">
-                Sin adjuntos. Agrega hasta dos archivos y asigna su tipo antes de confirmar.
+                Sin adjuntos. Agrega hasta dos archivos; Acta es obligatoria y Detalle es opcional.
               </div>
             )}
           </div>
