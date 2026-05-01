@@ -199,7 +199,7 @@ def itop_teams_search(
 ) -> dict[str, Any]:
     session_id = ensure_session(hub_session_id)
     try:
-        ensure_settings_access(session_id)
+        ensure_any_module_access(session_id, ("settings", "handover", "reassignment"))
         runtime_token = get_runtime_token(session_id)
         return {"items": search_itop_teams(q, runtime_token, org_id=org_id)}
     except AuthenticationError as exc:

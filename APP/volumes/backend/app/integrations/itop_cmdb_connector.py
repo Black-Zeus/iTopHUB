@@ -640,43 +640,92 @@ class iTopCMDBConnector:
             comment="Contact linked via iTopCMDBConnector",
         )
 
-    def link_contacts_to_ci(self, ci_class: str | CIClass, ci_id: int, contact_ids: list[int]) -> iTopResponse:
-        unique_ids = sorted({int(contact_id) for contact_id in contact_ids if int(contact_id) > 0})
-        if not unique_ids:
-            return iTopResponse(code=0, message="No contact links requested.", objects={}, raw={})
-        contacts_list: list[dict[str, Any]] = [{"contact_id": contact_id} for contact_id in unique_ids]
-        return self.update(
-            ci_class,
-            ci_id,
-            {"contacts_list": contacts_list},
-            comment="Contacts linked via iTopCMDBConnector",
-        )
+    def _fetch_contact_relation_links(
+        self,
+        relation_class: str,
+        target_field: str,
+        target_id: int,
+        contact_ids: list[int],
+        output_fields: str,
+    ) -> dict[int, list[iTopObject]]:
+        existing_by_contact: dict[int, list[iTopObject]] = {}
+        for contact_id in contact_ids:
+            existing_links = self.get(
+                relation_class,
+                (
+                    f"SELECT {relation_class} "
+                    f"WHERE {target_field} = {int(target_id)} AND contact_id = {int(contact_id)}"
+                ),
+                output_fields=output_fields,
+            ).items()
+            if existing_links:
+                existing_by_contact[contact_id] = existing_links
+        return existing_by_contact
 
-    def link_contacts_to_ticket(self, ticket_class: str | CIClass, ticket_id: int, contact_ids: list[int]) -> iTopResponse:
+    @staticmethod
+    def _serialize_relation_link_objects(links_by_contact: dict[int, list[iTopObject]]) -> dict[str, dict[str, Any]]:
+        serialized: dict[str, dict[str, Any]] = {}
+        for links in links_by_contact.values():
+            serialized.update(
+                {
+                    str(link.id): {
+                        "class": link.itop_class,
+                        "fields": dict(link.fields),
+                        "key": str(link.id),
+                    }
+                    for link in links
+                }
+            )
+        return serialized
+
+    def _link_contacts_with_verified_relation(
+        self,
+        target_class: str | CIClass,
+        target_id: int,
+        contact_ids: list[int],
+        *,
+        relation_class: str,
+        target_field: str,
+        relation_output_fields: str,
+        update_comment: str,
+        create_comment: str,
+        success_message: str,
+        fallback_name: str,
+    ) -> iTopResponse:
         unique_ids = sorted({int(contact_id) for contact_id in contact_ids if int(contact_id) > 0})
         if not unique_ids:
             return iTopResponse(code=0, message="No contact links requested.", objects={}, raw={})
 
         contacts_list: list[dict[str, Any]] = [{"contact_id": contact_id} for contact_id in unique_ids]
         response = self.update(
-            ticket_class,
-            ticket_id,
+            target_class,
+            target_id,
             {"contacts_list": contacts_list},
-            comment="Contacts linked to ticket via iTopCMDBConnector",
+            comment=update_comment,
         )
-        if response.ok:
+        existing_by_contact = self._fetch_contact_relation_links(
+            relation_class,
+            target_field,
+            int(target_id),
+            unique_ids,
+            relation_output_fields,
+        )
+        if response.ok and all(contact_id in existing_by_contact for contact_id in unique_ids):
             return response
 
-        linked_objects: dict[str, dict[str, Any]] = {}
+        linked_objects = self._serialize_relation_link_objects(existing_by_contact)
         for contact_id in unique_ids:
+            if contact_id in existing_by_contact:
+                continue
+
             create_response = self.create(
-                "lnkContactToTicket",
+                relation_class,
                 {
-                    "ticket_id": int(ticket_id),
+                    target_field: int(target_id),
                     "contact_id": int(contact_id),
                 },
-                output_fields="id,ticket_id,contact_id",
-                comment="Contact linked to ticket via iTopCMDBConnector",
+                output_fields=relation_output_fields,
+                comment=create_comment,
             )
             if not create_response.ok:
                 return create_response
@@ -684,9 +733,37 @@ class iTopCMDBConnector:
 
         return iTopResponse(
             code=0,
-            message="Contacts linked to ticket.",
+            message=success_message,
             objects=linked_objects,
-            raw={"fallback": "lnkContactToTicket"},
+            raw={"fallback": fallback_name},
+        )
+
+    def link_contacts_to_ci(self, ci_class: str | CIClass, ci_id: int, contact_ids: list[int]) -> iTopResponse:
+        return self._link_contacts_with_verified_relation(
+            ci_class,
+            ci_id,
+            contact_ids,
+            relation_class="lnkContactToFunctionalCI",
+            target_field="functionalci_id",
+            relation_output_fields="id,functionalci_id,contact_id",
+            update_comment="Contacts linked via iTopCMDBConnector",
+            create_comment="Contact linked via iTopCMDBConnector fallback",
+            success_message="Contacts linked to CI.",
+            fallback_name="lnkContactToFunctionalCI",
+        )
+
+    def link_contacts_to_ticket(self, ticket_class: str | CIClass, ticket_id: int, contact_ids: list[int]) -> iTopResponse:
+        return self._link_contacts_with_verified_relation(
+            ticket_class,
+            ticket_id,
+            contact_ids,
+            relation_class="lnkContactToTicket",
+            target_field="ticket_id",
+            relation_output_fields="id,ticket_id,contact_id",
+            update_comment="Contacts linked to ticket via iTopCMDBConnector",
+            create_comment="Contact linked to ticket via iTopCMDBConnector",
+            success_message="Contacts linked to ticket.",
+            fallback_name="lnkContactToTicket",
         )
 
     def unlink_contact_from_ci(self, ci_id: int, contact_id: int) -> iTopResponse:

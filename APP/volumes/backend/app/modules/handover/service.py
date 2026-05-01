@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from base64 import b64decode, b64encode
 from datetime import datetime
 from html import escape
@@ -107,6 +108,10 @@ def _format_attachment_size(size_bytes: int) -> str:
 def _normalize_ticket_id(value: Any) -> str:
     text = _coerce_str(value)
     return text if text.isdigit() else ""
+
+
+def _escape_oql(value: Any) -> str:
+    return _coerce_str(value).replace("\\", "\\\\").replace("'", "\\'")
 
 
 def _normalize_itop_impact(value: Any) -> str:
@@ -1435,7 +1440,7 @@ def _get_requester_org_id(connector: iTopCMDBConnector, requester_id: str) -> st
 
 
 ITOP_HANDOVER_TICKET_OUTPUT_FIELDS = (
-    "id,ref,title,status,caller_id,caller_id_friendlyname,team_id,team_id_friendlyname,"
+    "id,ref,title,description,status,caller_id,caller_id_friendlyname,team_id,team_id_friendlyname,"
     "agent_id,agent_id_friendlyname,impact,urgency,priority,service_id,service_id_friendlyname,"
     "servicesubcategory_id,servicesubcategory_id_friendlyname"
 )
@@ -1509,6 +1514,62 @@ def _ensure_itop_ticket_assignment(
     return refreshed_item
 
 
+def _find_existing_itop_handover_ticket(
+    connector: iTopCMDBConnector,
+    ticket_class: str,
+    *,
+    requester_id: str,
+    subject: str,
+    document_number: str,
+) -> iTopObject | None:
+    conditions = [
+        f"caller_id = {int(requester_id)}",
+        f"title = '{_escape_oql(subject)}'",
+    ]
+    oql = f"SELECT {ticket_class} WHERE {' AND '.join(conditions)}"
+    response = connector.get(ticket_class, oql, output_fields=ITOP_HANDOVER_TICKET_OUTPUT_FIELDS)
+    candidates = response.items()
+    if not candidates:
+        return None
+
+    normalized_document_number = _coerce_str(document_number)
+    if normalized_document_number:
+        document_matches = [
+            item
+            for item in candidates
+            if normalized_document_number in _coerce_str(item.get("description"))
+            or normalized_document_number in _coerce_str(item.get("friendlyname"))
+            or normalized_document_number in _coerce_str(item.get("ref"))
+        ]
+        if document_matches:
+            candidates = document_matches
+
+    return max(candidates, key=lambda item: int(item.id))
+
+
+def _recover_itop_handover_ticket_after_timeout(
+    connector: iTopCMDBConnector,
+    ticket_class: str,
+    *,
+    requester_id: str,
+    subject: str,
+    document_number: str,
+) -> iTopObject | None:
+    for attempt in range(4):
+        if attempt:
+            time.sleep(1.5)
+        item = _find_existing_itop_handover_ticket(
+            connector,
+            ticket_class,
+            requester_id=requester_id,
+            subject=subject,
+            document_number=document_number,
+        )
+        if item is not None:
+            return item
+    return None
+
+
 def _create_itop_handover_ticket(
     current_detail: dict[str, Any],
     ticket_payload: dict[str, Any] | None,
@@ -1572,16 +1633,43 @@ def _create_itop_handover_ticket(
         if priority:
             fields["priority"] = priority
 
-        response = connector.create(
+        document_number = _coerce_str(current_detail.get("documentNumber"))
+        item = _find_existing_itop_handover_ticket(
+            connector,
             ticket_class,
-            fields,
-            output_fields=ITOP_HANDOVER_TICKET_OUTPUT_FIELDS,
-            comment=f"Registro generado desde acta {current_detail.get('documentNumber') or ''}".strip(),
+            requester_id=requester_id,
+            subject=subject,
+            document_number=document_number,
         )
-        if not response.ok:
-            raise HTTPException(status_code=502, detail=f"No fue posible crear el ticket iTop: {response.message}")
+        if item is None:
+            try:
+                response = connector.create(
+                    ticket_class,
+                    fields,
+                    output_fields=ITOP_HANDOVER_TICKET_OUTPUT_FIELDS,
+                    comment=f"Registro generado desde acta {document_number}".strip(),
+                )
+            except TimeoutError as exc:
+                item = _recover_itop_handover_ticket_after_timeout(
+                    connector,
+                    ticket_class,
+                    requester_id=requester_id,
+                    subject=subject,
+                    document_number=document_number,
+                )
+                if item is None:
+                    raise HTTPException(
+                        status_code=504,
+                        detail=(
+                            "iTop no respondio a tiempo al crear el ticket y el Hub no pudo confirmar si quedo creado. "
+                            "Reintenta la carga: si iTop alcanzo a crear el ticket, el Hub lo reutilizara y continuara el cierre."
+                        ),
+                    ) from exc
+            else:
+                if not response.ok:
+                    raise HTTPException(status_code=502, detail=f"No fue posible crear el ticket iTop: {response.message}")
+                item = response.first()
 
-        item = response.first()
         if item is None:
             raise HTTPException(status_code=502, detail="iTop no retorno el ticket creado.")
 

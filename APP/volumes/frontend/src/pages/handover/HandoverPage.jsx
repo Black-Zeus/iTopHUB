@@ -18,7 +18,7 @@ import {
   uploadHandoverEvidence,
   updateHandoverDocumentStatus,
 } from "../../services/handover-service";
-import { getItopCurrentUserTeams, getItopRequirementCatalog, getItopTicketDefaults, searchItopTeamPeople } from "../../services/itop-service";
+import { getItopCurrentUserTeams, getItopRequirementCatalog, getItopTicketDefaults, searchItopTeamPeople, searchItopTeams } from "../../services/itop-service";
 import { runtimeConfig } from "../../config/runtime";
 import { waitForJobNotification } from "../../services/notification-service";
 import { downloadRowsAsCsv } from "../../utils/export-csv";
@@ -1179,7 +1179,8 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
                   return;
                 }
 
-                const groupOptions = normalizeTicketOptions(teamsPayload.items);
+                const fallbackTeams = (teamsPayload.items || []).length ? [] : await searchItopTeams({ query: "" });
+                const groupOptions = normalizeTicketOptions((teamsPayload.items || []).length ? teamsPayload.items : fallbackTeams);
                 const initialGroupId = groupOptions.length === 1 ? groupOptions[0].value : "";
                 const initialGroupAnalysts = initialGroupId ? await searchItopTeamPeople({ teamId: initialGroupId }) : [];
                 const analystOptions = normalizeAnalystOptions(initialGroupAnalysts, teamsPayload.sessionUser, Boolean(initialGroupId));

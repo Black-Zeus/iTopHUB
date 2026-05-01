@@ -256,6 +256,8 @@ export function ActaPublicationModalContent({
       }
       if (field === "groupId") {
         next.groupName = groupOptions.find((option) => option.value === value)?.label || "";
+        next.analystId = "";
+        next.analystName = "";
       }
       if (field === "analystId") {
         next.analystName = analystOptions.find((option) => option.value === value)?.label || "";
@@ -349,7 +351,7 @@ export function ActaPublicationModalContent({
             value={form.analystId}
             onChange={(value) => updateField("analystId", value)}
             options={analystFieldOptions}
-            disabled
+            disabled={analystFieldOptions.length <= 1 && Boolean(form.analystId)}
           />
         </Section>
 

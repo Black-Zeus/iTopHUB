@@ -174,7 +174,12 @@ def search_itop_team_people(team_id: int, query: str, runtime_token: str, status
     rows = [
         _build_person_row(item)
         for item in items
-        if _matches_person_query(item, normalized_query) and _matches_person_status(item, normalized_status)
+        if _matches_person_query(item, normalized_query)
+        and (
+            _is_active_status(item.get("status"))
+            if normalized_status == "active"
+            else _matches_person_status(item, normalized_status)
+        )
     ]
     rows.sort(key=lambda row: str(row["person"]).casefold())
     return rows[:limit]
