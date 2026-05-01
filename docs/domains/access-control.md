@@ -14,8 +14,11 @@ Covers Hub login, authorization, user linking, personal iTop token handling, and
 
 - Login flow:
   - first validate username and password against iTop
+  - the normal Hub login does not accept a personal iTop token as a replacement for the password
+  - the personal token is not a primary login credential for `/v1/auth/login`
   - if iTop login fails, deny access
   - if iTop login succeeds, evaluate the Hub user record, role, and personal token state
+  - if the user already has a personal token stored in Hub, backend validates that stored token after the password-based iTop login succeeds
 - Initial bootstrap flow:
   - if the Hub has no local users yet, the login page must switch to an initial setup wizard
   - the wizard must request:
@@ -53,6 +56,9 @@ Covers Hub login, authorization, user linking, personal iTop token handling, and
 ## Token Rules
 
 - The personal iTop token must be persisted encrypted in MariaDB.
+- Tokens written as comments or test notes in `.env.dev` are not consumed by the normal Hub login flow.
+- The login endpoint `/v1/auth/login` only receives `username` and `password`.
+- The bootstrap endpoint `/v1/auth/bootstrap` is the only auth entrypoint that accepts a raw token directly from the UI.
 - The personal iTop token used by Hub must be created in iTop with scope `REST/JSON`.
 - The source iTop instance must have REST token authentication enabled in its configuration. If `allowed_login_types` is configured, it must include `rest-token`.
 - The source iTop instance must allow personal token usage for profile `REST Services User`, so normal linked users can authenticate through their own tokens without becoming iTop administrators.

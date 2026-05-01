@@ -31,6 +31,7 @@ Runs the iTop platform used as the ITSM/CMDB base of the solution.
 - The PHP runtime includes `apcu` and an explicit writable `session.save_path` to keep the installation wizard clean.
 - The image also includes the MariaDB client so iTop scheduled/manual backups can execute `mysqldump` from inside the `itop` container.
 - For Hub authentication with personal iTop tokens, the token created in iTop must use scope `REST/JSON`.
+- In the Hub, a personal iTop token is not a substitute for the normal username/password login. It is validated after the password-based login succeeds, or captured directly only during the first-admin bootstrap wizard.
 - The iTop instance must also allow REST token authentication in its configuration. If `allowed_login_types` is defined in the iTop config, it must include `rest-token` in addition to the other enabled methods, for example: `form|basic|external|rest-token`.
 - The `authent-token` module must allow personal tokens for profile `REST Services User`, not only `Administrator`, because Hub runtime operations use each user's own token.
 - If the token scope is correct but `rest-token` is not enabled in iTop configuration, Hub bootstrap and later REST calls may fail with token-invalid or invalid-login errors even when the username and password are correct.
