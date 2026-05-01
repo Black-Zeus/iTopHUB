@@ -7,6 +7,7 @@ import { AuthContext } from "@/App";
 import { Icon } from "@/components/ui/icon/Icon";
 import { setPdqModuleEnabled } from "../services/module-visibility-service";
 import { getSettings } from "../services/settings-service";
+import { canViewModule } from "../services/authz-service";
 
 /**
  * Layout (AppShell) - grid principal de la app autenticada.
@@ -21,6 +22,11 @@ export function Layout() {
 
     const loadModuleVisibility = async () => {
       if (!user) {
+        return;
+      }
+
+      if (!canViewModule(user, "settings")) {
+        setPdqModuleEnabled(true);
         return;
       }
 
