@@ -559,6 +559,16 @@ def get_settings_panel(panel_code: str) -> dict[str, Any]:
     return normalized
 
 
+def get_organization_brand() -> dict[str, Any]:
+    org = get_settings_panel("organization")
+    logo_path = _coerce_str(org.get("organizationLogoPath"))
+    return {
+        "organizationName": _coerce_str(org.get("organizationName"), "iTop Hub"),
+        "organizationAcronym": _coerce_str(org.get("organizationAcronym"), "ITH"),
+        "organizationLogoDataUrl": read_organization_logo_data_url(logo_path),
+    }
+
+
 def _normalize_sync_task_payload(payload: dict[str, Any]) -> dict[str, Any]:
     schedule_expression = _coerce_str(payload.get("schedule"))
     description = _coerce_str(payload.get("description"))
