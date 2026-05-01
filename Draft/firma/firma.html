@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>Firma de Acta - iTop Hub</title>
+
+  <style>
+    :root {
+      --bg: #eef1f5;
+      --panel: #ffffff;
+      --text: #1f2937;
+      --muted: #6b7280;
+      --line: #d9dee7;
+      --primary: #1d4ed8;
+      --primary-dark: #0f172a;
+      --soft-gray: #f8fafc;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      font-family: "Segoe UI", Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    .page {
+      height: 100vh;
+      max-width: 620px;
+      margin: 0 auto;
+      background: var(--soft-gray);
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+    }
+
+    .header {
+      background: var(--primary-dark);
+      color: white;
+      padding: 20px;
+    }
+
+    .header h1 {
+      margin: 0;
+      font-size: 20px;
+    }
+
+    .header p {
+      margin: 6px 0 0;
+      font-size: 13px;
+      color: #cbd5e1;
+    }
+
+    .content {
+      overflow-y: auto;
+      padding: 16px;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 16px;
+      margin-bottom: 14px;
+    }
+
+    .title {
+      font-weight: 800;
+      margin-bottom: 10px;
+    }
+
+    .meta {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .meta div {
+      background: var(--soft-gray);
+      border: 1px solid #eef2f7;
+      border-radius: 10px;
+      padding: 10px;
+    }
+
+    .meta small {
+      display: block;
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .meta strong {
+      font-size: 14px;
+    }
+
+    .canvas-box {
+      border: 2px dashed #94a3b8;
+      border-radius: 16px;
+      height: 260px;
+      position: relative;
+      background: white;
+      margin-top: 12px;
+    }
+
+    canvas {
+      width: 100%;
+      height: 100%;
+      border-radius: 16px;
+      cursor: crosshair;
+    }
+
+    .canvas-label {
+      position: absolute;
+      bottom: 10px;
+      width: 100%;
+      text-align: center;
+      font-size: 12px;
+      color: #94a3b8;
+    }
+
+    textarea {
+      width: 100%;
+      margin-top: 12px;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      padding: 10px;
+      resize: none;
+    }
+
+    .footer {
+      border-top: 1px solid var(--line);
+      background: var(--soft-gray);
+      padding: 14px;
+    }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+    }
+
+    button {
+      flex: 1;
+      padding: 12px;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .primary {
+      background: var(--primary);
+      color: white;
+      border-color: var(--primary);
+    }
+
+    @media (max-width: 480px) {
+      .meta {
+        grid-template-columns: 1fr;
+      }
+
+      .actions {
+        flex-direction: column;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <main class="page">
+
+    <!-- HEADER -->
+    <header class="header">
+      <h1>Firma de Acta</h1>
+      <p>Revise la información y registre su firma manuscrita.</p>
+    </header>
+
+    <!-- CONTENT -->
+    <section class="content">
+
+      <!-- DATOS -->
+      <article class="card">
+        <div class="title">ACT-ENT-00021</div>
+
+        <div class="meta">
+          <div>
+            <small>Firmante</small>
+            <strong>Juan Pérez</strong>
+          </div>
+
+          <div>
+            <small>Activos</small>
+            <strong>3</strong>
+          </div>
+
+          <div>
+            <small>Agente</small>
+            <strong>Víctor Soto</strong>
+          </div>
+
+          <div>
+            <small>Fecha</small>
+            <strong>29-04-2026</strong>
+          </div>
+        </div>
+      </article>
+
+      <!-- FIRMA -->
+      <article class="card">
+        <div class="title">Firma manuscrita</div>
+
+        <div class="canvas-box">
+          <canvas id="signatureCanvas"></canvas>
+          <div class="canvas-label">Firme dentro del área</div>
+        </div>
+
+        <textarea placeholder="Observación (opcional)"></textarea>
+      </article>
+
+    </section>
+
+    <!-- FOOTER -->
+    <footer class="footer">
+      <div class="actions">
+        <button onclick="clearCanvas()">Limpiar</button>
+        <button class="primary">Confirmar firma</button>
+      </div>
+    </footer>
+
+  </main>
+
+  <script>
+    const canvas = document.getElementById("signatureCanvas");
+    const ctx = canvas.getContext("2d");
+
+    let drawing = false;
+
+    function resizeCanvas() {
+      canvas.width = canvas.offsetWidth;
+      canvas.height = canvas.offsetHeight;
+    }
+
+    resizeCanvas();
+    window.addEventListener("resize", resizeCanvas);
+
+    canvas.addEventListener("mousedown", () => drawing = true);
+    canvas.addEventListener("mouseup", () => drawing = false);
+    canvas.addEventListener("mouseleave", () => drawing = false);
+
+    canvas.addEventListener("mousemove", draw);
+
+    canvas.addEventListener("touchstart", () => drawing = true);
+    canvas.addEventListener("touchend", () => drawing = false);
+    canvas.addEventListener("touchmove", drawTouch);
+
+    function draw(e) {
+      if (!drawing) return;
+      ctx.lineWidth = 2;
+      ctx.lineCap = "round";
+      ctx.strokeStyle = "#000";
+
+      ctx.lineTo(e.offsetX, e.offsetY);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(e.offsetX, e.offsetY);
+    }
+
+    function drawTouch(e) {
+      e.preventDefault();
+      if (!drawing) return;
+
+      const rect = canvas.getBoundingClientRect();
+      const touch = e.touches[0];
+
+      const x = touch.clientX - rect.left;
+      const y = touch.clientY - rect.top;
+
+      ctx.lineWidth = 2;
+      ctx.lineCap = "round";
+      ctx.strokeStyle = "#000";
+
+      ctx.lineTo(x, y);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+    }
+
+    function clearCanvas() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+  </script>
+
+</body>
+</html>

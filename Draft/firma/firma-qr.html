@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>Firma por QR - iTop Hub</title>
+
+  <style>
+    :root {
+      --bg: #eef1f5;
+      --panel: #ffffff;
+      --text: #1f2937;
+      --muted: #64748b;
+      --line: #d9dee7;
+      --primary: #1d4ed8;
+      --primary-dark: #0f172a;
+      --danger: #b91c1c;
+      --success: #15803d;
+      --soft-blue: #eff6ff;
+      --soft-red: #fef2f2;
+      --soft-green: #f0fdf4;
+      --soft-gray: #f8fafc;
+      --shadow: 0 24px 70px rgba(15, 23, 42, 0.26);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      font-family: "Segoe UI", Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    .overlay {
+      width: 100%;
+      height: 100vh;
+      padding: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background:
+        linear-gradient(rgba(15, 23, 42, .70), rgba(15, 23, 42, .78)),
+        radial-gradient(circle at top left, #334155, #020617);
+    }
+
+    .modal {
+      width: 920px;
+      max-width: 100%;
+      max-height: calc(100vh - 40px);
+      background: var(--panel);
+      border-radius: 20px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,.16);
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+    }
+
+    .modal-header {
+      padding: 18px 24px;
+      background: var(--primary-dark);
+      color: white;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 18px;
+    }
+
+    .title-block h1 {
+      margin: 0;
+      font-size: 21px;
+      font-weight: 800;
+    }
+
+    .title-block p {
+      margin: 5px 0 0;
+      color: #cbd5e1;
+      font-size: 13px;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--soft-green);
+      color: var(--success);
+      border: 1px solid #bbf7d0;
+      border-radius: 999px;
+      padding: 7px 12px;
+      font-size: 12px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .close {
+      border: 1px solid #475569;
+      background: transparent;
+      color: white;
+      border-radius: 10px;
+      width: 36px;
+      height: 36px;
+      cursor: pointer;
+      font-size: 18px;
+    }
+
+    .modal-body {
+      padding: 20px 24px;
+      overflow-y: auto;
+      min-height: 0;
+    }
+
+    .acta-bar {
+      display: grid;
+      grid-template-columns: 1.3fr .85fr .85fr;
+      gap: 12px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: var(--soft-gray);
+      margin-bottom: 18px;
+    }
+
+    .field {
+      background: white;
+      border: 1px solid #eef2f7;
+      border-radius: 12px;
+      padding: 11px 12px;
+    }
+
+    .field small {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      margin-bottom: 5px;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      font-weight: 700;
+    }
+
+    .field strong {
+      display: block;
+      font-size: 14px;
+      line-height: 1.35;
+    }
+
+    .content-grid {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      gap: 20px;
+      align-items: stretch;
+    }
+
+    .qr-panel,
+    .control-panel {
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: white;
+      padding: 18px;
+      box-shadow: 0 10px 28px rgba(15, 23, 42, .05);
+    }
+
+    .qr-panel {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 330px;
+    }
+
+    .qr-placeholder {
+      width: 250px;
+      height: 250px;
+      border-radius: 14px;
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      box-shadow: 0 12px 30px rgba(15, 23, 42, .14);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    .qr-placeholder img {
+      width: 250px;
+      height: 250px;
+      object-fit: contain;
+      display: block;
+    }
+
+    .qr-placeholder.empty {
+      color: #94a3b8;
+      font-size: 13px;
+      text-align: center;
+      padding: 18px;
+      line-height: 1.4;
+      font-weight: 700;
+    }
+
+    .qr-note {
+      margin: 14px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+      text-align: center;
+      max-width: 270px;
+    }
+
+    .section-title {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 800;
+      color: #334155;
+    }
+
+    .status-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .timer {
+      background: var(--soft-blue);
+      color: #1e40af;
+      border: 1px solid #bfdbfe;
+      padding: 8px 12px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .status-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .status-item {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      border-bottom: 1px solid #eef2f7;
+      padding-bottom: 9px;
+      font-size: 14px;
+    }
+
+    .status-item:last-child {
+      border-bottom: none;
+      padding-bottom: 0;
+    }
+
+    .status-item span {
+      color: var(--muted);
+    }
+
+    .status-item strong {
+      text-align: right;
+    }
+
+    .support-box {
+      margin-top: 14px;
+      padding: 12px 14px;
+      background: var(--soft-gray);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      font-size: 13px;
+      color: #475569;
+      line-height: 1.45;
+    }
+
+    .modal-footer {
+      padding: 16px 24px;
+      border-top: 1px solid var(--line);
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      background: var(--soft-gray);
+    }
+
+    button {
+      border: 1px solid var(--line);
+      background: white;
+      color: var(--text);
+      padding: 10px 15px;
+      border-radius: 11px;
+      font-weight: 800;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    button.primary {
+      background: var(--primary);
+      color: white;
+      border-color: var(--primary);
+    }
+
+    button.danger {
+      color: var(--danger);
+      background: var(--soft-red);
+      border-color: #fecaca;
+    }
+
+    @media (max-width: 900px) {
+      html,
+      body {
+        overflow: auto;
+        height: auto;
+      }
+
+      .overlay {
+        min-height: 100vh;
+        height: auto;
+        padding: 16px;
+        align-items: flex-start;
+      }
+
+      .modal {
+        width: 100%;
+        max-height: none;
+      }
+
+      .modal-header {
+        align-items: flex-start;
+      }
+
+      .content-grid,
+      .acta-bar {
+        grid-template-columns: 1fr;
+      }
+
+      .modal-footer {
+        flex-direction: column;
+      }
+
+      button {
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <main class="overlay">
+    <section class="modal">
+      <header class="modal-header">
+        <div class="title-block">
+          <h1>iTop Hub | Firma Digital Operacional</h1>
+          <p>Sesión temporal para firma remota mediante código QR.</p>
+        </div>
+
+        <div class="header-actions">
+          <span class="badge">● SESIÓN ACTIVA</span>
+          <button class="close" type="button">×</button>
+        </div>
+      </header>
+
+      <section class="modal-body">
+        <div class="acta-bar">
+          <div class="field">
+            <small>Acta</small>
+            <strong>ACT-ENT-00021 · Entrega de activos TI</strong>
+          </div>
+
+          <div class="field">
+            <small>Firmante esperado</small>
+            <strong>Juan Pérez</strong>
+          </div>
+
+          <div class="field">
+            <small>Agente solicitante</small>
+            <strong>Víctor Soto</strong>
+          </div>
+        </div>
+
+        <div class="content-grid">
+          <article class="qr-panel">
+            <div class="qr-placeholder empty">
+              Placeholder QR<br>
+              250 × 250 px
+            </div>
+
+            <!-- QR real:
+            <div class="qr-placeholder">
+              <img src="qr-firma.png" alt="Código QR para firma del acta" />
+            </div>
+            -->
+
+            <p class="qr-note">
+              Escanear desde el dispositivo móvil del firmante para abrir la sesión de firma.
+            </p>
+          </article>
+
+          <article class="control-panel">
+            <div class="status-header">
+              <h2 class="section-title">Control de sesión</h2>
+            </div>
+
+            <div class="status-list">
+              <div class="status-item">
+                <span>Estado</span>
+                <strong>Activo</strong>
+              </div>
+
+              <div class="status-item">
+                <span>Vigencia configurada</span>
+                <strong>10 minutos</strong>
+              </div>
+
+              <div class="status-item">
+                <span>Uso único</span>
+                <strong>Sí</strong>
+              </div>
+
+              <div class="status-item">
+                <span>Método de firma</span>
+                <strong>QR remoto</strong>
+              </div>
+
+              <div class="status-item">
+                <span>Estado del acta</span>
+                <strong>Pendiente de firma</strong>
+              </div>
+
+              <div class="status-item">
+                <span>Activos asociados</span>
+                <strong>3</strong>
+              </div>
+
+              <div class="status-item">
+                <span>Tipo de acta</span>
+                <strong>Entrega</strong>
+              </div>
+
+              <div class="status-item">
+                <span>Sesión generada</span>
+                <strong>29-04-2026 10:35</strong>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <footer class="modal-footer">
+        <button type="button">Copiar enlace</button>
+        <button type="button">Regenerar QR</button>
+        <button type="button" class="danger">Revocar sesión</button>
+        <button type="button" class="primary">Cerrar</button>
+      </footer>
+    </section>
+  </main>
+</body>
+</html>
