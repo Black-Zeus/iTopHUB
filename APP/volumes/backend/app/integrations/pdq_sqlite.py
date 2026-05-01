@@ -342,9 +342,10 @@ def _read_int(name: str, default: int) -> int:
 def _find_candidate_files(sqlite_dir: Path, config: PDQConfig) -> list[Path]:
     if config.configured_file_path:
         configured_path = Path(config.configured_file_path)
-        if configured_path.exists() and configured_path.is_file():
-            return [configured_path]
-        return []
+        if configured_path.suffix:
+            if configured_path.exists() and configured_path.is_file():
+                return [configured_path]
+            return []
 
     if not sqlite_dir.exists() or not sqlite_dir.is_dir():
         return []
