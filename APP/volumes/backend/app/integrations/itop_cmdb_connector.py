@@ -697,12 +697,23 @@ class iTopCMDBConnector:
             return iTopResponse(code=0, message="No contact links requested.", objects={}, raw={})
 
         contacts_list: list[dict[str, Any]] = [{"contact_id": contact_id} for contact_id in unique_ids]
-        response = self.update(
-            target_class,
-            target_id,
-            {"contacts_list": contacts_list},
-            comment=update_comment,
-        )
+        timeout_recovered = False
+        try:
+            response = self.update(
+                target_class,
+                target_id,
+                {"contacts_list": contacts_list},
+                comment=update_comment,
+            )
+        except TimeoutError:
+            timeout_recovered = True
+            response = iTopResponse(
+                code=0,
+                message="iTop timed out while linking contacts; relation state will be verified.",
+                objects={},
+                raw={"timeout_recovered": True},
+            )
+
         existing_by_contact = self._fetch_contact_relation_links(
             relation_class,
             target_field,
@@ -711,6 +722,8 @@ class iTopCMDBConnector:
             relation_output_fields,
         )
         if response.ok and all(contact_id in existing_by_contact for contact_id in unique_ids):
+            if timeout_recovered:
+                response.raw = {**(response.raw or {}), "timeout_recovered": True}
             return response
 
         linked_objects = self._serialize_relation_link_objects(existing_by_contact)

@@ -94,6 +94,7 @@ class ReassignmentHandoverService(AssignedReceiverHandoverService):
                     asset_id = 0
                 if asset_id <= 0:
                     continue
+                asset_label = helpers._build_asset_display_label(item, asset_override=asset)
 
                 asset_class = helpers._resolve_asset_itop_class(connector, asset_id)
                 assigned_contacts = helpers._load_ci_assigned_contacts(connector, asset_id)
@@ -136,23 +137,14 @@ class ReassignmentHandoverService(AssignedReceiverHandoverService):
                     asset_result["contactLinked"] = True
 
                 if helpers._normalize_ticket_id(ticket_id):
-                    ticket_link_response = connector.create(
-                        "lnkFunctionalCIToTicket",
-                        {
-                            "ticket_id": int(ticket_id),
-                            "functionalci_id": asset_id,
-                            "impact_code": "manual",
-                        },
-                        output_fields="id,ticket_id,functionalci_id,impact_code",
-                        comment=f"EC asociado desde acta {current_detail.get('documentNumber') or ''}".strip(),
+                    helpers._ensure_ci_ticket_link(
+                        connector,
+                        ticket_id=int(ticket_id),
+                        asset_id=asset_id,
+                        asset_label=asset_label,
+                        document_number=helpers._coerce_str(current_detail.get("documentNumber")),
                     )
-                    if ticket_link_response.ok:
-                        asset_result["ticketLinked"] = True
-                    else:
-                        raise HTTPException(
-                            status_code=502,
-                            detail=f"No fue posible relacionar el EC {asset_id} con el ticket iTop: {ticket_link_response.message}",
-                        )
+                    asset_result["ticketLinked"] = True
 
                 results.append(asset_result)
         except HTTPException:

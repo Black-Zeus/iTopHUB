@@ -123,6 +123,7 @@ class BaseHandoverService:
                     asset_id = 0
                 if asset_id <= 0:
                     continue
+                asset_label = helpers._build_asset_display_label(item, asset_override=asset)
 
                 asset_class = helpers._resolve_asset_itop_class(connector, asset_id)
                 asset_result = {
@@ -189,23 +190,14 @@ class BaseHandoverService:
                     asset_result["statusUpdated"] = True
 
                 if helpers._normalize_ticket_id(ticket_id):
-                    ticket_link_response = connector.create(
-                        "lnkFunctionalCIToTicket",
-                        {
-                            "ticket_id": int(ticket_id),
-                            "functionalci_id": asset_id,
-                            "impact_code": "manual",
-                        },
-                        output_fields="id,ticket_id,functionalci_id,impact_code",
-                        comment=f"EC asociado desde acta {current_detail.get('documentNumber') or ''}".strip(),
+                    helpers._ensure_ci_ticket_link(
+                        connector,
+                        ticket_id=int(ticket_id),
+                        asset_id=asset_id,
+                        asset_label=asset_label,
+                        document_number=helpers._coerce_str(current_detail.get("documentNumber")),
                     )
-                    if ticket_link_response.ok:
-                        asset_result["ticketLinked"] = True
-                    else:
-                        raise HTTPException(
-                            status_code=502,
-                            detail=f"No fue posible relacionar el EC {asset_id} con el ticket iTop: {ticket_link_response.message}",
-                        )
+                    asset_result["ticketLinked"] = True
 
                 results.append(asset_result)
         except HTTPException:
@@ -276,8 +268,9 @@ class BaseHandoverService:
         if not existing_document:
             raise HTTPException(status_code=404, detail="Acta no encontrada.")
         previous_detail = helpers.get_handover_document_detail(document_id)
+        target_status = helpers._coerce_str(payload.get("status"))
 
-        if runtime_token:
+        if runtime_token and target_status != "Anulada":
             self.validate_assets(
                 payload,
                 runtime_token=runtime_token,
@@ -295,7 +288,6 @@ class BaseHandoverService:
             document_number=existing_document["document_number"],
             existing_document=existing_document,
         )
-        target_status = helpers._coerce_str(payload.get("status"))
         if target_status == "Anulada":
             document_payload["generated_documents"] = None
         helpers.save_handover_document(document_id, document_payload, item_payloads)
@@ -421,6 +413,15 @@ class BaseHandoverService:
             raise HTTPException(
                 status_code=422,
                 detail=f"Solo se permiten {helpers.MAX_HANDOVER_DOCUMENT_FILES} archivos por carga entre Acta y Detalle.",
+            )
+        attachment_types = {
+            helpers._normalize_evidence_document_type(item.get("documentType"))
+            for item in attachments or []
+        }
+        if "acta" not in attachment_types:
+            raise HTTPException(
+                status_code=422,
+                detail="Debes cargar obligatoriamente un adjunto de tipo Acta. El tipo Detalle es opcional.",
             )
 
         storage_directory = helpers.build_handover_storage_directory(

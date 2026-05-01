@@ -214,6 +214,59 @@ def _build_itop_connector(runtime_token: str) -> iTopCMDBConnector:
     )
 
 
+def _ensure_ci_ticket_link(
+    connector: iTopCMDBConnector,
+    *,
+    ticket_id: int,
+    asset_id: int,
+    asset_label: str,
+    document_number: str = "",
+) -> None:
+    relation_class = "lnkFunctionalCIToTicket"
+    relation_query = f"SELECT {relation_class} WHERE ticket_id = {int(ticket_id)} AND functionalci_id = {int(asset_id)}"
+    existing_response = connector.get(
+        relation_class,
+        relation_query,
+        output_fields="id,ticket_id,functionalci_id,impact_code",
+    )
+    if not existing_response.ok:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                f"No fue posible verificar si el activo '{asset_label}' ya estaba relacionado con el ticket iTop: "
+                f"{existing_response.message}"
+            ),
+        )
+    if existing_response.first() is not None:
+        return
+
+    ticket_link_response = connector.create(
+        relation_class,
+        {
+            "ticket_id": int(ticket_id),
+            "functionalci_id": int(asset_id),
+            "impact_code": "manual",
+        },
+        output_fields="id,ticket_id,functionalci_id,impact_code",
+        comment=f"EC asociado desde acta {document_number}".strip(),
+    )
+    if ticket_link_response.ok:
+        return
+
+    recheck_response = connector.get(
+        relation_class,
+        relation_query,
+        output_fields="id,ticket_id,functionalci_id,impact_code",
+    )
+    if recheck_response.ok and recheck_response.first() is not None:
+        return
+
+    raise HTTPException(
+        status_code=502,
+        detail=f"No fue posible relacionar el activo '{asset_label}' con el ticket iTop: {ticket_link_response.message}",
+    )
+
+
 def _get_allowed_evidence_extensions() -> set[str]:
     docs_settings = get_settings_panel("docs")
     configured_values = docs_settings.get("evidenceAllowedExtensions") or []
@@ -1020,6 +1073,15 @@ def _build_asset_label(item: dict[str, Any]) -> str:
     return _coerce_str(asset.get("code")) or _coerce_str(asset.get("name")) or "sin codigo"
 
 
+def _build_asset_display_label(item: dict[str, Any], *, asset_override: dict[str, Any] | None = None) -> str:
+    asset = asset_override or item.get("asset") or {}
+    name = _coerce_str(asset.get("name"))
+    code = _coerce_str(asset.get("code"))
+    if name and code and _normalize_comparison_text(name) != _normalize_comparison_text(code):
+        return f"{name} ({code})"
+    return name or code or "sin identificar"
+
+
 def _validate_required_checklists(
     items: list[dict[str, Any]],
     *,
@@ -1480,27 +1542,33 @@ def _ensure_itop_ticket_assignment(
 
     comment = f"Asignacion sincronizada desde acta {document_number}".strip()
     if missing_assignment:
-        update_response = connector.update(
-            ticket_class,
-            ticket_id,
-            assignment_fields,
-            output_fields=ITOP_HANDOVER_TICKET_OUTPUT_FIELDS,
-            comment=comment,
-        )
-        if update_response.ok and update_response.first() is not None:
+        try:
+            update_response = connector.update(
+                ticket_class,
+                ticket_id,
+                assignment_fields,
+                output_fields=ITOP_HANDOVER_TICKET_OUTPUT_FIELDS,
+                comment=comment,
+            )
+        except TimeoutError:
+            update_response = None
+        if update_response is not None and update_response.ok and update_response.first() is not None:
             item = update_response.first()
             status = _coerce_str(item.get("status")).lower()
 
     if status in {"new", "created"}:
-        stimulus_response = connector.apply_stimulus(
-            ticket_class,
-            ticket_id,
-            "ev_assign",
-            fields=assignment_fields,
-            output_fields=ITOP_HANDOVER_TICKET_OUTPUT_FIELDS,
-            comment=comment,
-        )
-        if stimulus_response.ok and stimulus_response.first() is not None:
+        try:
+            stimulus_response = connector.apply_stimulus(
+                ticket_class,
+                ticket_id,
+                "ev_assign",
+                fields=assignment_fields,
+                output_fields=ITOP_HANDOVER_TICKET_OUTPUT_FIELDS,
+                comment=comment,
+            )
+        except TimeoutError:
+            stimulus_response = None
+        if stimulus_response is not None and stimulus_response.ok and stimulus_response.first() is not None:
             assigned_item = stimulus_response.first()
             if _coerce_str(assigned_item.get("status")).lower() == "assigned":
                 return assigned_item
@@ -1518,41 +1586,46 @@ def _find_existing_itop_handover_ticket(
     connector: iTopCMDBConnector,
     ticket_class: str,
     *,
-    requester_id: str,
-    subject: str,
     document_number: str,
 ) -> iTopObject | None:
-    conditions = [
-        f"caller_id = {int(requester_id)}",
-        f"title = '{_escape_oql(subject)}'",
-    ]
-    oql = f"SELECT {ticket_class} WHERE {' AND '.join(conditions)}"
-    response = connector.get(ticket_class, oql, output_fields=ITOP_HANDOVER_TICKET_OUTPUT_FIELDS)
+    normalized_document_number = _coerce_str(document_number)
+    if not normalized_document_number:
+        return None
+
+    safe_document_number = _escape_oql(normalized_document_number)
+    response = connector.get(
+        ticket_class,
+        (
+            f"SELECT {ticket_class} WHERE "
+            f"title LIKE '%{safe_document_number}%' OR "
+            f"description LIKE '%{safe_document_number}%' OR "
+            f"friendlyname LIKE '%{safe_document_number}%' OR "
+            f"ref LIKE '%{safe_document_number}%'"
+        ),
+        output_fields=ITOP_HANDOVER_TICKET_OUTPUT_FIELDS,
+    )
     candidates = response.items()
     if not candidates:
         return None
 
-    normalized_document_number = _coerce_str(document_number)
-    if normalized_document_number:
-        document_matches = [
-            item
-            for item in candidates
-            if normalized_document_number in _coerce_str(item.get("description"))
-            or normalized_document_number in _coerce_str(item.get("friendlyname"))
-            or normalized_document_number in _coerce_str(item.get("ref"))
-        ]
-        if document_matches:
-            candidates = document_matches
+    document_matches = [
+        item
+        for item in candidates
+        if normalized_document_number in _coerce_str(item.get("description"))
+        or normalized_document_number in _coerce_str(item.get("friendlyname"))
+        or normalized_document_number in _coerce_str(item.get("ref"))
+        or normalized_document_number in _coerce_str(item.get("title"))
+    ]
+    if not document_matches:
+        return None
 
-    return max(candidates, key=lambda item: int(item.id))
+    return max(document_matches, key=lambda item: int(item.id))
 
 
 def _recover_itop_handover_ticket_after_timeout(
     connector: iTopCMDBConnector,
     ticket_class: str,
     *,
-    requester_id: str,
-    subject: str,
     document_number: str,
 ) -> iTopObject | None:
     for attempt in range(4):
@@ -1561,8 +1634,6 @@ def _recover_itop_handover_ticket_after_timeout(
         item = _find_existing_itop_handover_ticket(
             connector,
             ticket_class,
-            requester_id=requester_id,
-            subject=subject,
             document_number=document_number,
         )
         if item is not None:
@@ -1637,8 +1708,6 @@ def _create_itop_handover_ticket(
         item = _find_existing_itop_handover_ticket(
             connector,
             ticket_class,
-            requester_id=requester_id,
-            subject=subject,
             document_number=document_number,
         )
         if item is None:
@@ -1653,8 +1722,6 @@ def _create_itop_handover_ticket(
                 item = _recover_itop_handover_ticket_after_timeout(
                     connector,
                     ticket_class,
-                    requester_id=requester_id,
-                    subject=subject,
                     document_number=document_number,
                 )
                 if item is None:
@@ -1841,23 +1908,14 @@ def _apply_itop_handover_assignment(
                 asset_result["statusUpdated"] = True
 
             if _normalize_ticket_id(ticket_id):
-                ticket_link_response = connector.create(
-                    "lnkFunctionalCIToTicket",
-                    {
-                        "ticket_id": int(ticket_id),
-                        "functionalci_id": asset_id,
-                        "impact_code": "manual",
-                    },
-                    output_fields="id,ticket_id,functionalci_id,impact_code",
-                    comment=f"EC asociado desde acta {current_detail.get('documentNumber') or ''}".strip(),
+                _ensure_ci_ticket_link(
+                    connector,
+                    ticket_id=int(ticket_id),
+                    asset_id=asset_id,
+                    asset_label=_build_asset_display_label(item, asset_override=asset),
+                    document_number=_coerce_str(current_detail.get("documentNumber")),
                 )
-                if ticket_link_response.ok:
-                    asset_result["ticketLinked"] = True
-                else:
-                    raise HTTPException(
-                        status_code=502,
-                        detail=f"No fue posible relacionar el EC {asset_id} con el ticket iTop: {ticket_link_response.message}",
-                    )
+                asset_result["ticketLinked"] = True
 
             results.append(asset_result)
     except HTTPException:
@@ -1894,15 +1952,17 @@ def _build_itop_handover_document_files(
         for item in pending_files
         if _coerce_str(item.get("final"))
     }
-    documents: list[dict[str, Any]] = []
+    documents_by_type: dict[str, dict[str, Any]] = {}
 
     for document in generated_documents:
         stored_name = Path(_coerce_str(document.get("storedName"))).name
         if not stored_name:
             continue
-        documents.append(
+        document_type = "detalle" if _coerce_str(document.get("kind")) == "detail" else "acta"
+        documents_by_type.setdefault(
+            document_type,
             {
-                "documentType": "detalle" if _coerce_str(document.get("kind")) == "detail" else "acta",
+                "documentType": document_type,
                 "name": _coerce_str(document.get("name")) or stored_name,
                 "storedName": stored_name,
                 "mimeType": _coerce_str(document.get("mimeType")) or "application/pdf",
@@ -1914,12 +1974,15 @@ def _build_itop_handover_document_files(
                     include_legacy=True,
                 )
                 or (build_handover_storage_directory("documents", document_id, handover_type) / stored_name),
-            }
+            },
         )
 
     for attachment in evidence_attachments:
         stored_name = Path(_coerce_str(attachment.get("storedName"))).name
         if not stored_name:
+            continue
+        document_type = _normalize_evidence_document_type(attachment.get("documentType"), allow_blank=True)
+        if document_type not in {"acta", "detalle"}:
             continue
         pending_file = pending_by_name.get(stored_name)
         file_path = (
@@ -1936,22 +1999,19 @@ def _build_itop_handover_document_files(
                 or (build_handover_storage_directory("evidence", document_id, handover_type) / stored_name)
             )
         )
-        documents.append(
-            {
-                "documentType": _normalize_evidence_document_type(attachment.get("documentType"), allow_blank=True),
-                "name": _coerce_str(attachment.get("name")) or stored_name,
-                "storedName": stored_name,
-                "mimeType": _coerce_str(attachment.get("mimeType")) or "application/octet-stream",
-                "path": file_path,
-            }
-        )
+        documents_by_type[document_type] = {
+            "documentType": document_type,
+            "name": _coerce_str(attachment.get("name")) or stored_name,
+            "storedName": stored_name,
+            "mimeType": _coerce_str(attachment.get("mimeType")) or "application/octet-stream",
+            "path": file_path,
+        }
 
-    ordered: list[dict[str, Any]] = []
-    for document_type in ("acta", "detalle"):
-        match = next((item for item in documents if item.get("documentType") == document_type), None)
-        if match:
-            ordered.append(match)
-    return ordered
+    return [
+        documents_by_type[document_type]
+        for document_type in ("acta", "detalle")
+        if document_type in documents_by_type
+    ]
 
 
 def _create_itop_attachment(
@@ -2039,6 +2099,7 @@ def _create_itop_document_file(
     if not isinstance(file_path, Path) or not file_path.exists():
         raise HTTPException(status_code=502, detail=f"No fue posible crear documento iTop '{document.get('name') or 'documento'}': el archivo local no existe.")
 
+    file_content = file_path.read_bytes()
     document_name = _coerce_str(document.get("name")) or file_path.name
     escaped_document_name = document_name.replace("\\", "\\\\").replace("'", "\\'")
     existing_link_response = connector.get(
@@ -2051,16 +2112,58 @@ def _create_itop_document_file(
     )
     existing_link = existing_link_response.first()
     if existing_link is not None:
+        existing_document_id = _normalize_ticket_id(existing_link.get("document_id"))
+        if not existing_document_id:
+            raise HTTPException(
+                status_code=502,
+                detail=f"iTop devolvio un enlace documental invalido para '{document_name}'.",
+            )
+        existing_document_response = connector.get(
+            "DocumentFile",
+            int(existing_document_id),
+            output_fields="id,name,version,org_id,documenttype_id,status",
+        )
+        existing_document = existing_document_response.first()
+        current_version_value = _coerce_str(existing_document.get("version") if existing_document else "")
+        try:
+            next_version_value = str(max(1, int(current_version_value or "0")) + 1)
+        except (TypeError, ValueError):
+            next_version_value = current_version_value or "2"
+
+        update_response = connector.update(
+            "DocumentFile",
+            int(existing_document_id),
+            {
+                "name": document_name,
+                "org_id": target_org_id,
+                "documenttype_id": document_type_id,
+                "version": next_version_value,
+                "description": f"Documento actualizado desde acta {document_number}".strip(),
+                "status": "published",
+                "file": {
+                    "filename": document_name,
+                    "mimetype": _coerce_str(document.get("mimeType")) or "application/octet-stream",
+                    "data": b64encode(file_content).decode("ascii"),
+                },
+            },
+            output_fields="id,name,org_id,documenttype_id,status,version",
+            comment=f"Documento actualizado desde acta {document_number}".strip(),
+        )
+        if not update_response.ok:
+            raise HTTPException(
+                status_code=502,
+                detail=f"No fue posible actualizar documento iTop '{document_name}': {update_response.message}",
+            )
         return {
-            "id": _coerce_str(existing_link.get("document_id")),
+            "id": existing_document_id,
             "linkId": str(existing_link.id),
             "targetId": str(target_id),
-            "name": _coerce_str(existing_link.get("document_id_friendlyname")) or document_name,
+            "name": document_name,
             "documentType": _coerce_str(document.get("documentType")),
-            "reused": True,
+            "reused": False,
+            "updated": True,
         }
 
-    file_content = file_path.read_bytes()
     create_response = connector.create(
         "DocumentFile",
         {
