@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Panel, PanelHeader } from "../../components/ui/general";
+import { ScrollToTopButton } from "../../components/ui/general/ScrollToTopButton";
 import { Icon } from "../../components/ui/icon/Icon";
 import ModalManager from "../../components/ui/modal";
 import { Button } from "../../ui/Button";
@@ -1418,6 +1419,7 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
           removeItemEvidence={removeItemEvidence}
         />
       )}
+      <ScrollToTopButton />
     </div>
   );
 }

@@ -10,3 +10,4 @@ export { SoftActionButton }     from "./SoftActionButton";
 export { FilterDropdown }       from "./FilterDropdown";
 export { FilterDateField }      from "./FilterDateField";
 export { CollapseToggleButton } from "./CollapseToggleButton";
+export { ScrollToTopButton }   from "./ScrollToTopButton";
