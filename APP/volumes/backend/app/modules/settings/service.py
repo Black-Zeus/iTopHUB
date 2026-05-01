@@ -112,6 +112,19 @@ PANEL_DEFAULTS: dict[str, dict[str, Any]] = {
         "mailFormat": "html",
         "footerNote": "Documento generado automaticamente por iTop Hub.",
     },
+    "qr": {
+        "enabled": True,
+        "hubPublicBaseUrl": "",
+        "sessionTtlMinutes": 20,
+        "singleDeviceLock": True,
+        "allowDetailDocumentPreview": True,
+        "sessionRoutePath": "firma/h",
+        "successMessage": (
+            "Tu firma ya quedó registrada en el acta. "
+            "Desde tu lado no debes hacer nada más; el agente continuará la finalización en iTop Hub."
+        ),
+        "completionHint": "Cuando veas este mensaje puedes cerrar la ventana.",
+    },
     "docs": {
         "handoverPrefix": "ENT",
         "handoverReturnPrefix": "DEV",
@@ -373,6 +386,32 @@ def normalize_panel_config(panel_code: str, config: dict[str, Any]) -> dict[str,
             "smtpSecurity": _coerce_str(merged.get("smtpSecurity")),
             "mailFormat": mail_format,
             "footerNote": _coerce_str(merged.get("footerNote")),
+        }
+
+    if panel_code == "qr":
+        route_path = _coerce_str(merged.get("sessionRoutePath"), "firma/h").strip("/")
+        public_base_url = _coerce_str(merged.get("hubPublicBaseUrl")).rstrip("/")
+        normalized_public_base_url = public_base_url.lower()
+        if normalized_public_base_url and ("localhost" in normalized_public_base_url or "127.0.0.1" in normalized_public_base_url):
+            raise HTTPException(
+                status_code=422,
+                detail="La URL pública del Hub para firma QR debe usar un nombre de servidor o IP alcanzable desde el móvil, no localhost.",
+            )
+        return {
+            "enabled": _coerce_bool(merged.get("enabled"), True),
+            "hubPublicBaseUrl": public_base_url,
+            "sessionTtlMinutes": max(1, _coerce_int(merged.get("sessionTtlMinutes"), 20)),
+            "singleDeviceLock": _coerce_bool(merged.get("singleDeviceLock"), True),
+            "allowDetailDocumentPreview": _coerce_bool(merged.get("allowDetailDocumentPreview"), True),
+            "sessionRoutePath": route_path or "firma/h",
+            "successMessage": _coerce_str(
+                merged.get("successMessage"),
+                PANEL_DEFAULTS["qr"]["successMessage"],
+            ),
+            "completionHint": _coerce_str(
+                merged.get("completionHint"),
+                PANEL_DEFAULTS["qr"]["completionHint"],
+            ),
         }
 
     if panel_code == "docs":

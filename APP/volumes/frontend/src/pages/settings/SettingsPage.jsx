@@ -24,6 +24,7 @@ import {
 
 const TABS = [
   { id: "organization", label: "Organizacion" },
+  { id: "qr", label: "Firma QR" },
   { id: "itop", label: "Integracion iTop" },
   { id: "pdq", label: "PDQ" },
   { id: "sync", label: "Sincronizacion" },
@@ -1381,6 +1382,111 @@ export function SettingsPage() {
               saving={savingPanel === "organization"}
               onReset={() => resetPanel("organization")}
               onSave={() => savePanel("organization", "Organizacion")}
+            />
+          </div>
+        ) : null}
+
+        {activeTab === "qr" ? (
+          <div className="mt-6 space-y-5">
+            <div className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+              <div className="rounded-[20px] border border-[var(--border-color)] bg-[var(--bg-app)] p-5">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-semibold text-[var(--text-primary)]">Firma QR móvil</p>
+                    <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                      Controla la URL pública, vigencia del QR y las reglas de uso para la firma digital desde dispositivos móviles.
+                    </p>
+                  </div>
+                  <label className="inline-flex items-center gap-2 rounded-full border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 py-2 text-xs font-semibold text-[var(--text-primary)]">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(drafts.qr?.enabled)}
+                      onChange={(e) => updateField("qr", "enabled", e.target.checked)}
+                      className="accent-[var(--accent-strong)]"
+                    />
+                    Activar
+                  </label>
+                </div>
+
+                <div className={`${drafts.qr?.enabled ? "" : "pointer-events-none opacity-50"} mt-4 grid gap-4`}>
+                  <Field
+                    label="URL pública del Hub"
+                    value={drafts.qr?.hubPublicBaseUrl || ""}
+                    onChange={(e) => updateField("qr", "hubPublicBaseUrl", e.target.value)}
+                  />
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <Field
+                      label="Ruta pública"
+                      value={drafts.qr?.sessionRoutePath || "firma/h"}
+                      onChange={(e) => updateField("qr", "sessionRoutePath", e.target.value)}
+                    />
+                    <Field
+                      label="Vigencia QR (min)"
+                      type="number"
+                      value={String(drafts.qr?.sessionTtlMinutes || 20)}
+                      onChange={(e) => updateField("qr", "sessionTtlMinutes", e.target.value)}
+                    />
+                    <Toggle
+                      label="Bloqueo por dispositivo"
+                      description="El primer móvil que abra el QR reserva la sesión hasta firmar o expirar."
+                      checked={Boolean(drafts.qr?.singleDeviceLock)}
+                      onChange={(e) => updateField("qr", "singleDeviceLock", e.target.checked)}
+                    />
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <Toggle
+                      label="Mostrar documento detalle"
+                      description="Permite revisar el documento complementario desde la vista móvil."
+                      checked={Boolean(drafts.qr?.allowDetailDocumentPreview)}
+                      onChange={(e) => updateField("qr", "allowDetailDocumentPreview", e.target.checked)}
+                    />
+                  </div>
+                  <Field
+                    label="Mensaje al firmar"
+                    rows={3}
+                    value={drafts.qr?.successMessage || ""}
+                    onChange={(e) => updateField("qr", "successMessage", e.target.value)}
+                  />
+                  <Field
+                    label="Indicacion final"
+                    rows={2}
+                    value={drafts.qr?.completionHint || ""}
+                    onChange={(e) => updateField("qr", "completionHint", e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="rounded-[20px] border border-[var(--border-color)] bg-[var(--bg-app)] p-5">
+                <p className="text-sm font-semibold text-[var(--text-primary)]">Resumen operacional</p>
+                <div className="mt-4 grid gap-3">
+                  <div className="rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3">
+                    <p className="text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Branding móvil</p>
+                    <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                      La vista móvil usa el nombre y logo configurados en el panel Organizacion.
+                    </p>
+                  </div>
+                  <div className="rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3">
+                    <p className="text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Ejemplo de ruta</p>
+                    <p className="mt-1 break-all text-sm font-semibold text-[var(--text-primary)]">
+                      {drafts.qr?.hubPublicBaseUrl
+                        ? `${String(drafts.qr.hubPublicBaseUrl).replace(/\/+$/, "")}/${String(drafts.qr?.sessionRoutePath || "firma/h").replace(/^\/+|\/+$/g, "")}/TOKEN`
+                        : "Configura primero la URL pública del Hub"}
+                    </p>
+                  </div>
+                  <div className="rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3">
+                    <p className="text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Uso recomendado</p>
+                    <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                      Usa un dominio o IP alcanzable desde el móvil del destinatario. Evita `localhost` o rutas locales del navegador.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <Actions
+              dirty={dirtyMap.qr}
+              saving={savingPanel === "qr"}
+              onReset={() => resetPanel("qr")}
+              onSave={() => savePanel("qr", "Firma QR")}
             />
           </div>
         ) : null}
