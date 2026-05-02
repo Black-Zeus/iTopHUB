@@ -283,6 +283,7 @@ def deserialize_signature_workflow(raw_value: Any) -> dict[str, Any]:
     signature = payload.get("signature") if isinstance(payload.get("signature"), dict) else {}
     signed_by = payload.get("signedBy") if isinstance(payload.get("signedBy"), dict) else {}
     requested_by = payload.get("requestedBy") if isinstance(payload.get("requestedBy"), dict) else {}
+    signature_target = payload.get("signatureTarget") if isinstance(payload.get("signatureTarget"), dict) else {}
     published_ticket = normalize_itop_ticket_summary(payload.get("publishedTicket"))
     published_attachments = payload.get("publishedAttachments") if isinstance(payload.get("publishedAttachments"), dict) else {}
 
@@ -300,6 +301,13 @@ def deserialize_signature_workflow(raw_value: Any) -> dict[str, Any]:
         "requestedBy": {
             "userId": requested_by.get("userId"),
             "name": coerce_str(requested_by.get("name")),
+        },
+        "signatureTarget": {
+            "userId": signature_target.get("userId"),
+            "id": signature_target.get("id"),
+            "name": coerce_str(signature_target.get("name")),
+            "role": coerce_str(signature_target.get("role")),
+            "itopPersonKey": coerce_str(signature_target.get("itopPersonKey")),
         },
         "signedBy": {
             "id": signed_by.get("id"),
@@ -327,6 +335,7 @@ def normalize_signature_workflow(payload: Any) -> str:
     signature = payload.get("signature") if isinstance(payload.get("signature"), dict) else {}
     signed_by = payload.get("signedBy") if isinstance(payload.get("signedBy"), dict) else {}
     requested_by = payload.get("requestedBy") if isinstance(payload.get("requestedBy"), dict) else {}
+    signature_target = payload.get("signatureTarget") if isinstance(payload.get("signatureTarget"), dict) else {}
     published_attachments = payload.get("publishedAttachments") if isinstance(payload.get("publishedAttachments"), dict) else {}
 
     normalized = {
@@ -343,6 +352,13 @@ def normalize_signature_workflow(payload: Any) -> str:
         "requestedBy": {
             "userId": requested_by.get("userId"),
             "name": coerce_str(requested_by.get("name")),
+        },
+        "signatureTarget": {
+            "userId": signature_target.get("userId"),
+            "id": signature_target.get("id"),
+            "name": coerce_str(signature_target.get("name")),
+            "role": coerce_str(signature_target.get("role")),
+            "itopPersonKey": coerce_str(signature_target.get("itopPersonKey")),
         },
         "signedBy": {
             "id": signed_by.get("id"),

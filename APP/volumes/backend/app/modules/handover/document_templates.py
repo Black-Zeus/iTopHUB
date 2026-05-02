@@ -331,6 +331,61 @@ def _build_receiver_signature_box(detail: dict[str, Any], receiver: dict[str, An
     """
 
 
+def _resolve_signature_target(detail: dict[str, Any], type_definition: Any) -> dict[str, Any]:
+    if _coerce_str(getattr(type_definition, "code", "")).lower() != "normalization":
+        return detail.get("receiver") or {}
+
+    signature_workflow = detail.get("signatureWorkflow") if isinstance(detail.get("signatureWorkflow"), dict) else {}
+    workflow_target = signature_workflow.get("signatureTarget") if isinstance(signature_workflow.get("signatureTarget"), dict) else {}
+    if _coerce_str(workflow_target.get("name")):
+        return workflow_target
+
+    return _resolve_normalization_responsible(detail)
+
+
+def _resolve_normalization_responsible(detail: dict[str, Any]) -> dict[str, Any]:
+    requester_admin = detail.get("requesterAdmin") if isinstance(detail.get("requesterAdmin"), dict) else {}
+    return {
+        "userId": requester_admin.get("userId"),
+        "id": requester_admin.get("itopPersonKey"),
+        "name": _coerce_str(requester_admin.get("name")),
+        "role": _coerce_str(requester_admin.get("role")) or "Administrador iTop Hub",
+        "itopPersonKey": _coerce_str(requester_admin.get("itopPersonKey")),
+    }
+
+
+def _is_same_signature_actor(first: dict[str, Any], second: dict[str, Any]) -> bool:
+    first_user_id = _coerce_str(first.get("userId"))
+    second_user_id = _coerce_str(second.get("userId"))
+    if first_user_id and second_user_id:
+        return first_user_id == second_user_id
+
+    first_person_key = _coerce_str(first.get("itopPersonKey") or first.get("id"))
+    second_person_key = _coerce_str(second.get("itopPersonKey") or second.get("id"))
+    if first_person_key and second_person_key:
+        return first_person_key == second_person_key
+
+    return _normalize_label(first.get("name")) == _normalize_label(second.get("name"))
+
+
+def _build_delivery_signature_boxes(detail: dict[str, Any], type_definition: Any, owner: dict[str, Any]) -> str:
+    is_normalization = _coerce_str(getattr(type_definition, "code", "")).lower() == "normalization"
+    signature_target = _resolve_signature_target(detail, type_definition)
+    if not is_normalization:
+        return (
+            _build_receiver_signature_box(detail, signature_target, type_definition.main_signature_receiver_label)
+            + _build_owner_signature_box(owner, type_definition.main_signature_issuer_label)
+        )
+
+    if _is_same_signature_actor(owner, signature_target):
+        return _build_receiver_signature_box(detail, signature_target, type_definition.main_signature_issuer_label)
+
+    return (
+        _build_receiver_signature_box(detail, signature_target, type_definition.main_signature_issuer_label)
+        + _build_owner_signature_box(owner, "Agente emisor del acta")
+    )
+
+
 def _build_base_html(
     title: str,
     subtitle: str,
@@ -540,6 +595,13 @@ def _build_base_html(
             grid-template-columns: 1fr 1fr;
             margin-top: 10px;
         }}
+        .section-keep-together,
+        .section-keep-together .section-body,
+        .section-keep-together .signature-grid,
+        .section-keep-together .signature-box {{
+            break-inside: avoid;
+            page-break-inside: avoid;
+        }}
         .signature-box {{
             border: 1px solid var(--line);
             border-radius: 10px;
@@ -652,19 +714,7 @@ def _build_handover_footer_note() -> str:
 
 
 def _resolve_document_owner(detail: dict[str, Any], type_definition: Any) -> dict[str, Any]:
-    owner = detail.get("owner") or {}
-    if _coerce_str(getattr(type_definition, "code", "")).lower() != "normalization":
-        return owner
-
-    requester_admin = detail.get("requesterAdmin") if isinstance(detail.get("requesterAdmin"), dict) else {}
-    requester_name = _coerce_str(requester_admin.get("name"))
-    if not requester_name:
-        return owner
-
-    return {
-        "userId": requester_admin.get("userId"),
-        "name": requester_name,
-    }
+    return detail.get("owner") or {}
 
 
 def _get_reassignment_source_person(detail: dict[str, Any]) -> dict[str, Any]:
@@ -687,6 +737,35 @@ def _build_reassignment_footer_note() -> str:
 
 def _resolve_person_responsibility(person: dict[str, Any], fallback: str = "Responsable") -> str:
     return _coerce_str(person.get("assignmentRole")) or fallback
+
+
+def _build_responsibility_row_html(responsibility: str, person: dict[str, Any]) -> str:
+    return f"""
+        <tr>
+            <td>{_escape(responsibility)}</td>
+            <td>{_escape(person.get("name"))}</td>
+            <td>{_escape(person.get("role"))}</td>
+        </tr>
+    """
+
+
+def _build_delivery_responsible_rows(detail: dict[str, Any], type_definition: Any, owner: dict[str, Any]) -> list[str]:
+    receiver = detail.get("receiver") or {}
+    additional_receivers = detail.get("additionalReceivers") or []
+    is_normalization = _coerce_str(getattr(type_definition, "code", "")).lower() == "normalization"
+
+    rows: list[str] = []
+    if is_normalization:
+        normalization_responsible = _resolve_normalization_responsible(detail)
+        rows.append(_build_responsibility_row_html(type_definition.main_signature_issuer_label, normalization_responsible))
+        if _coerce_str(receiver.get("name")):
+            rows.append(_build_responsibility_row_html("Persona vinculada", receiver))
+    else:
+        rows.append(_build_responsibility_row_html("Responsable", receiver))
+
+    for item in additional_receivers:
+        rows.append(_build_responsibility_row_html(_resolve_person_responsibility(item, "Contacto adicional"), item))
+    return rows
 
 
 def _build_reassignment_person_rows(person: dict[str, Any], *, responsibility: str) -> list[tuple[str, str]]:
@@ -806,7 +885,7 @@ def _build_return_main_html(detail: dict[str, Any], type_definition: Any) -> tup
         </div>
     </section>
 
-    <section class="section">
+    <section class="section section-keep-together">
         <h2 class="section-title">Recepcion y conformidad</h2>
         <div class="section-body">
             <div class="signature-grid">
@@ -834,7 +913,6 @@ def _build_reassignment_main_html(detail: dict[str, Any], type_definition: Any) 
     owner = _resolve_document_owner(detail, type_definition)
     source_person = _get_reassignment_source_person(detail)
     destination_person = detail.get("receiver") or {}
-    owner = detail.get("owner") or {}
     items = detail.get("items") or []
 
     asset_rows: list[str] = []
@@ -929,7 +1007,7 @@ def _build_reassignment_main_html(detail: dict[str, Any], type_definition: Any) 
         </div>
     </section>
 
-    <section class="section">
+    <section class="section section-keep-together">
         <h2 class="section-title">Aceptacion y conformidad</h2>
         <div class="section-body">
             <div class="signature-grid" style="grid-template-columns: repeat(3, minmax(0, 1fr));">
@@ -1167,29 +1245,11 @@ def _build_delivery_main_html(detail: dict[str, Any], type_definition: Any) -> t
     document_number = _coerce_str(detail.get("documentNumber"))
     generated_at = _format_datetime_label(detail.get("assignmentDate") or detail.get("generatedAt") or detail.get("creationDate"))
     receiver = detail.get("receiver") or {}
-    additional_receivers = detail.get("additionalReceivers") or []
     items = detail.get("items") or []
-    owner = detail.get("owner") or {}
-
-    receiver_rows = [
-        f"""
-        <tr>
-            <td>Responsable</td>
-            <td>{_escape(receiver.get("name"))}</td>
-            <td>{_escape(receiver.get("role"))}</td>
-        </tr>
-        """
-    ]
-    for item in additional_receivers:
-        receiver_rows.append(
-            f"""
-            <tr>
-                <td>{_escape(_resolve_person_responsibility(item, "Contacto adicional"))}</td>
-                <td>{_escape(item.get("name"))}</td>
-                <td>{_escape(item.get("role"))}</td>
-            </tr>
-            """
-        )
+    owner = _resolve_document_owner(detail, type_definition)
+    is_normalization = _coerce_str(getattr(type_definition, "code", "")).lower() == "normalization"
+    responsible_section_title = "Responsables de normalizacion" if is_normalization else "Responsables de aceptación y anexos"
+    receiver_rows = _build_delivery_responsible_rows(detail, type_definition, owner)
 
     asset_rows: list[str] = []
     for index, item in enumerate(items, start=1):
@@ -1217,7 +1277,7 @@ def _build_delivery_main_html(detail: dict[str, Any], type_definition: Any) -> t
 
     body = f"""
     <section class="section">
-        <h2 class="section-title">Responsables de aceptación y anexos</h2>
+        <h2 class="section-title">{_escape(responsible_section_title)}</h2>
         <div class="section-body">
             <table>
                 <thead>
@@ -1274,12 +1334,11 @@ def _build_delivery_main_html(detail: dict[str, Any], type_definition: Any) -> t
         </div>
     </section>
 
-    <section class="section">
+    <section class="section section-keep-together">
         <h2 class="section-title">Aceptación y conformidad</h2>
         <div class="section-body">
             <div class="signature-grid">
-                {_build_receiver_signature_box(detail, receiver, type_definition.main_signature_receiver_label)}
-                {_build_owner_signature_box(owner, type_definition.main_signature_issuer_label)}
+                {_build_delivery_signature_boxes(detail, type_definition, owner)}
             </div>
             {_build_handover_footer_note()}
         </div>

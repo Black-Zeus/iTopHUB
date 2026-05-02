@@ -204,7 +204,11 @@ def handover_document_signature_session_create(
     session_id = ensure_session(hub_session_id)
     try:
         session_user = _ensure_handover_family_access(session_id, write=True)
-        return {"item": create_handover_signature_session(document_id, session_user, force_new=force_new)}
+        document = get_handover_document_detail(document_id)
+        if document.get("handoverTypeCode") == "normalization" and not session_user.get("isAdmin"):
+            raise HTTPException(status_code=403, detail="Solo el administrador puede abrir firma QR para actas de normalizacion.")
+        runtime_token = get_runtime_token(session_id)
+        return {"item": create_handover_signature_session(document_id, session_user, force_new=force_new, runtime_token=runtime_token)}
     except AuthenticationError as exc:
         raise_auth_error(exc)
     except HTTPException:

@@ -177,8 +177,8 @@ export function MobileSignatureSessionPage({
       }
       const payload = await submitSignature(token, {
         signatureDataUrl,
-        signerName: session?.receiver?.name || "",
-        signerRole: session?.receiver?.role || "",
+        signerName: session?.signatureTarget?.name || session?.receiver?.name || "",
+        signerRole: session?.signatureTarget?.role || session?.receiver?.role || "",
         observation: signatureObservation,
         claimToken: resolvedClaimToken,
         deviceContext: collectSignatureDeviceContext(),

@@ -154,6 +154,64 @@ def _build_signature_owner(session_user: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _build_normalization_signature_target(detail: dict[str, Any], runtime_token: str = "") -> dict[str, Any]:
+    requester_admin = detail.get("requesterAdmin") if isinstance(detail.get("requesterAdmin"), dict) else {}
+    if not requester_admin:
+        return {}
+
+    target = {
+        "userId": requester_admin.get("userId"),
+        "id": requester_admin.get("itopPersonKey"),
+        "name": _coerce_str(requester_admin.get("name")),
+        "role": _coerce_str(requester_admin.get("role")) or "Administrador iTop Hub",
+        "itopPersonKey": _coerce_str(requester_admin.get("itopPersonKey")),
+    }
+    person_key = _coerce_str(requester_admin.get("itopPersonKey"))
+    if not runtime_token or not person_key.isdigit():
+        return target
+
+    connector = _build_itop_connector(runtime_token)
+    try:
+        person = connector.get_person(
+            int(person_key),
+            output_fields="id,name,first_name,friendlyname,email,function,status",
+        )
+    except Exception:
+        person = None
+    finally:
+        connector.close()
+
+    if person is None:
+        return target
+
+    return {
+        **target,
+        "id": int(person.get("id") or 0) or person_key,
+        "name": _coerce_str(person.get("friendlyname") or person.get("name")) or target["name"],
+        "role": _coerce_str(person.get("function")) or target["role"],
+        "itopPersonKey": person_key,
+    }
+
+
+def _resolve_signature_target(detail: dict[str, Any], signature_workflow: dict[str, Any] | None = None) -> dict[str, Any]:
+    workflow = signature_workflow if isinstance(signature_workflow, dict) else {}
+    workflow_target = workflow.get("signatureTarget") if isinstance(workflow.get("signatureTarget"), dict) else {}
+    if _coerce_str(workflow_target.get("name")):
+        return workflow_target
+
+    handover_type = _coerce_str(detail.get("handoverTypeCode") or detail.get("handoverType")).lower()
+    if handover_type == "normalization":
+        requester_admin = detail.get("requesterAdmin") if isinstance(detail.get("requesterAdmin"), dict) else {}
+        return {
+            "userId": requester_admin.get("userId"),
+            "id": requester_admin.get("itopPersonKey"),
+            "name": _coerce_str(requester_admin.get("name")),
+            "role": _coerce_str(requester_admin.get("role")) or "Administrador iTop Hub",
+            "itopPersonKey": _coerce_str(requester_admin.get("itopPersonKey")),
+        }
+    return detail.get("receiver") or {}
+
+
 def _append_signature_observation(existing_notes: Any, observation: Any) -> str:
     base_notes = _coerce_str(existing_notes)
     normalized_observation = _coerce_str(observation)
@@ -853,6 +911,38 @@ def _get_itop_field_value(field_lookup: dict[str, str], *labels: str) -> str:
     return ""
 
 
+def _enrich_requester_admin_for_pdf(detail: dict[str, Any], connector: iTopCMDBConnector) -> dict[str, Any]:
+    requester_admin = detail.get("requesterAdmin") if isinstance(detail.get("requesterAdmin"), dict) else {}
+    if not requester_admin:
+        return {}
+
+    enriched_requester_admin = {**requester_admin}
+    fallback_role = "Administrador iTop Hub"
+    requester_name = _coerce_str(requester_admin.get("name"))
+    requester_person_key = _coerce_str(requester_admin.get("itopPersonKey"))
+
+    if requester_person_key.isdigit():
+        try:
+            person = connector.get_person(
+                int(requester_person_key),
+                output_fields="id,name,first_name,friendlyname,function,status",
+            )
+        except Exception:
+            person = None
+        if person is not None:
+            enriched_requester_admin["name"] = (
+                _coerce_str(person.get("friendlyname"))
+                or _coerce_str(person.get("name"))
+                or requester_name
+            )
+            enriched_requester_admin["role"] = _coerce_str(person.get("function")) or fallback_role
+            return enriched_requester_admin
+
+    enriched_requester_admin["name"] = requester_name
+    enriched_requester_admin["role"] = _coerce_str(requester_admin.get("role")) or fallback_role
+    return enriched_requester_admin
+
+
 def enrich_handover_detail_for_pdf(
     detail: dict[str, Any],
     *,
@@ -874,6 +964,8 @@ def enrich_handover_detail_for_pdf(
             },
         )
 
+    connector = _build_itop_connector(resolved_token)
+    enriched_requester_admin = _enrich_requester_admin_for_pdf(detail, connector)
     enriched_items: list[dict[str, Any]] = []
     for item in detail.get("items") or []:
         asset = item.get("asset") or {}
@@ -939,6 +1031,7 @@ def enrich_handover_detail_for_pdf(
     return {
         **detail,
         "items": enriched_items,
+        "requesterAdmin": enriched_requester_admin or detail.get("requesterAdmin") or {},
     }
 
 
@@ -2648,6 +2741,7 @@ def _build_signature_session_response(
     public_url = _coerce_str(signature_workflow.get("publicUrl")) or _build_handover_public_signature_url(token)
     if occupied and status == "claimed":
         status = "occupied"
+    signature_target = _resolve_signature_target(detail, signature_workflow)
     mobile_signature_session = _serialize_mobile_signature_session(
         fetch_latest_handover_mobile_signature_session(int(detail.get("id") or 0))
     )
@@ -2667,6 +2761,8 @@ def _build_signature_session_response(
         "completedAt": _coerce_str(signature_workflow.get("completedAt")),
         "receiver": detail.get("receiver") or {},
         "owner": detail.get("owner") or {},
+        "requesterAdmin": detail.get("requesterAdmin") or {},
+        "signatureTarget": signature_target,
         "reason": _coerce_str(detail.get("reason")),
         "notes": _coerce_str(detail.get("notes")),
         "assignmentDate": _coerce_str(detail.get("assignmentDate")),
@@ -3112,6 +3208,7 @@ def create_handover_signature_session(
     session_user: dict[str, Any],
     *,
     force_new: bool = False,
+    runtime_token: str = "",
 ) -> dict[str, Any]:
     qr_settings = _ensure_qr_signature_enabled()
     if not _coerce_str(qr_settings.get("hubPublicBaseUrl")):
@@ -3141,13 +3238,27 @@ def create_handover_signature_session(
     now = datetime.now()
     existing_workflow = current_detail.get("signatureWorkflow") or {}
     workflow_status = _get_signature_workflow_status(existing_workflow)
-    owner_override = _build_signature_owner(session_user)
-    detail_with_owner = {
+    is_normalization = _coerce_str(current_detail.get("handoverTypeCode") or current_detail.get("handoverType")).lower() == "normalization"
+    owner_override = (current_detail.get("owner") or {}) if is_normalization else _build_signature_owner(session_user)
+    signature_target = _build_normalization_signature_target(current_detail, runtime_token) if is_normalization else {}
+    detail_with_owner = current_detail if is_normalization else {
         **current_detail,
         "owner": owner_override,
     }
     if workflow_status in {"pending", "claimed"} and _coerce_str(existing_workflow.get("token")) and not force_new:
-        if current_detail.get("owner") != owner_override:
+        if is_normalization and signature_target != (existing_workflow.get("signatureTarget") if isinstance(existing_workflow.get("signatureTarget"), dict) else {}):
+            refreshed_workflow = {
+                **existing_workflow,
+                "signatureTarget": signature_target,
+            }
+            refreshed_detail = _save_detail_signature_workflow(
+                current_detail,
+                existing_document,
+                refreshed_workflow,
+                status_ui="Emitida",
+            )
+            return _build_signature_session_response(refreshed_detail, refreshed_detail.get("signatureWorkflow") or refreshed_workflow)
+        if not is_normalization and current_detail.get("owner") != owner_override:
             refreshed_detail = _save_detail_signature_workflow(
                 detail_with_owner,
                 existing_document,
@@ -3189,6 +3300,7 @@ def create_handover_signature_session(
         "cancelledAt": "",
         "claimToken": "",
         "requestedBy": _build_signature_requested_by(session_user),
+        "signatureTarget": signature_target,
         "signedBy": {},
         "signature": {},
         "errorCode": "",
@@ -3276,6 +3388,7 @@ def submit_public_handover_signature(
 
     validated_signature = _validate_signature_data_url(signature_data_url)
     receiver = detail.get("receiver") or {}
+    signature_target = _resolve_signature_target(detail, signature_workflow)
     signed_at = _serialize_signature_timestamp()
     updated_workflow = {
         **signature_workflow,
@@ -3284,9 +3397,9 @@ def submit_public_handover_signature(
         "errorCode": "",
         "errorMessage": "",
         "signedBy": {
-            "id": receiver.get("id"),
-            "name": _coerce_str(signer_name) or _coerce_str(receiver.get("name")),
-            "role": _coerce_str(signer_role) or _coerce_str(receiver.get("role")),
+            "id": signature_target.get("id") or receiver.get("id"),
+            "name": _coerce_str(signer_name) or _coerce_str(signature_target.get("name")) or _coerce_str(receiver.get("name")),
+            "role": _coerce_str(signer_role) or _coerce_str(signature_target.get("role")) or _coerce_str(receiver.get("role")),
         },
         "signerObservation": _coerce_str(observation),
         "signature": validated_signature,

@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { AuthContext } from "../../App";
 import ModalManager from "../../components/ui/modal";
 import { ActaPublicationModalContent, DataTable, FilterDropdown, KpiCard, Panel, PanelHeader } from "../../components/ui/general";
 import { SearchFilterInput } from "../../components/ui/general/SearchFilterInput";
@@ -153,6 +154,13 @@ function buildTicketDescription(row, template, detail, moduleConfig) {
   const detailCode = code ? buildDetailDocumentNumber(code) : "";
   const items = detail?.items || [];
   const count = items.length || Number(row?.assetCount ?? 0);
+  const normalizationModeValue = String(detail?.normalizationMode || "").trim();
+  const normalizationModeLabel = moduleConfig?.key === "normalization"
+    ? String(
+      moduleConfig?.normalizationModes?.find((mode) => mode.value === normalizationModeValue)?.label
+      || normalizationModeValue,
+    ).trim()
+    : "";
   const returnReason = String(detail?.reason || "").trim();
   const sourcePerson = detail?.additionalReceivers?.find((person) => String(person?.assignmentRole || "").trim().toLowerCase() === "responsable origen")
     || detail?.additionalReceivers?.[0]
@@ -178,6 +186,7 @@ function buildTicketDescription(row, template, detail, moduleConfig) {
   lines.push("");
   if (code) lines.push(`* Acta: ${code}.`);
   if (detailCode) lines.push(`* Detalle: ${detailCode}.`);
+  if (normalizationModeLabel) lines.push(`* Modo de operacion: ${normalizationModeLabel}.`);
   if (moduleConfig?.key === "return" && returnReason) {
     lines.push("");
     lines.push("Motivo de devolucion:");
@@ -389,8 +398,9 @@ function NormalizationRequesterModalContent({
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (!requesterId && requesterOptions.length === 1) {
-      setRequesterId(requesterOptions[0].value);
+    if (!requesterId && requesterOptions.length) {
+      const preferredRequester = requesterOptions.find((option) => option.hasItopPersonLink) || requesterOptions[0];
+      setRequesterId(preferredRequester.value);
     }
   }, [requesterId, requesterOptions]);
 
@@ -432,13 +442,6 @@ function NormalizationRequesterModalContent({
         </MessageBanner>
       ) : null}
 
-      {selectedRequester?.username ? (
-        <div className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] p-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Usuario Hub</p>
-          <p className="mt-2 text-sm font-semibold text-[var(--text-primary)]">{selectedRequester.username}</p>
-        </div>
-      ) : null}
-
       {error ? <MessageBanner tone="danger">{error}</MessageBanner> : null}
 
       <div className="flex flex-wrap justify-end gap-3">
@@ -449,6 +452,10 @@ function NormalizationRequesterModalContent({
           onClick={async () => {
             if (!selectedRequester) {
               setError("Debes seleccionar un solicitante administrador para continuar.");
+              return;
+            }
+            if (!selectedRequester.hasItopPersonLink) {
+              setError("El solicitante seleccionado no tiene una persona iTop asociada. Vincúlala antes de procesar esta acta.");
               return;
             }
             setSubmitting(true);
@@ -1238,6 +1245,7 @@ function SignatureQrModal({ row, sessionData, onRefresh, onRegenerate, onClose }
 
 export function HandoverPage({ moduleVariant = "delivery" }) {
   const navigate = useNavigate();
+  const { user: sessionUser } = useContext(AuthContext);
   const { add } = useToast();
   const moduleConfig = getHandoverModuleConfig(moduleVariant);
   const [rows, setRows] = useState([]);
@@ -1364,7 +1372,7 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
         let requesterModalId = null;
         requesterModalId = ModalManager.custom({
           title: `Procesar ${row.code}`,
-          size: "md",
+          size: "medium",
           showFooter: false,
           closeOnOverlayClick: false,
           closeOnEscape: false,
@@ -1386,9 +1394,8 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
                     requesterAdmin,
                   });
                 }
-
-                ModalManager.close(requesterModalId);
                 await runEmit();
+                ModalManager.close(requesterModalId);
               }}
             />
           ),
@@ -1691,6 +1698,13 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
   };
 
   const openEvidenceModal = (row) => {
+    if (moduleConfig.key === "normalization" && !sessionUser?.isAdmin) {
+      ModalManager.error({
+        title: "Acceso restringido",
+        message: "Solo un perfil administrador puede cerrar una acta de normalizacion mediante adjuntos.",
+      });
+      return;
+    }
     const willConfirmStatus = row.status === "Emitida";
     let modalId = null;
     modalId = ModalManager.custom({
@@ -1793,6 +1807,13 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
   };
 
   const openQrModal = async (row) => {
+    if (moduleConfig.key === "normalization" && !sessionUser?.isAdmin) {
+      ModalManager.error({
+        title: "Acceso restringido",
+        message: "Solo un perfil administrador puede abrir firma QR para una acta de normalizacion.",
+      });
+      return;
+    }
     const loadingModalId = ModalManager.loading({
       title: `Preparando QR ${row.code}`,
       message: "Generando la sesión de firma móvil...",
@@ -1998,6 +2019,7 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
         const isSigned = row.status === "Firmada";
         const isConfirmed = row.status === "Confirmada";
         const isCancelled = row.status === "Anulada";
+        const canUseNormalizationClosingActions = moduleConfig.key !== "normalization" || Boolean(sessionUser?.isAdmin);
 
         const actions = [];
 
@@ -2028,7 +2050,7 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
           });
         }
 
-        if (actionConfig.allowEvidenceUpload && isIssued) {
+        if (actionConfig.allowEvidenceUpload && isIssued && canUseNormalizationClosingActions) {
           actions.push({
             key: "attachment",
             label: "Adjunto",
@@ -2037,7 +2059,7 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
           });
         }
 
-        if (actionConfig.allowQrSignature && isIssued) {
+        if (actionConfig.allowQrSignature && isIssued && canUseNormalizationClosingActions) {
           actions.push({
             key: "qr",
             label: "QR",
