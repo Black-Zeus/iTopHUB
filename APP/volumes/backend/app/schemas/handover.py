@@ -13,8 +13,12 @@ class HandoverSaveRequest(BaseModel):
     signatureWorkflow: dict[str, Any] = Field(default_factory=dict)
     status: str = "En creacion"
     handoverType: str = "Entrega inicial"
+    normalizationMode: str = ""
+    normalizationParams: dict[str, Any] = Field(default_factory=dict)
+    requesterAdmin: dict[str, Any] = Field(default_factory=dict)
     reason: str = ""
     notes: str = ""
+    signerObservation: str = ""
     receiver: dict[str, Any] = Field(default_factory=dict)
     additionalReceivers: list[dict[str, Any]] = Field(default_factory=list)
     items: list[dict[str, Any]] = Field(default_factory=list)

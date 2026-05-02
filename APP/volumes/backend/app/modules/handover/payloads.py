@@ -7,7 +7,10 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from modules.handover.handover_types import get_handover_type_definition
+from modules.handover.handover_types import (
+    get_handover_type_definition,
+    normalize_normalization_mode,
+)
 from modules.handover.shared import (
     GENERATED_DOCUMENT_KINDS,
     INPUT_TYPE_UI_TO_DB,
@@ -66,6 +69,37 @@ def normalize_receiver(payload: dict[str, Any]) -> dict[str, Any]:
         "receiver_phone": coerce_str(payload.get("phone")),
         "receiver_role": coerce_str(payload.get("role")),
         "receiver_status": coerce_str(payload.get("status")),
+    }
+
+
+def normalize_requester_admin(payload: Any) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        return {
+            "requester_admin_user_id": None,
+            "requester_admin_name": None,
+            "requester_admin_itop_person_key": None,
+        }
+
+    raw_user_id = payload.get("userId") if payload.get("userId") not in (None, "") else payload.get("id")
+    try:
+        parsed_user_id = int(raw_user_id) if raw_user_id not in (None, "") else None
+    except (TypeError, ValueError):
+        parsed_user_id = None
+
+    name = coerce_str(payload.get("name")) or None
+    itop_person_key = coerce_str(payload.get("itopPersonKey")) or None
+
+    if not parsed_user_id or not name:
+        return {
+            "requester_admin_user_id": None,
+            "requester_admin_name": None,
+            "requester_admin_itop_person_key": None,
+        }
+
+    return {
+        "requester_admin_user_id": parsed_user_id,
+        "requester_admin_name": name,
+        "requester_admin_itop_person_key": itop_person_key,
     }
 
 
@@ -583,6 +617,14 @@ def build_document_payload_from_detail(
     except (TypeError, ValueError):
         parsed_owner_user_id = int(existing_document["owner_user_id"])
 
+    normalization_mode = normalize_normalization_mode(current_detail.get("normalizationMode")) or None
+    raw_norm_params = current_detail.get("normalizationParams")
+    if isinstance(raw_norm_params, dict) and raw_norm_params:
+        normalization_params_json: str | None = json.dumps(raw_norm_params)
+    else:
+        normalization_params_json = None
+    requester_admin = normalize_requester_admin(current_detail.get("requesterAdmin"))
+
     return {
         "document_number": existing_document["document_number"],
         "generated_at": creation_at.strftime("%Y-%m-%d %H:%M:%S"),
@@ -591,8 +633,11 @@ def build_document_payload_from_detail(
         "evidence_date": evidence_at.strftime("%Y-%m-%d %H:%M:%S") if evidence_at else None,
         "owner_user_id": parsed_owner_user_id,
         "owner_name": owner_name or existing_document["owner_name"],
+        **requester_admin,
         "status": STATUS_UI_TO_DB[status_ui],
         "handover_type": type_definition.code,
+        "normalization_mode": normalization_mode,
+        "normalization_params": normalization_params_json,
         "reason": coerce_str(current_detail.get("reason")),
         "notes": coerce_str(current_detail.get("notes")) or None,
         "signer_observation": coerce_str(current_detail.get("signerObservation")) or None,
