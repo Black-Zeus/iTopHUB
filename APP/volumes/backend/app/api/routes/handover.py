@@ -174,6 +174,9 @@ def handover_document_attach_evidence(
     try:
         session_user = _ensure_handover_family_access(session_id, write=True)
         runtime_token = get_runtime_token(session_id)
+        document = get_handover_document_detail(document_id)
+        if document.get("handoverTypeCode") == "normalization" and not session_user.get("isAdmin"):
+            raise HTTPException(status_code=403, detail="Solo el administrador puede confirmar actas de normalizacion.")
         normalized_files = [
             {
                 "name": item.name,
@@ -235,7 +238,10 @@ def handover_document_publish_signed(
 ) -> dict[str, Any]:
     session_id = ensure_session(hub_session_id)
     try:
-        _ensure_handover_family_access(session_id, write=True)
+        session_user = _ensure_handover_family_access(session_id, write=True)
+        document = get_handover_document_detail(document_id)
+        if document.get("handoverTypeCode") == "normalization" and not session_user.get("isAdmin"):
+            raise HTTPException(status_code=403, detail="Solo el administrador puede publicar actas de normalizacion.")
         runtime_token = get_runtime_token(session_id)
         return {"item": publish_signed_handover_document(document_id, runtime_token=runtime_token, ticket_payload=payload.ticket)}
     except AuthenticationError as exc:

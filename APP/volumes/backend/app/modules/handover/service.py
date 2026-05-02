@@ -26,6 +26,7 @@ from modules.handover.handover_types import (
     find_handover_type_definition,
     get_handover_type_definition,
     list_handover_type_options,
+    normalize_normalization_mode,
     resolve_handover_prefix,
     serialize_handover_type_catalog,
 )
@@ -46,6 +47,7 @@ from modules.handover.payloads import (
     normalize_optional_datetime as _normalize_optional_datetime,
     normalize_reassignment_source_receiver as _normalize_reassignment_source_receiver,
     normalize_receiver as _normalize_receiver,
+    normalize_requester_admin as _normalize_requester_admin,
 )
 from modules.handover.pdf_pipeline import (
     remove_generated_handover_documents,
@@ -83,6 +85,10 @@ from modules.settings.service import (
     get_settings_panel,
     is_requirement_ticket_enabled,
     read_organization_logo_data_url,
+)
+from modules.settings.itop_catalog_service import (
+    list_itop_asset_status_options,
+    list_itop_location_options,
 )
 from modules.handover.storage_paths import (
     HANDOVER_DOCUMENT_ROOT,
@@ -942,6 +948,19 @@ def get_handover_bootstrap(session_user: dict[str, Any], runtime_token: str) -> 
     default_type = get_handover_type_definition("initial_assignment")
     allowed_evidence_extensions = sorted(_get_allowed_evidence_extensions())
     ticket_rules = _resolve_handover_ticket_rules(docs_settings)
+    normalization_status_options: list[dict[str, Any]] = []
+    normalization_location_options: list[dict[str, Any]] = []
+
+    if runtime_token:
+        try:
+            normalization_status_options = list_itop_asset_status_options(runtime_token)
+        except Exception:
+            normalization_status_options = []
+        try:
+            normalization_location_options = list_itop_location_options(runtime_token)
+        except Exception:
+            normalization_location_options = []
+
     return {
         "sessionUser": {
             "id": session_user["id"],
@@ -977,6 +996,10 @@ def get_handover_bootstrap(session_user: dict[str, Any], runtime_token: str) -> 
         "searchHints": {
             "minCharsPeople": 2,
             "minCharsAssets": 2,
+        },
+        "normalizationCatalog": {
+            "statusOptions": normalization_status_options,
+            "locationOptions": normalization_location_options,
         },
         "runtimeReady": bool(runtime_token),
         "itopIntegrationUrl": get_itop_runtime_config().get("integrationUrl") or "",
@@ -1145,6 +1168,20 @@ def get_handover_document_detail(document_id: int) -> dict[str, Any]:
         fetch_latest_handover_mobile_signature_session(document_id)
     )
 
+    normalization_params_raw = document_row.get("normalization_params")
+    try:
+        normalization_params = json.loads(normalization_params_raw) if normalization_params_raw else {}
+    except (ValueError, TypeError):
+        normalization_params = {}
+    normalization_mode = normalize_normalization_mode(document_row.get("normalization_mode"))
+    if normalization_mode == "change_status" and not str(normalization_params.get("targetStatus") or "").strip():
+        raw_mode = _coerce_str(document_row.get("normalization_mode")).lower()
+        if raw_mode == "send_to_obsolete":
+            normalization_params = {
+                **normalization_params,
+                "targetStatus": "obsolete",
+            }
+
     return {
         "id": int(document_row["id"]),
         "documentNumber": document_row["document_number"],
@@ -1160,12 +1197,19 @@ def get_handover_document_detail(document_id: int) -> dict[str, Any]:
         "status": STATUS_DB_TO_UI.get(document_row["status"], document_row["status"]),
         "handoverType": type_definition.label,
         "handoverTypeCode": type_definition.code,
+        "normalizationMode": normalization_mode,
+        "normalizationParams": normalization_params,
         "reason": document_row["reason"],
         "notes": document_row.get("notes") or "",
         "signerObservation": document_row.get("signer_observation") or "",
         "owner": {
             "userId": int(document_row["owner_user_id"]),
             "name": document_row["owner_name"],
+        },
+        "requesterAdmin": {
+            "userId": int(document_row["requester_admin_user_id"]) if document_row.get("requester_admin_user_id") else None,
+            "name": document_row.get("requester_admin_name") or "",
+            "itopPersonKey": document_row.get("requester_admin_itop_person_key") or "",
         },
         "receiver": {
             "id": int(document_row["receiver_person_id"]) if document_row.get("receiver_person_id") else None,
@@ -1301,6 +1345,14 @@ def _validate_handover_receiver_rules(
     type_definition: Any,
     action_label: str,
 ) -> int:
+    from modules.handover.handover_types import (
+        NORMALIZATION_MODES_REQUIRING_RECEIVER,
+        normalize_normalization_mode,
+    )
+    if type_definition.code == "normalization":
+        mode = normalize_normalization_mode(detail.get("normalizationMode"))
+        if mode not in NORMALIZATION_MODES_REQUIRING_RECEIVER:
+            return 0
     person_id = _get_receiver_person_id(detail, action_label=action_label)
     additional_receivers = detail.get("additionalReceivers") or []
     if not type_definition.allow_additional_receivers and additional_receivers:
@@ -2910,6 +2962,8 @@ def _normalize_handover_payload(
     document_number: str,
     existing_document: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    from modules.handover.handover_types import NORMALIZATION_MODES_REQUIRING_RECEIVER
+
     creation_at = _normalize_generated_at(payload.get("creationDate") or payload.get("generatedAt"))
     assignment_at = _normalize_optional_datetime(payload.get("assignmentDate"))
     evidence_at = _normalize_optional_datetime(payload.get("evidenceDate"))
@@ -2924,17 +2978,51 @@ def _normalize_handover_payload(
     if type_definition is None:
         raise HTTPException(status_code=422, detail="El tipo de acta no es valido.")
 
+    normalization_mode: str | None = None
+    normalization_params_json: str | None = None
+    if type_definition.code == "normalization":
+        normalization_mode = normalize_normalization_mode(payload.get("normalizationMode")) or None
+        raw_params = payload.get("normalizationParams")
+        if isinstance(raw_params, dict) and raw_params:
+            normalization_params_json = json.dumps(raw_params)
+    requester_admin = _normalize_requester_admin(payload.get("requesterAdmin"))
+
     template_catalog = _build_template_catalog_by_id()
-    receiver = _normalize_receiver(payload.get("receiver") or {})
+
+    receiver_requires = type_definition.requires_receiver
+    if type_definition.code == "normalization" and normalization_mode:
+        receiver_requires = normalization_mode in NORMALIZATION_MODES_REQUIRING_RECEIVER
+
+    if receiver_requires:
+        receiver = _normalize_receiver(payload.get("receiver") or {})
+    else:
+        receiver = {
+            "receiver_person_id": None,
+            "receiver_code": "",
+            "receiver_name": "",
+            "receiver_email": "",
+            "receiver_phone": "",
+            "receiver_role": "",
+            "receiver_status": "",
+        }
+        raw_receiver = payload.get("receiver") or {}
+        if raw_receiver.get("id"):
+            try:
+                person_id = int(raw_receiver["id"])
+                if person_id > 0:
+                    receiver = _normalize_receiver(raw_receiver)
+            except (TypeError, ValueError):
+                pass
+
     if type_definition.code == "reassignment":
         additional_receivers = _normalize_reassignment_source_receiver(
             payload.get("additionalReceivers") or [],
-            receiver["receiver_person_id"],
+            receiver["receiver_person_id"] or 0,
         )
     else:
         additional_receivers = _normalize_additional_receivers(
             payload.get("additionalReceivers") or [],
-            receiver["receiver_person_id"],
+            receiver["receiver_person_id"] or 0,
         )
     generated_documents = _normalize_generated_documents(payload.get("generatedDocuments") or [])
     evidence_attachments = _normalize_evidence_attachments(payload.get("evidenceAttachments") or [])
@@ -2988,8 +3076,11 @@ def _normalize_handover_payload(
         "evidence_date": evidence_at.strftime("%Y-%m-%d %H:%M:%S") if evidence_at else None,
         "owner_user_id": owner_user_id,
         "owner_name": owner_name,
+        **requester_admin,
         "status": STATUS_UI_TO_DB[status_ui],
         "handover_type": type_definition.code,
+        "normalization_mode": normalization_mode,
+        "normalization_params": normalization_params_json,
         "reason": reason,
         "notes": notes or None,
         "signer_observation": _coerce_str(payload.get("signerObservation")) or None,
@@ -3032,6 +3123,12 @@ def create_handover_signature_session(
     current_detail = get_handover_document_detail(document_id)
     if _coerce_str(current_detail.get("status")) != "Emitida":
         raise HTTPException(status_code=422, detail="Solo puedes abrir un QR de firma sobre actas en estado Emitida.")
+
+    handover_service_for_sign = _resolve_handover_service(
+        current_detail.get("handoverTypeCode") or current_detail.get("handoverType")
+    )
+    if hasattr(handover_service_for_sign, "pre_signature_session"):
+        handover_service_for_sign.pre_signature_session(current_detail, session_user)
 
     generated_main = _resolve_signature_document_by_kind(current_detail, "main")
     if generated_main is None:
