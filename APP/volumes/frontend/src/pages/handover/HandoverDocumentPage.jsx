@@ -516,22 +516,12 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
           <p className="text-sm text-[var(--text-secondary)]">
             Este usuario se usa como solicitante del ticket iTop y como responsable emisor del PDF de normalización.
           </p>
-          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,0.7fr)]">
-            <div className="grid gap-2">
-              <span className="text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
-                Solicitante seleccionado
-              </span>
-              <div className="min-h-[66px] rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-4 text-sm font-semibold text-[var(--text-primary)]">
-                {requesterName || "Sin solicitante administrador"}
-              </div>
-            </div>
-            <div className="grid gap-2">
-              <span className="text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
-                Usuario Hub
-              </span>
-              <div className="min-h-[66px] rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-4 text-sm font-semibold text-[var(--text-primary)]">
-                {selectedOption?.username || "Sin dato"}
-              </div>
+          <div className="grid gap-2">
+            <span className="text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
+              Solicitante seleccionado
+            </span>
+            <div className="min-h-[66px] rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-4 text-sm font-semibold text-[var(--text-primary)]">
+              {requesterName || "Sin solicitante administrador"}
             </div>
           </div>
         </div>
@@ -560,71 +550,61 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
           </MessageBanner>
         ) : null}
 
-        <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,0.7fr)]">
-          {normalizationRequesterOptions.length ? (
-            <FilterDropdown
-              label="Solicitante administrador"
-              options={normalizationRequesterOptions}
-              selectedValues={selectedRequesterId ? [selectedRequesterId] : []}
-              selectionMode="single"
-              onToggleOption={(value) => {
-                const nextOption = normalizationRequesterOptions.find((option) => option.value === value) || null;
-                setForm((current) => ({
-                  ...current,
-                  requesterAdmin: nextOption
-                    ? {
-                        userId: nextOption.hubUserId,
-                        name: nextOption.label,
-                        itopPersonKey: nextOption.itopPersonKey,
-                      }
-                    : null,
-                }));
-              }}
-              onClear={() => setForm((current) => ({
+        {normalizationRequesterOptions.length ? (
+          <FilterDropdown
+            label="Solicitante administrador"
+            options={normalizationRequesterOptions}
+            selectedValues={selectedRequesterId ? [selectedRequesterId] : []}
+            selectionMode="single"
+            onToggleOption={(value) => {
+              const nextOption = normalizationRequesterOptions.find((option) => option.value === value) || null;
+              setForm((current) => ({
                 ...current,
-                requesterAdmin: null,
-              }))}
-              title="Seleccionar solicitante administrador"
-              description="Solo se listan usuarios Hub activos con perfil administrador y vínculo válido a persona iTop."
-              triggerClassName="min-h-[66px]"
-              buttonHeightClassName="min-h-[66px]"
-              menuOffsetClassName="top-[calc(100%+0.55rem)]"
-              menuClassName="rounded-[18px]"
-              renderSelection={({ label, selectedOptions }) => renderCatalogDropdownSelection({
-                label,
-                selectedOptions,
-                placeholder: "Selecciona un administrador",
-              })}
-              renderOptionDescription={(option) => {
-                if (!option.hasItopPersonLink) {
-                  return option.username
-                    ? `Usuario Hub: ${option.username} · Sin persona iTop asociada`
-                    : "Sin persona iTop asociada";
-                }
-                return option.username ? `Usuario Hub: ${option.username}` : "Administrador disponible";
-              }}
-              renderOptionLeading={renderCatalogDropdownOptionLeading}
-              getOptionClassName={getCatalogDropdownOptionClassName}
-            />
-          ) : (
-            <div className="grid gap-2">
-              <span className="text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
-                Solicitante administrador
-              </span>
-              <div className="min-h-[66px] rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-4 text-sm font-semibold text-[var(--text-primary)]">
-                Sin administradores disponibles
-              </div>
-            </div>
-          )}
+                requesterAdmin: nextOption
+                  ? {
+                      userId: nextOption.hubUserId,
+                      name: nextOption.label,
+                      itopPersonKey: nextOption.itopPersonKey,
+                    }
+                  : null,
+              }));
+            }}
+            onClear={() => setForm((current) => ({
+              ...current,
+              requesterAdmin: null,
+            }))}
+            title="Seleccionar solicitante administrador"
+            description="Se listan usuarios Hub activos con perfil administrador. Si no tienen persona iTop asociada, podrás guardarlos pero no procesar el acta."
+            triggerClassName="min-h-[66px]"
+            buttonHeightClassName="min-h-[66px]"
+            menuOffsetClassName="top-[calc(100%+0.55rem)]"
+            menuClassName="rounded-[18px]"
+            renderSelection={({ label, selectedOptions }) => renderCatalogDropdownSelection({
+              label,
+              selectedOptions,
+              placeholder: "Selecciona un administrador",
+            })}
+            renderOptionDescription={(option) => {
+              if (!option.hasItopPersonLink) {
+                return option.username
+                  ? `Usuario: ${option.username} · Sin persona iTop asociada`
+                  : "Sin persona iTop asociada";
+              }
+              return option.username ? `Usuario: ${option.username}` : "Administrador disponible";
+            }}
+            renderOptionLeading={renderCatalogDropdownOptionLeading}
+            getOptionClassName={getCatalogDropdownOptionClassName}
+          />
+        ) : (
           <div className="grid gap-2">
             <span className="text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
-              Usuario Hub
+              Solicitante administrador
             </span>
             <div className="min-h-[66px] rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-4 text-sm font-semibold text-[var(--text-primary)]">
-              {selectedOption?.username || "Selecciona un solicitante"}
+              Sin administradores disponibles
             </div>
           </div>
-        </div>
+        )}
       </div>
     );
   }, [
@@ -1922,6 +1902,7 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
             assetAssignmentResponsible={isReassignmentFlow ? sourceResponsible : form.receiver}
             enforceSingleAssignment={isReturnFlow || normalizationEnforceSingleAssignment}
             onOpenAssetSelector={effectiveIsAssignedAssetFlow ? openAssignedAssetSelector : null}
+            assetLayoutMode={isNormalizationFlow ? "grouped" : "stacked"}
             showReceiverSection={isNormalizationFlow ? Boolean(form.normalizationMode) : true}
             showReceiverSearch={isNormalizationFlow ? normalizationRequiresReceiver : true}
             showReceiverSummary={isNormalizationFlow ? normalizationRequiresReceiver : true}
