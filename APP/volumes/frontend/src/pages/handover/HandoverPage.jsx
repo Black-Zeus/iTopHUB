@@ -20,9 +20,11 @@ import {
   publishSignedHandover,
   rollbackHandoverDocument,
   uploadHandoverEvidence,
+  updateHandoverDocument,
   updateHandoverDocumentStatus,
 } from "../../services/handover-service";
 import { getItopCurrentUserTeams, getItopRequirementCatalog, getItopTicketDefaults, searchItopTeamPeople, searchItopTeams } from "../../services/itop-service";
+import { getUsers } from "../../services/user-service";
 import { runtimeConfig } from "../../config/runtime";
 import { waitForJobNotification } from "../../services/notification-service";
 import { downloadRowsAsCsv } from "../../utils/export-csv";
@@ -33,6 +35,7 @@ import {
 } from "./handover-document-library";
 import { MessageBanner } from "./handover-editor-shared";
 import { getHandoverModuleConfig } from "./handover-module-config";
+import { buildNormalizationRequesterOptions } from "./normalization-requester-options";
 
 const HANDOVER_FILTER_CONTROL_HEIGHT = "h-[66px]";
 const MAX_EVIDENCE_UPLOAD_FILES = 2;
@@ -340,6 +343,16 @@ function normalizeAnalystOptions(items = [], sessionUser = null, allowFallback =
 }
 
 function buildRequesterOptions(detail, row) {
+  const requesterAdmin = detail?.requesterAdmin;
+  if (requesterAdmin?.itopPersonKey && requesterAdmin?.name) {
+    return [{
+      value: String(requesterAdmin.itopPersonKey).trim(),
+      label: String(requesterAdmin.name).trim(),
+      roleLabel: "Solicitante administrador",
+      hubUserId: requesterAdmin.userId || null,
+    }];
+  }
+
   const people = [];
   const appendPerson = (person, roleLabel) => {
     const id = String(person?.id || person?.code || person?.name || "").trim();
@@ -362,6 +375,101 @@ function buildRequesterOptions(detail, row) {
     appendPerson({ id: row.person, name: row.person }, "Principal");
   }
   return people;
+}
+
+function NormalizationRequesterModalContent({
+  row,
+  requesterOptions = [],
+  initialRequesterId = "",
+  onCancel,
+  onSubmit,
+}) {
+  const [requesterId, setRequesterId] = useState(initialRequesterId);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!requesterId && requesterOptions.length === 1) {
+      setRequesterId(requesterOptions[0].value);
+    }
+  }, [requesterId, requesterOptions]);
+
+  const selectedRequester = useMemo(
+    () => requesterOptions.find((option) => option.value === requesterId) || null,
+    [requesterId, requesterOptions],
+  );
+
+  return (
+    <div className="grid gap-4">
+      <div className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] p-4">
+        <p className="text-sm text-[var(--text-secondary)]">
+          El PDF de normalización y el ticket iTop usarán este solicitante administrador como responsable asociado.
+        </p>
+        <p className="mt-2 text-sm text-[var(--text-secondary)]">
+          Puedes seleccionar administradores activos del Hub. Si el usuario aún no tiene persona iTop vinculada, el acta no podrá procesarse hasta completar ese vínculo.
+        </p>
+      </div>
+
+      <label className="grid gap-2">
+        <span className="text-sm font-semibold text-[var(--text-primary)]">Solicitante administrador</span>
+        <select
+          value={requesterId}
+          onChange={(event) => setRequesterId(event.target.value)}
+          className="h-[50px] rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 text-sm text-[var(--text-primary)] outline-none"
+        >
+          <option value="">Selecciona un administrador</option>
+          {requesterOptions.map((option) => (
+            <option key={`${option.hubUserId}-${option.value}`} value={option.value}>
+              {option.hasItopPersonLink ? option.label : `${option.label} (sin persona iTop)`}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      {selectedRequester && !selectedRequester.hasItopPersonLink ? (
+        <MessageBanner tone="warning">
+          El administrador seleccionado aún no tiene persona iTop vinculada. Podrás dejarlo cargado en el acta, pero no procesarla hasta completar ese vínculo.
+        </MessageBanner>
+      ) : null}
+
+      {selectedRequester?.username ? (
+        <div className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] p-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Usuario Hub</p>
+          <p className="mt-2 text-sm font-semibold text-[var(--text-primary)]">{selectedRequester.username}</p>
+        </div>
+      ) : null}
+
+      {error ? <MessageBanner tone="danger">{error}</MessageBanner> : null}
+
+      <div className="flex flex-wrap justify-end gap-3">
+        <Button variant="secondary" onClick={onCancel} disabled={submitting}>Cancelar</Button>
+        <Button
+          variant="primary"
+          disabled={submitting}
+          onClick={async () => {
+            if (!selectedRequester) {
+              setError("Debes seleccionar un solicitante administrador para continuar.");
+              return;
+            }
+            setSubmitting(true);
+            setError("");
+            try {
+              await onSubmit({
+                userId: selectedRequester.hubUserId,
+                name: selectedRequester.label,
+                itopPersonKey: selectedRequester.itopPersonKey,
+              });
+            } catch (submitError) {
+              setError(submitError.message || "No fue posible guardar el solicitante administrador.");
+              setSubmitting(false);
+            }
+          }}
+        >
+          {submitting ? "Guardando..." : `Procesar ${row.code}`}
+        </Button>
+      </div>
+    </div>
+  );
 }
 
 function buildPendingEvidenceDocuments(items = []) {
@@ -1198,6 +1306,104 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
   };
 
   const handleProcess = async (row) => {
+    const runEmit = async () => {
+      let loadingModalId = null;
+      try {
+        const { jobId } = await emitHandoverDocument(row.id);
+        loadingModalId = ModalManager.loading({
+          title: "Procesando acta",
+          message: "Generando documentos PDF y esperando la notificacion del proceso...",
+          showProgress: false,
+          cancelLabel: "Cerrar",
+        });
+
+        await waitForJobNotification(jobId, {
+          timeoutMs: runtimeConfig.jobNotificationTimeoutMs,
+        });
+
+        ModalManager.close(loadingModalId);
+        add({
+          title: "Acta emitida",
+          description: `El acta ${row.code} quedo en estado Emitida y sus PDFs fueron generados correctamente.`,
+          tone: "success",
+        });
+        await loadDocuments(filters);
+      } catch (processError) {
+        if (loadingModalId) {
+          ModalManager.close(loadingModalId);
+        }
+        throw processError;
+      }
+    };
+
+    if (moduleConfig.key === "normalization") {
+      const loadingModalId = ModalManager.loading({
+        title: `Preparando ${row.code}`,
+        message: "Cargando detalle del acta y administradores disponibles...",
+        showProgress: false,
+        showCancel: false,
+      });
+
+      try {
+        const [detail, users] = await Promise.all([
+          getHandoverDocument(row.id),
+          getUsers(),
+        ]);
+        ModalManager.close(loadingModalId);
+
+        const requesterOptions = buildNormalizationRequesterOptions(users);
+        if (!requesterOptions.length) {
+          ModalManager.error({
+            title: "No hay administradores disponibles",
+            message: "Debes vincular al menos un usuario Hub con perfil administrador y persona iTop asociada antes de procesar una acta de normalizacion.",
+          });
+          return;
+        }
+
+        const currentRequesterId = String(detail?.requesterAdmin?.userId || "").trim();
+        let requesterModalId = null;
+        requesterModalId = ModalManager.custom({
+          title: `Procesar ${row.code}`,
+          size: "md",
+          showFooter: false,
+          closeOnOverlayClick: false,
+          closeOnEscape: false,
+          content: (
+            <NormalizationRequesterModalContent
+              row={row}
+              requesterOptions={requesterOptions}
+              initialRequesterId={currentRequesterId}
+              onCancel={() => ModalManager.close(requesterModalId)}
+              onSubmit={async (requesterAdmin) => {
+                const shouldUpdate =
+                  String(detail?.requesterAdmin?.userId || "") !== String(requesterAdmin.userId || "")
+                  || String(detail?.requesterAdmin?.itopPersonKey || "") !== String(requesterAdmin.itopPersonKey || "")
+                  || String(detail?.requesterAdmin?.name || "") !== String(requesterAdmin.name || "");
+
+                if (shouldUpdate) {
+                  await updateHandoverDocument(row.id, {
+                    ...detail,
+                    requesterAdmin,
+                  });
+                }
+
+                ModalManager.close(requesterModalId);
+                await runEmit();
+              }}
+            />
+          ),
+        });
+        return;
+      } catch (prepareError) {
+        ModalManager.close(loadingModalId);
+        ModalManager.error({
+          title: "No fue posible preparar el procesamiento",
+          message: prepareError.message || "No fue posible cargar el solicitante administrador para esta acta.",
+        });
+        return;
+      }
+    }
+
     const confirmed = await ModalManager.confirm({
       title: `Procesar ${row.code}`,
       message: "Se generaran los documentos PDF del acta.",
@@ -1209,31 +1415,9 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
       return;
     }
 
-    let loadingModalId = null;
     try {
-      const { jobId } = await emitHandoverDocument(row.id);
-      loadingModalId = ModalManager.loading({
-        title: "Procesando acta",
-        message: "Generando documentos PDF y esperando la notificacion del proceso...",
-        showProgress: false,
-        cancelLabel: "Cerrar",
-      });
-
-      await waitForJobNotification(jobId, {
-        timeoutMs: runtimeConfig.jobNotificationTimeoutMs,
-      });
-
-      ModalManager.close(loadingModalId);
-      add({
-        title: "Acta emitida",
-        description: `El acta ${row.code} quedo en estado Emitida y sus PDFs fueron generados correctamente.`,
-        tone: "success",
-      });
-      await loadDocuments(filters);
+      await runEmit();
     } catch (processError) {
-      if (loadingModalId) {
-        ModalManager.close(loadingModalId);
-      }
       ModalManager.error({
         title: "No fue posible procesar el acta",
         message: processError.message || "Ocurrio un error al iniciar el proceso.",

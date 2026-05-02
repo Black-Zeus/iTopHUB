@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Panel, PanelHeader } from "../../components/ui/general";
+import { FilterDropdown, Panel, PanelHeader } from "../../components/ui/general";
 import { ScrollToTopButton } from "../../components/ui/general/ScrollToTopButton";
 import { Icon } from "../../components/ui/icon/Icon";
 import ModalManager from "../../components/ui/modal";
@@ -14,6 +14,7 @@ import {
   searchHandoverPeople,
   updateHandoverDocument,
 } from "../../services/handover-service";
+import { getUsers } from "../../services/user-service";
 import {
   HandoverEditorSections,
   MessageBanner,
@@ -24,8 +25,69 @@ import {
   matchesTemplateCmdbClass,
 } from "./handover-editor-shared";
 import { getHandoverModuleConfig } from "./handover-module-config";
+import { buildNormalizationRequesterOptions } from "./normalization-requester-options";
 
 const SECONDARY_ROLE_OPTIONS = ["Contraturno", "Referente de area", "Respaldo operativo", "Testigo"];
+const NORMALIZATION_STATUS_FALLBACK_OPTIONS = [
+  { value: "stock", label: "En stock" },
+  { value: "production", label: "En produccion" },
+  { value: "implementation", label: "En implementacion" },
+  { value: "test", label: "En prueba" },
+  { value: "obsolete", label: "Obsoleto" },
+  { value: "inactive", label: "Inactivo" },
+];
+
+function resolveOptionLabel(options = [], value = "", fallback = "") {
+  const normalizedValue = String(value || "").trim();
+  if (!normalizedValue) {
+    return fallback;
+  }
+  return options.find((option) => String(option?.value || "").trim() === normalizedValue)?.label || fallback || normalizedValue;
+}
+
+function renderNormalizationDropdownSelection({ label, selectedOptions, placeholder }) {
+  const selectedOption = selectedOptions[0] || null;
+  return (
+    <span className="flex min-w-0 items-center gap-3">
+      {selectedOption?.iconName ? (
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--accent-soft)] text-[var(--accent-strong)]">
+          <Icon name={selectedOption.iconName} size={14} className="h-3.5 w-3.5" aria-hidden="true" />
+        </span>
+      ) : null}
+      <span className="min-w-0 flex-1">
+        <span className="block text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
+          {label}
+        </span>
+        <span className="mt-1 block truncate text-sm font-semibold text-[var(--text-primary)]">
+          {selectedOption?.label || placeholder}
+        </span>
+      </span>
+    </span>
+  );
+}
+
+function renderCatalogDropdownSelection({ label, selectedOptions, placeholder }) {
+  return (
+    <>
+      <span className="block text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
+        {label}
+      </span>
+      <span className="mt-1 block truncate text-sm font-semibold text-[var(--text-primary)]">
+        {selectedOptions[0]?.label || placeholder}
+      </span>
+    </>
+  );
+}
+
+function renderCatalogDropdownOptionLeading() {
+  return <span className="inline-flex h-2.5 w-2.5 rounded-full bg-current opacity-70" />;
+}
+
+function getCatalogDropdownOptionClassName(_, isActive) {
+  return isActive
+    ? "border-transparent bg-[var(--accent-soft)] text-[var(--accent-strong)] shadow-[0_10px_22px_rgba(81,152,194,0.14)]"
+    : "border-transparent bg-transparent text-[var(--text-secondary)] hover:border-[var(--border-color)] hover:bg-[var(--bg-app)] hover:text-[var(--text-primary)]";
+}
 
 function ResolveReceiverConflictModalContent({
   currentPrimary,
@@ -219,6 +281,7 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
   const moduleConfig = getHandoverModuleConfig(moduleVariant);
   const isReturnFlow = moduleConfig.key === "return";
   const isReassignmentFlow = moduleConfig.key === "reassignment";
+  const isNormalizationFlow = moduleConfig.key === "normalization";
   const isAssignedAssetFlow = isReturnFlow || isReassignmentFlow;
 
   const [bootstrap, setBootstrap] = useState(null);
@@ -227,8 +290,23 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [normalizationRequesterOptions, setNormalizationRequesterOptions] = useState([]);
+  const [normalizationRequesterLoading, setNormalizationRequesterLoading] = useState(false);
   const [form, setForm] = useState(createEmptyForm(null, { moduleVariant, defaultHandoverType: moduleConfig.handoverType }));
   const isReadOnly = !isCreateMode && ["Firmada", "Confirmada", "Anulada"].includes(form.status);
+  const activeModeConfig = isNormalizationFlow
+    ? (moduleConfig.normalizationModes || []).find((mode) => mode.value === form.normalizationMode) || null
+    : null;
+  const normalizationRequiresReceiver = activeModeConfig?.requiresReceiver ?? false;
+  const normalizationRequiresTargetStatus = Boolean(activeModeConfig?.requiresTargetStatus);
+  const normalizationRequiresTargetLocation = Boolean(activeModeConfig?.requiresTargetLocation);
+  const normalizationEnforceSingleAssignment = Boolean(activeModeConfig?.enforceSingleAssignment);
+  const normalizationAssetSelectionMode = activeModeConfig?.assetSelectionMode || "inline";
+  const isNormalizationAssignedAssetFlow = isNormalizationFlow && normalizationAssetSelectionMode === "modal";
+  const effectiveIsAssignedAssetFlow = isAssignedAssetFlow || isNormalizationAssignedAssetFlow;
+  const effectiveAssetRestrictionMode = isNormalizationFlow
+    ? (isNormalizationAssignedAssetFlow ? "assigned_to_receiver" : "none")
+    : (effectiveIsAssignedAssetFlow ? "assigned_to_receiver" : "stock_unassigned");
   const [sourceSearchQuery, setSourceSearchQuery] = useState("");
   const [sourceResults, setSourceResults] = useState([]);
   const [sourceLoading, setSourceLoading] = useState(false);
@@ -241,6 +319,7 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
   const [selectedTemplateByAsset, setSelectedTemplateByAsset] = useState({});
   const [collapsedSections, setCollapsedSections] = useState({
     document: false,
+    requester: false,
     itop: false,
     source: false,
     receiver: false,
@@ -255,6 +334,14 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
   const formRef = useRef(form);
 
   const statusOptions = bootstrap?.statusOptions || [];
+  const normalizationStatusOptions = bootstrap?.normalizationCatalog?.statusOptions?.length
+    ? bootstrap.normalizationCatalog.statusOptions
+    : NORMALIZATION_STATUS_FALLBACK_OPTIONS;
+  const normalizationLocationOptions = bootstrap?.normalizationCatalog?.locationOptions || [];
+  const normalizationReceiverSectionTitle = isNormalizationFlow ? "Destino y parametros" : moduleConfig.receiverSectionTitle;
+  const normalizationReceiverSectionHelper = isNormalizationFlow
+    ? "Mantén en esta seccion la persona vinculada, cuando aplique, y los parametros CMDB que esta acta modificara."
+    : moduleConfig.receiverSectionHelper;
   const activeTemplates = useMemo(() => (
     (bootstrap?.checklistTemplates || []).filter((template) => {
       const usageType = String(template?.usageType || "delivery").trim().toLowerCase();
@@ -275,6 +362,278 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
     || form.additionalReceivers?.[0]
     || null
   ), [form.additionalReceivers]);
+  const normalizationParameterContent = useMemo(() => {
+    if (!isNormalizationFlow || !form.normalizationMode) {
+      return null;
+    }
+
+    if (!normalizationRequiresTargetStatus && !normalizationRequiresTargetLocation) {
+      return null;
+    }
+
+    const parameterGridClass = normalizationRequiresTargetStatus && normalizationRequiresTargetLocation
+      ? "md:grid-cols-2"
+      : "grid-cols-1";
+
+    return (
+      <div className="grid gap-4 rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-4">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Parametros del cambio</p>
+          <p className="mt-1 text-sm text-[var(--text-secondary)]">
+            Define aqui los valores finales que la normalizacion aplicara sobre los activos seleccionados.
+          </p>
+        </div>
+        <div className={`grid gap-4 ${parameterGridClass}`}>
+          {normalizationRequiresTargetStatus && isReadOnly ? (
+            <div className="grid gap-2">
+              <span className="text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
+                Estado destino
+              </span>
+              <div className="min-h-[66px] rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-4 text-sm font-semibold text-[var(--text-primary)]">
+                {resolveOptionLabel(
+                  normalizationStatusOptions,
+                  form.normalizationParams?.targetStatus || "",
+                  "Sin configurar"
+                )}
+              </div>
+            </div>
+          ) : null}
+          {normalizationRequiresTargetStatus && !isReadOnly ? (
+            <FilterDropdown
+              label="Estado destino"
+              options={normalizationStatusOptions}
+              selectedValues={form.normalizationParams?.targetStatus ? [String(form.normalizationParams.targetStatus)] : []}
+              selectionMode="single"
+              onToggleOption={(value) => setForm((current) => ({
+                ...current,
+                normalizationParams: { ...current.normalizationParams, targetStatus: value },
+              }))}
+              onClear={() => setForm((current) => ({
+                ...current,
+                normalizationParams: { ...current.normalizationParams, targetStatus: "" },
+              }))}
+              title="Seleccionar estado destino"
+              description="Selecciona el estado final que quedara registrado en iTop."
+              iconName="tag"
+              showTriggerIcon={true}
+              triggerClassName="min-h-[66px]"
+              buttonHeightClassName="min-h-[66px]"
+              menuOffsetClassName="top-[calc(100%+0.55rem)]"
+              menuClassName="rounded-[18px]"
+              renderSelection={({ label, selectedOptions }) => renderCatalogDropdownSelection({
+                label,
+                selectedOptions,
+                placeholder: "Selecciona un estado",
+              })}
+              renderOptionDescription={(option) => option.description || "Selecciona un valor"}
+              renderOptionLeading={renderCatalogDropdownOptionLeading}
+              getOptionClassName={getCatalogDropdownOptionClassName}
+            />
+          ) : null}
+          {normalizationRequiresTargetLocation && isReadOnly ? (
+            <div className="grid gap-2">
+              <span className="text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
+                Locacion destino
+              </span>
+              <div className="min-h-[66px] rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-4 text-sm font-semibold text-[var(--text-primary)]">
+                {resolveOptionLabel(
+                  normalizationLocationOptions,
+                  form.normalizationParams?.targetLocationId || "",
+                  form.normalizationParams?.targetLocationName || "Sin configurar"
+                )}
+              </div>
+            </div>
+          ) : null}
+          {normalizationRequiresTargetLocation && !isReadOnly ? (
+            <FilterDropdown
+              label="Locacion destino"
+              options={normalizationLocationOptions}
+              selectedValues={form.normalizationParams?.targetLocationId ? [String(form.normalizationParams.targetLocationId)] : []}
+              selectionMode="single"
+              onToggleOption={(value) => {
+                const selectedOption = normalizationLocationOptions.find((option) => String(option.value) === String(value)) || null;
+                setForm((current) => ({
+                  ...current,
+                  normalizationParams: {
+                    ...current.normalizationParams,
+                    targetLocationId: value,
+                    targetLocationName: selectedOption?.name || selectedOption?.label || "",
+                  },
+                }));
+              }}
+              onClear={() => setForm((current) => ({
+                ...current,
+                normalizationParams: {
+                  ...current.normalizationParams,
+                  targetLocationId: "",
+                  targetLocationName: "",
+                },
+              }))}
+              title="Seleccionar locacion destino"
+              description="Selecciona la locacion logica final que quedara registrada en iTop."
+              iconName="location"
+              showTriggerIcon={true}
+              triggerClassName="min-h-[66px]"
+              buttonHeightClassName="min-h-[66px]"
+              menuOffsetClassName="top-[calc(100%+0.55rem)]"
+              menuClassName="rounded-[18px]"
+              renderSelection={({ label, selectedOptions }) => renderCatalogDropdownSelection({
+                label,
+                selectedOptions,
+                placeholder: normalizationLocationOptions.length ? "Selecciona una locacion" : "No hay locaciones disponibles",
+              })}
+              renderOptionDescription={(option) => option.description || "Selecciona un valor"}
+              renderOptionLeading={renderCatalogDropdownOptionLeading}
+              getOptionClassName={getCatalogDropdownOptionClassName}
+            />
+          ) : null}
+        </div>
+      </div>
+    );
+  }, [
+    form.normalizationMode,
+    form.normalizationParams,
+    isNormalizationFlow,
+    isReadOnly,
+      normalizationLocationOptions,
+      normalizationRequiresTargetLocation,
+      normalizationRequiresTargetStatus,
+      normalizationStatusOptions,
+    ]);
+
+  const normalizationRequesterContent = useMemo(() => {
+    if (!isNormalizationFlow) {
+      return null;
+    }
+
+    const selectedRequesterId = String(form.requesterAdmin?.userId || "").trim();
+    const selectedOption = normalizationRequesterOptions.find((option) => option.value === selectedRequesterId) || null;
+
+    if (isReadOnly) {
+      const requesterName = String(form.requesterAdmin?.name || "").trim();
+      return (
+        <div className="grid gap-4 rounded-[20px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-4">
+          <p className="text-sm text-[var(--text-secondary)]">
+            Este usuario se usa como solicitante del ticket iTop y como responsable emisor del PDF de normalización.
+          </p>
+          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,0.7fr)]">
+            <div className="grid gap-2">
+              <span className="text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
+                Solicitante seleccionado
+              </span>
+              <div className="min-h-[66px] rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-4 text-sm font-semibold text-[var(--text-primary)]">
+                {requesterName || "Sin solicitante administrador"}
+              </div>
+            </div>
+            <div className="grid gap-2">
+              <span className="text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
+                Usuario Hub
+              </span>
+              <div className="min-h-[66px] rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-4 text-sm font-semibold text-[var(--text-primary)]">
+                {selectedOption?.username || "Sin dato"}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="grid gap-4 rounded-[20px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-4">
+        <p className="text-sm text-[var(--text-secondary)]">
+          Selecciona aquí el administrador que actuará como solicitante del ticket iTop y responsable emisor del PDF de normalización.
+        </p>
+
+        {normalizationRequesterLoading ? (
+          <MessageBanner>Cargando administradores disponibles...</MessageBanner>
+        ) : null}
+
+        {!normalizationRequesterLoading && !normalizationRequesterOptions.length ? (
+          <MessageBanner tone="danger">
+            No hay usuarios Hub activos con perfil administrador. Primero debes vincular o activar uno desde Usuarios.
+          </MessageBanner>
+        ) : null}
+
+        {selectedOption && !selectedOption.hasItopPersonLink ? (
+          <MessageBanner tone="warning">
+            El administrador seleccionado no tiene persona iTop vinculada todavía. Puedes guardarlo en el acta, pero no procesarla hasta completar esa asociación.
+          </MessageBanner>
+        ) : null}
+
+        <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,0.7fr)]">
+          {normalizationRequesterOptions.length ? (
+            <FilterDropdown
+              label="Solicitante administrador"
+              options={normalizationRequesterOptions}
+              selectedValues={selectedRequesterId ? [selectedRequesterId] : []}
+              selectionMode="single"
+              onToggleOption={(value) => {
+                const nextOption = normalizationRequesterOptions.find((option) => option.value === value) || null;
+                setForm((current) => ({
+                  ...current,
+                  requesterAdmin: nextOption
+                    ? {
+                        userId: nextOption.hubUserId,
+                        name: nextOption.label,
+                        itopPersonKey: nextOption.itopPersonKey,
+                      }
+                    : null,
+                }));
+              }}
+              onClear={() => setForm((current) => ({
+                ...current,
+                requesterAdmin: null,
+              }))}
+              title="Seleccionar solicitante administrador"
+              description="Solo se listan usuarios Hub activos con perfil administrador y vínculo válido a persona iTop."
+              triggerClassName="min-h-[66px]"
+              buttonHeightClassName="min-h-[66px]"
+              menuOffsetClassName="top-[calc(100%+0.55rem)]"
+              menuClassName="rounded-[18px]"
+              renderSelection={({ label, selectedOptions }) => renderCatalogDropdownSelection({
+                label,
+                selectedOptions,
+                placeholder: "Selecciona un administrador",
+              })}
+              renderOptionDescription={(option) => {
+                if (!option.hasItopPersonLink) {
+                  return option.username
+                    ? `Usuario Hub: ${option.username} · Sin persona iTop asociada`
+                    : "Sin persona iTop asociada";
+                }
+                return option.username ? `Usuario Hub: ${option.username}` : "Administrador disponible";
+              }}
+              renderOptionLeading={renderCatalogDropdownOptionLeading}
+              getOptionClassName={getCatalogDropdownOptionClassName}
+            />
+          ) : (
+            <div className="grid gap-2">
+              <span className="text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
+                Solicitante administrador
+              </span>
+              <div className="min-h-[66px] rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-4 text-sm font-semibold text-[var(--text-primary)]">
+                Sin administradores disponibles
+              </div>
+            </div>
+          )}
+          <div className="grid gap-2">
+            <span className="text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
+              Usuario Hub
+            </span>
+            <div className="min-h-[66px] rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-4 text-sm font-semibold text-[var(--text-primary)]">
+              {selectedOption?.username || "Selecciona un solicitante"}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }, [
+    form.requesterAdmin,
+    isNormalizationFlow,
+    isReadOnly,
+    normalizationRequesterLoading,
+    normalizationRequesterOptions,
+  ]);
 
   useEffect(() => {
     formRef.current = form;
@@ -370,6 +729,40 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
       cancelled = true;
     };
   }, [isCreateMode]);
+
+  useEffect(() => {
+    if (!isNormalizationFlow) {
+      setNormalizationRequesterOptions([]);
+      setNormalizationRequesterLoading(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    const loadRequesterOptions = async () => {
+      setNormalizationRequesterLoading(true);
+      try {
+        const users = await getUsers();
+        if (!cancelled) {
+          setNormalizationRequesterOptions(buildNormalizationRequesterOptions(users));
+        }
+      } catch {
+        if (!cancelled) {
+          setNormalizationRequesterOptions([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setNormalizationRequesterLoading(false);
+        }
+      }
+    };
+
+    loadRequesterOptions();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isNormalizationFlow]);
 
   useEffect(() => {
     if (!bootstrap || isCreateMode) {
@@ -505,7 +898,7 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
   }, [minCharsPeople, personSearchQuery]);
 
   useEffect(() => {
-    if (isAssignedAssetFlow) {
+    if (effectiveIsAssignedAssetFlow) {
       setAssetResults([]);
       setAssetLoading(false);
       return undefined;
@@ -546,12 +939,12 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [assetSearchQuery, isAssignedAssetFlow, minCharsAssets]);
+  }, [assetSearchQuery, effectiveIsAssignedAssetFlow, minCharsAssets]);
 
   const addAssetToForm = (asset, receiverOverride = null) => {
     const resolvedAssignmentResponsible = receiverOverride || (isReassignmentFlow ? sourceResponsible : form.receiver);
-    const restrictionMessage = getAssetAssignmentRestriction(asset, {
-      assetSelectionMode: isAssignedAssetFlow ? "assigned_to_receiver" : "stock_unassigned",
+    const restrictionMessage = isNormalizationFlow ? "" : getAssetAssignmentRestriction(asset, {
+      assetSelectionMode: effectiveAssetRestrictionMode,
       receiver: resolvedAssignmentResponsible,
       enforceSingleAssignment: isReturnFlow,
     });
@@ -1185,7 +1578,7 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
         <AssignedAssetSelectionModalContent
           responsible={resolvedResponsible}
           selectedAssetIds={selectedAssetIds}
-          enforceSingleAssignment
+          enforceSingleAssignment={isReturnFlow || normalizationEnforceSingleAssignment}
           helperText={isReassignmentFlow
             ? "Esta lista se carga desde iTop solo con los activos actualmente asociados al responsable origen seleccionado."
             : "Esta lista se carga desde iTop solo con los activos actualmente asociados a este responsable."}
@@ -1210,6 +1603,24 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
     if (!form.reason.trim()) {
       setError(moduleConfig.reasonValidationMessage);
       return;
+    }
+    if (isNormalizationFlow) {
+      if (!form.normalizationMode) {
+        setError("Debes seleccionar el modo de normalizacion antes de guardar.");
+        return;
+      }
+      if (normalizationRequiresReceiver && !form.receiver?.id) {
+        setError("Este modo de normalizacion requiere una persona vinculada.");
+        return;
+      }
+      if (normalizationRequiresTargetStatus && !String(form.normalizationParams?.targetStatus || "").trim()) {
+        setError("Debes seleccionar el estado destino para este modo de normalizacion.");
+        return;
+      }
+      if (normalizationRequiresTargetLocation && !String(form.normalizationParams?.targetLocationId || "").trim()) {
+        setError("Debes seleccionar la locacion destino para este modo de normalizacion.");
+        return;
+      }
     }
     if (isReassignmentFlow) {
       if (!sourceResponsible?.id) {
@@ -1251,6 +1662,9 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
       evidenceAttachments: form.evidenceAttachments || [],
       status: form.status,
       handoverType: form.handoverType || moduleConfig.handoverType,
+      normalizationMode: isNormalizationFlow ? (form.normalizationMode || "") : undefined,
+      normalizationParams: isNormalizationFlow ? (form.normalizationParams || {}) : undefined,
+      requesterAdmin: isNormalizationFlow ? (form.requesterAdmin || {}) : undefined,
       reason: form.reason,
       notes: form.notes,
       receiver: form.receiver || {},
@@ -1258,19 +1672,21 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
       items: form.items,
     };
 
-    const invalidAsset = form.items.find((item) => getAssetAssignmentRestriction(item.asset, {
-      assetSelectionMode: isAssignedAssetFlow ? "assigned_to_receiver" : "stock_unassigned",
-      receiver: isReassignmentFlow ? sourceResponsible : form.receiver,
-      enforceSingleAssignment: isReturnFlow,
-    }));
-    if (invalidAsset) {
-      setSaving(false);
-      setError(getAssetAssignmentRestriction(invalidAsset.asset, {
-        assetSelectionMode: isAssignedAssetFlow ? "assigned_to_receiver" : "stock_unassigned",
+    if (!isNormalizationFlow) {
+      const invalidAsset = form.items.find((item) => getAssetAssignmentRestriction(item.asset, {
+        assetSelectionMode: effectiveAssetRestrictionMode,
         receiver: isReassignmentFlow ? sourceResponsible : form.receiver,
         enforceSingleAssignment: isReturnFlow,
       }));
-      return;
+      if (invalidAsset) {
+        setSaving(false);
+        setError(getAssetAssignmentRestriction(invalidAsset.asset, {
+          assetSelectionMode: effectiveAssetRestrictionMode,
+          receiver: isReassignmentFlow ? sourceResponsible : form.receiver,
+          enforceSingleAssignment: isReturnFlow,
+        }));
+        return;
+      }
     }
 
     try {
@@ -1339,85 +1755,184 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
           <MessageBanner>{isCreateMode ? "Preparando datos base del formulario..." : "Cargando acta seleccionada..."}</MessageBanner>
         </Panel>
       ) : (
-        <HandoverEditorSections
-          form={form}
-          statusOptions={statusOptions}
-          sourceLoading={sourceLoading}
-          sourceResults={sourceResults}
-          sourceSearchQuery={sourceSearchQuery}
-          setSourceSearchQuery={setSourceSearchQuery}
-          sourceSearchInputRef={sourceSearchInputRef}
-          sourceSelectionEndRef={sourceSelectionEndRef}
-          sourceResponsible={sourceResponsible}
-          peopleLoading={peopleLoading}
-          peopleResults={peopleResults}
-          personSearchQuery={personSearchQuery}
-          setPersonSearchQuery={setPersonSearchQuery}
-          personSearchInputRef={personSearchInputRef}
-          receiverSelectionEndRef={receiverSelectionEndRef}
-          setForm={setForm}
-          assetLoading={assetLoading}
-          assetResults={assetResults}
-          assetSearchQuery={assetSearchQuery}
-          setAssetSearchQuery={setAssetSearchQuery}
-          activeTemplates={activeTemplates}
-          selectedTemplateByAsset={selectedTemplateByAsset}
-          setSelectedTemplateByAsset={setSelectedTemplateByAsset}
-          addAssetToForm={addAssetToForm}
-          requestRemoveAssetFromForm={requestRemoveAssetFromForm}
-          updateItemNotes={updateItemNotes}
-          addChecklistToAsset={addChecklistToAsset}
-          requestRemoveChecklistFromAsset={requestRemoveChecklistFromAsset}
-          updateChecklistAnswer={updateChecklistAnswer}
-          collapsedSections={collapsedSections}
-          toggleSection={toggleSection}
-          isCreateMode={isCreateMode}
-          minCharsPeople={minCharsPeople}
-          minCharsAssets={minCharsAssets}
-          requiresSourceResponsible={moduleConfig.requiresSourceResponsible}
-          sourceSectionTitle={moduleConfig.sourceSectionTitle}
-          sourceSectionHelper={moduleConfig.sourceSectionHelper}
-          sourceSearchLabel={moduleConfig.sourceSearchLabel}
-          primarySourceLabel={moduleConfig.primarySourceLabel}
-          emptyPrimarySourceMessage={moduleConfig.emptyPrimarySourceMessage}
-          selectSourceResponsible={selectSourceResponsible}
-          requestRemoveSourceResponsible={requestRemoveSourceResponsible}
-          selectPrimaryReceiver={selectPrimaryReceiver}
-          promoteAdditionalReceiverToPrimary={promoteAdditionalReceiverToPrimary}
-          requestRemovePrimaryReceiver={requestRemovePrimaryReceiver}
-          addAdditionalReceiver={addAdditionalReceiver}
-          requestRemoveAdditionalReceiver={requestRemoveAdditionalReceiver}
-          updateAdditionalReceiverRole={updateAdditionalReceiverRole}
-          allowEvidenceUpload={Boolean(bootstrap?.actions?.allowEvidenceUpload ?? true)}
-          readOnly={isReadOnly}
-          documentId={isCreateMode ? null : slug}
-          itopIntegrationUrl={String(bootstrap?.itopIntegrationUrl || "").replace(/\/+$/, "")}
-          reasonLabel={moduleConfig.reasonLabel}
-          notesPlaceholder={bootstrap?.defaults?.notesPlaceholder || moduleConfig.notesPlaceholder}
-          itemNotesLabel={moduleConfig.itemNotesLabel}
-          itemNotesPlaceholder={moduleConfig.itemNotesPlaceholder}
-          receiverSectionTitle={moduleConfig.receiverSectionTitle}
-          receiverSectionHelper={moduleConfig.receiverSectionHelper}
-          receiverSearchLabel={moduleConfig.receiverSearchLabel}
-          primaryReceiverLabel={moduleConfig.primaryReceiverLabel}
-          emptyPrimaryReceiverMessage={moduleConfig.emptyPrimaryReceiverMessage}
-          allowAdditionalReceivers={moduleConfig.allowAdditionalReceivers}
-          addSecondaryLabel={moduleConfig.addSecondaryLabel}
-          assetSectionTitle={moduleConfig.assetSectionTitle}
-          assetSelectionMode={moduleConfig.assetSelectionMode}
-          assetSearchLabel={moduleConfig.assetSearchLabel}
-          assetSearchPlaceholder={moduleConfig.assetSearchPlaceholder}
-          assetSelectorHelper={moduleConfig.assetSelectorHelper}
-          assetSelectorButtonLabel={moduleConfig.assetSelectorButtonLabel}
-          assetAssignmentResponsible={isReassignmentFlow ? sourceResponsible : form.receiver}
-          enforceSingleAssignment={isReturnFlow}
-          onOpenAssetSelector={isAssignedAssetFlow ? openAssignedAssetSelector : null}
-          showChecklistSection={moduleConfig.showChecklistSection !== false}
-          showItemEvidenceSection={isReturnFlow}
-          addItemEvidenceFiles={addItemEvidenceFiles}
-          updateItemEvidenceCaption={updateItemEvidenceCaption}
-          removeItemEvidence={removeItemEvidence}
-        />
+        <>
+          {isNormalizationFlow ? (
+            <Panel>
+              <div className="grid gap-4">
+                <div>
+                  <p className="text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Normalizacion</p>
+                  <h3 className="mt-1 text-base font-semibold text-[var(--text-primary)]">Modo de operacion</h3>
+                  <p className="mt-2 max-w-3xl text-sm text-[var(--text-secondary)]">
+                    Selecciona el tipo de cambio que se aplicara a los activos de esta acta. Solo se puede elegir un modo por acta. Cambiar el modo limpia los activos seleccionados.
+                  </p>
+                </div>
+                {isReadOnly ? (
+                  <div className="grid gap-4">
+                    <div className="grid gap-2">
+                      <p className="text-sm font-semibold text-[var(--text-primary)]">Modo seleccionado</p>
+                      <div className="min-h-[50px] rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-3 text-sm text-[var(--text-primary)]">
+                        {activeModeConfig?.label || form.normalizationMode || "Sin modo seleccionado"}
+                      </div>
+                    </div>
+                    {activeModeConfig?.description ? (
+                      <div className="grid gap-2">
+                        <p className="text-sm font-semibold text-[var(--text-primary)]">Descripcion</p>
+                        <div className="min-h-[50px] rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-3 text-sm text-[var(--text-primary)]">
+                          {activeModeConfig.description}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <FilterDropdown
+                      label="Modo de operacion"
+                      options={moduleConfig.normalizationModes || []}
+                      selectedValues={form.normalizationMode ? [String(form.normalizationMode)] : []}
+                      selectionMode="single"
+                      onToggleOption={(value) => {
+                        const nextMode = (moduleConfig.normalizationModes || []).find((modeOption) => modeOption.value === value) || null;
+                        setForm((current) => ({
+                          ...current,
+                          normalizationMode: value,
+                          normalizationParams: {},
+                          receiver: nextMode?.requiresReceiver ? current.receiver : null,
+                          items: [],
+                        }));
+                      }}
+                      onClear={() => setForm((current) => ({
+                        ...current,
+                        normalizationMode: "",
+                        normalizationParams: {},
+                        receiver: null,
+                        items: [],
+                      }))}
+                      title="Seleccionar modo de operacion"
+                      description="Selecciona una sola operacion por acta. Cambiar el modo limpia los activos seleccionados."
+                      triggerClassName="py-3"
+                      buttonHeightClassName="min-h-[66px]"
+                      menuOffsetClassName="top-[calc(100%+0.55rem)]"
+                      menuClassName="rounded-[18px]"
+                      renderSelection={({ label, selectedOptions }) => renderNormalizationDropdownSelection({
+                        label,
+                        selectedOptions,
+                        placeholder: "Selecciona un modo de operacion",
+                      })}
+                      renderOptionDescription={(option) => option.dropdownDescription || "Selecciona esta operacion para continuar"}
+                      renderOptionLeading={(option) => (
+                        option.iconName ? (
+                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--bg-app)]">
+                            <Icon name={option.iconName} size={14} className="h-3.5 w-3.5" aria-hidden="true" />
+                          </span>
+                        ) : null
+                      )}
+                      getOptionClassName={getCatalogDropdownOptionClassName}
+                    />
+                    <div className="grid min-h-[66px] gap-2 rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-4">
+                      <span className="text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
+                        Descripcion del modo
+                      </span>
+                      <p className="text-sm leading-6 text-[var(--text-secondary)]">
+                        {activeModeConfig?.description || "Selecciona un modo de operacion para ver su alcance y las variables que deberas definir."}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </Panel>
+          ) : null}
+          <HandoverEditorSections
+            form={form}
+            statusOptions={statusOptions}
+            sourceLoading={sourceLoading}
+            sourceResults={sourceResults}
+            sourceSearchQuery={sourceSearchQuery}
+            setSourceSearchQuery={setSourceSearchQuery}
+            sourceSearchInputRef={sourceSearchInputRef}
+            sourceSelectionEndRef={sourceSelectionEndRef}
+            sourceResponsible={sourceResponsible}
+            peopleLoading={peopleLoading}
+            peopleResults={peopleResults}
+            personSearchQuery={personSearchQuery}
+            setPersonSearchQuery={setPersonSearchQuery}
+            personSearchInputRef={personSearchInputRef}
+            receiverSelectionEndRef={receiverSelectionEndRef}
+            setForm={setForm}
+            assetLoading={assetLoading}
+            assetResults={assetResults}
+            assetSearchQuery={assetSearchQuery}
+            setAssetSearchQuery={setAssetSearchQuery}
+            activeTemplates={activeTemplates}
+            selectedTemplateByAsset={selectedTemplateByAsset}
+            setSelectedTemplateByAsset={setSelectedTemplateByAsset}
+            addAssetToForm={addAssetToForm}
+            requestRemoveAssetFromForm={requestRemoveAssetFromForm}
+            updateItemNotes={updateItemNotes}
+            addChecklistToAsset={addChecklistToAsset}
+            requestRemoveChecklistFromAsset={requestRemoveChecklistFromAsset}
+            updateChecklistAnswer={updateChecklistAnswer}
+            collapsedSections={collapsedSections}
+            toggleSection={toggleSection}
+            isCreateMode={isCreateMode}
+            minCharsPeople={minCharsPeople}
+            minCharsAssets={minCharsAssets}
+            requiresSourceResponsible={moduleConfig.requiresSourceResponsible}
+            sourceSectionTitle={moduleConfig.sourceSectionTitle}
+            sourceSectionHelper={moduleConfig.sourceSectionHelper}
+            sourceSearchLabel={moduleConfig.sourceSearchLabel}
+            primarySourceLabel={moduleConfig.primarySourceLabel}
+            emptyPrimarySourceMessage={moduleConfig.emptyPrimarySourceMessage}
+            selectSourceResponsible={selectSourceResponsible}
+            requestRemoveSourceResponsible={requestRemoveSourceResponsible}
+            selectPrimaryReceiver={selectPrimaryReceiver}
+            promoteAdditionalReceiverToPrimary={promoteAdditionalReceiverToPrimary}
+            requestRemovePrimaryReceiver={requestRemovePrimaryReceiver}
+            addAdditionalReceiver={addAdditionalReceiver}
+            requestRemoveAdditionalReceiver={requestRemoveAdditionalReceiver}
+            updateAdditionalReceiverRole={updateAdditionalReceiverRole}
+            allowEvidenceUpload={Boolean(bootstrap?.actions?.allowEvidenceUpload ?? true)}
+            readOnly={isReadOnly}
+            documentId={isCreateMode ? null : slug}
+            itopIntegrationUrl={String(bootstrap?.itopIntegrationUrl || "").replace(/\/+$/, "")}
+            reasonLabel={moduleConfig.reasonLabel}
+            notesPlaceholder={bootstrap?.defaults?.notesPlaceholder || moduleConfig.notesPlaceholder}
+            itemNotesLabel={moduleConfig.itemNotesLabel}
+            itemNotesPlaceholder={moduleConfig.itemNotesPlaceholder}
+            topRightSection={isNormalizationFlow ? {
+              sectionKey: "requester",
+              eyebrow: "Responsable",
+              title: "Solicitante administrador",
+              helper: "Selecciona el administrador que actuará como solicitante del ticket iTop y responsable emisor del PDF de normalización.",
+              content: normalizationRequesterContent,
+            } : null}
+            receiverSectionTitle={normalizationReceiverSectionTitle}
+            receiverSectionHelper={normalizationReceiverSectionHelper}
+            receiverSearchLabel={moduleConfig.receiverSearchLabel}
+            primaryReceiverLabel={moduleConfig.primaryReceiverLabel}
+            emptyPrimaryReceiverMessage={moduleConfig.emptyPrimaryReceiverMessage}
+            allowAdditionalReceivers={moduleConfig.allowAdditionalReceivers}
+            addSecondaryLabel={moduleConfig.addSecondaryLabel}
+            assetSectionTitle={moduleConfig.assetSectionTitle}
+            assetSelectionMode={isNormalizationFlow ? normalizationAssetSelectionMode : moduleConfig.assetSelectionMode}
+            assetRestrictionMode={effectiveAssetRestrictionMode}
+            assetSearchLabel={moduleConfig.assetSearchLabel}
+            assetSearchPlaceholder={moduleConfig.assetSearchPlaceholder}
+            assetSelectorHelper={moduleConfig.assetSelectorHelper}
+            assetSelectorButtonLabel={moduleConfig.assetSelectorButtonLabel}
+            assetAssignmentResponsible={isReassignmentFlow ? sourceResponsible : form.receiver}
+            enforceSingleAssignment={isReturnFlow || normalizationEnforceSingleAssignment}
+            onOpenAssetSelector={effectiveIsAssignedAssetFlow ? openAssignedAssetSelector : null}
+            showReceiverSection={isNormalizationFlow ? Boolean(form.normalizationMode) : true}
+            showReceiverSearch={isNormalizationFlow ? normalizationRequiresReceiver : true}
+            showReceiverSummary={isNormalizationFlow ? normalizationRequiresReceiver : true}
+            receiverExtraContent={normalizationParameterContent}
+            showChecklistSection={moduleConfig.showChecklistSection !== false}
+            showItemEvidenceSection={isReturnFlow}
+            addItemEvidenceFiles={addItemEvidenceFiles}
+            updateItemEvidenceCaption={updateItemEvidenceCaption}
+            removeItemEvidence={removeItemEvidence}
+          />
+        </>
       )}
       <ScrollToTopButton />
     </div>
