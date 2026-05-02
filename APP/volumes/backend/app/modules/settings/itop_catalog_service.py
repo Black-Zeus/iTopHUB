@@ -34,6 +34,17 @@ REQUIREMENT_PRIORITY_OPTIONS = [
     {"value": "1", "label": "Critica"},
 ]
 
+ITOP_ASSET_STATUS_LABELS = {
+    "production": "En produccion",
+    "stock": "En stock",
+    "implementation": "En implementacion",
+    "obsolete": "Obsoleto",
+    "repair": "En reparacion",
+    "test": "En prueba",
+    "inactive": "Inactivo",
+    "disposed": "Eliminado",
+}
+
 
 def _normalize_space(value: Any) -> str:
     return " ".join(str(value or "").strip().split())
@@ -125,6 +136,58 @@ def _list_service_subcategories(connector: iTopCMDBConnector) -> list[dict[str, 
             options.append(option)
     options.sort(key=lambda item: item["label"].casefold())
     return options
+
+
+def list_itop_asset_status_options(runtime_token: str) -> list[dict[str, Any]]:
+    connector = _build_connector(runtime_token)
+    try:
+        response = connector.get("PhysicalDevice", "SELECT PhysicalDevice", output_fields="id,status")
+        if not response.ok:
+            status_values = sorted(ITOP_ASSET_STATUS_LABELS.keys())
+        else:
+            status_values = sorted({
+                str(item.get("status") or "").strip().lower()
+                for item in response.items()
+                if str(item.get("status") or "").strip()
+            })
+            if not status_values:
+                status_values = sorted(ITOP_ASSET_STATUS_LABELS.keys())
+
+        return [
+            {"value": value, "label": ITOP_ASSET_STATUS_LABELS.get(value, value)}
+            for value in status_values
+        ]
+    finally:
+        connector.close()
+
+
+def list_itop_location_options(runtime_token: str) -> list[dict[str, Any]]:
+    connector = _build_connector(runtime_token)
+    try:
+        items = connector.list_locations(output_fields="id,name,friendlyname,org_id_friendlyname,city,country")
+        options: list[dict[str, Any]] = []
+        for item in items:
+            name = _normalize_space(item.get("friendlyname") or item.get("name"))
+            organization_name = _normalize_space(item.get("org_id_friendlyname"))
+            city = _normalize_space(item.get("city"))
+            country = _normalize_space(item.get("country"))
+            context_parts = [part for part in [organization_name, city, country] if part]
+            label = name if not context_parts else f"{name} / {' / '.join(context_parts)}"
+            option = _serialize_option(
+                item.id,
+                label,
+                name=name,
+                organizationName=organization_name,
+                city=city,
+                country=country,
+            )
+            if option:
+                options.append(option)
+
+        options.sort(key=lambda item: item["label"].casefold())
+        return options
+    finally:
+        connector.close()
 
 
 def get_requirement_itop_catalog(runtime_token: str) -> dict[str, Any]:
