@@ -6,6 +6,7 @@ from fastapi import HTTPException
 
 from modules.handover.handover_types import find_handover_type_definition
 from modules.handover.services.delivery_service import DeliveryHandoverService
+from modules.handover.services.normalization_service import NormalizationHandoverService
 from modules.handover.services.reassignment_service import ReassignmentHandoverService
 from modules.handover.services.return_service import ReturnHandoverService
 
@@ -13,6 +14,7 @@ from modules.handover.services.return_service import ReturnHandoverService
 SERVICE_CLASS_BY_TYPE = {
     "return": ReturnHandoverService,
     "reassignment": ReassignmentHandoverService,
+    "normalization": NormalizationHandoverService,
 }
 
 
