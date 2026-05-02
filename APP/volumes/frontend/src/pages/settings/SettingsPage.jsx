@@ -279,10 +279,21 @@ function KPI({ eyebrow, value, status, tone = "success" }) {
   );
 }
 
-function Field({ label, value, onChange, type = "text", rows = 0, options = null, readOnly = false, disabled = false, inputClassName = "" }) {
+function Field({
+  label,
+  value,
+  onChange,
+  type = "text",
+  rows = 0,
+  options = null,
+  readOnly = false,
+  disabled = false,
+  inputClassName = "",
+  fullWidthOnMd = rows > 0,
+}) {
   const base = `w-full rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-3 text-sm text-[var(--text-primary)] outline-none ${inputClassName}`.trim();
   return (
-    <label className={rows ? "md:col-span-2" : ""}>
+    <label className={fullWidthOnMd ? "md:col-span-2" : ""}>
       <span className="mb-2 block text-sm font-semibold text-[var(--text-secondary)]">{label}</span>
       {options ? (
         <select value={value} onChange={onChange} disabled={disabled} className={base}>
@@ -301,11 +312,11 @@ function Field({ label, value, onChange, type = "text", rows = 0, options = null
 
 function Toggle({ label, description, checked, onChange }) {
   return (
-    <label className="flex items-start gap-3 rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-4">
-      <input type="checkbox" checked={checked} onChange={onChange} className="mt-1 h-4 w-4 accent-[var(--accent-strong)]" />
+    <label className="flex min-h-[96px] cursor-pointer items-start gap-3 rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-4">
+      <input type="checkbox" checked={checked} onChange={onChange} className="mt-0.5 h-[14px] w-[14px] shrink-0 accent-[var(--accent-strong)]" />
       <span>
-        <span className="block text-sm font-semibold text-[var(--text-primary)]">{label}</span>
-        <span className="mt-1 block text-sm leading-6 text-[var(--text-secondary)]">{description}</span>
+        <span className="block text-sm font-bold text-[var(--text-primary)]">{label}</span>
+        <span className="mt-2 block text-sm leading-[1.65] text-[var(--text-secondary)]">{description}</span>
       </span>
     </label>
   );
@@ -1387,38 +1398,35 @@ export function SettingsPage() {
         ) : null}
 
         {activeTab === "qr" ? (
-          <div className="mt-6 space-y-5">
-            <div className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
-              <div className="rounded-[20px] border border-[var(--border-color)] bg-[var(--bg-app)] p-5">
+          <div className="mt-6 grid gap-5">
+            <div className="grid gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)] xl:items-stretch">
+
+              {/* Panel izquierdo — configuracion */}
+              <div className="rounded-[20px] border border-[var(--border-color)] bg-[var(--bg-app)] p-5 pb-7">
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <p className="text-sm font-semibold text-[var(--text-primary)]">Firma QR móvil</p>
-                    <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                    <p className="text-sm font-bold text-[var(--text-primary)]">Firma QR móvil</p>
+                    <p className="mt-2 text-sm leading-relaxed text-[var(--text-secondary)]">
                       Controla la URL pública, vigencia del QR y las reglas de uso para la firma digital desde dispositivos móviles.
                     </p>
                   </div>
-                  <label className="inline-flex items-center gap-2 rounded-full border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 py-2 text-xs font-semibold text-[var(--text-primary)]">
+                  <label className="inline-flex shrink-0 items-center gap-2 rounded-full border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 py-2 text-xs font-bold text-[var(--text-primary)]">
                     <input
                       type="checkbox"
                       checked={Boolean(drafts.qr?.enabled)}
                       onChange={(e) => updateField("qr", "enabled", e.target.checked)}
-                      className="accent-[var(--accent-strong)]"
+                      className="h-[14px] w-[14px] accent-[var(--accent-strong)]"
                     />
                     Activar
                   </label>
                 </div>
 
-                <div className={`${drafts.qr?.enabled ? "" : "pointer-events-none opacity-50"} mt-4 grid gap-4`}>
-                  <Field
-                    label="URL pública del Hub"
-                    value={drafts.qr?.hubPublicBaseUrl || ""}
-                    onChange={(e) => updateField("qr", "hubPublicBaseUrl", e.target.value)}
-                  />
-                  <div className="grid gap-4 md:grid-cols-3">
+                <div className={`${drafts.qr?.enabled ? "" : "pointer-events-none opacity-50"} mt-6 grid gap-4`}>
+                  <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(120px,160px)]">
                     <Field
-                      label="Ruta pública"
-                      value={drafts.qr?.sessionRoutePath || "firma/h"}
-                      onChange={(e) => updateField("qr", "sessionRoutePath", e.target.value)}
+                      label="URL pública del Hub"
+                      value={drafts.qr?.hubPublicBaseUrl || ""}
+                      onChange={(e) => updateField("qr", "hubPublicBaseUrl", e.target.value)}
                     />
                     <Field
                       label="Vigencia QR (min)"
@@ -1426,14 +1434,14 @@ export function SettingsPage() {
                       value={String(drafts.qr?.sessionTtlMinutes || 20)}
                       onChange={(e) => updateField("qr", "sessionTtlMinutes", e.target.value)}
                     />
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2">
                     <Toggle
                       label="Bloqueo por dispositivo"
                       description="El primer móvil que abra el QR reserva la sesión hasta firmar o expirar."
                       checked={Boolean(drafts.qr?.singleDeviceLock)}
                       onChange={(e) => updateField("qr", "singleDeviceLock", e.target.checked)}
                     />
-                  </div>
-                  <div className="grid gap-4 md:grid-cols-2">
                     <Toggle
                       label="Mostrar documento detalle"
                       description="Permite revisar el documento complementario desde la vista móvil."
@@ -1441,43 +1449,58 @@ export function SettingsPage() {
                       onChange={(e) => updateField("qr", "allowDetailDocumentPreview", e.target.checked)}
                     />
                   </div>
-                  <Field
-                    label="Mensaje al firmar"
-                    rows={3}
-                    value={drafts.qr?.successMessage || ""}
-                    onChange={(e) => updateField("qr", "successMessage", e.target.value)}
-                  />
-                  <Field
-                    label="Indicacion final"
-                    rows={2}
-                    value={drafts.qr?.completionHint || ""}
-                    onChange={(e) => updateField("qr", "completionHint", e.target.value)}
-                  />
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <Field
+                      label="Mensaje al firmar"
+                      rows={3}
+                      value={drafts.qr?.successMessage || ""}
+                      onChange={(e) => updateField("qr", "successMessage", e.target.value)}
+                      fullWidthOnMd={false}
+                      inputClassName="min-h-[112px]"
+                    />
+                    <Field
+                      label="Indicacion final"
+                      rows={3}
+                      value={drafts.qr?.completionHint || ""}
+                      onChange={(e) => updateField("qr", "completionHint", e.target.value)}
+                      fullWidthOnMd={false}
+                      inputClassName="min-h-[112px]"
+                    />
+                  </div>
                 </div>
               </div>
 
+              {/* Panel derecho — resumen */}
               <div className="rounded-[20px] border border-[var(--border-color)] bg-[var(--bg-app)] p-5">
-                <p className="text-sm font-semibold text-[var(--text-primary)]">Resumen operacional</p>
+                <p className="text-sm font-bold text-[var(--text-primary)]">Resumen operacional</p>
                 <div className="mt-4 grid gap-3">
-                  <div className="rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3">
-                    <p className="text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Branding móvil</p>
-                    <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                  <div className="rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-4">
+                    <p className="text-[0.68rem] font-extrabold uppercase tracking-[0.12em] text-[var(--text-muted)]">Branding móvil</p>
+                    <p className="mt-2 text-sm leading-relaxed text-[var(--text-secondary)]">
                       La vista móvil usa el nombre y logo configurados en el panel Organizacion.
                     </p>
                   </div>
-                  <div className="rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3">
-                    <p className="text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Ejemplo de ruta</p>
-                    <p className="mt-1 break-all text-sm font-semibold text-[var(--text-primary)]">
+                  <div className="rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-4">
+                    <p className="text-[0.68rem] font-extrabold uppercase tracking-[0.12em] text-[var(--text-muted)]">Ejemplo de ruta</p>
+                    <p className="mt-2 break-all text-sm font-bold text-[var(--text-primary)]">
                       {drafts.qr?.hubPublicBaseUrl
                         ? `${String(drafts.qr.hubPublicBaseUrl).replace(/\/+$/, "")}/${String(drafts.qr?.sessionRoutePath || "firma/h").replace(/^\/+|\/+$/g, "")}/TOKEN`
                         : "Configura primero la URL pública del Hub"}
                     </p>
                   </div>
-                  <div className="rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3">
-                    <p className="text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Uso recomendado</p>
-                    <p className="mt-1 text-sm text-[var(--text-secondary)]">
-                      Usa un dominio o IP alcanzable desde el móvil del destinatario. Evita `localhost` o rutas locales del navegador.
+                  <div className="rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-4">
+                    <p className="text-[0.68rem] font-extrabold uppercase tracking-[0.12em] text-[var(--text-muted)]">Uso recomendado</p>
+                    <p className="mt-2 text-sm leading-relaxed text-[var(--text-secondary)]">
+                      Usa un dominio o IP alcanzable desde el móvil del destinatario. Evita{" "}
+                      <code className="rounded bg-[var(--bg-app)] px-1 text-xs">localhost</code>
+                      {" "}o rutas locales del navegador.
                     </p>
+                    <div className="mt-4">
+                      <p className="mb-2 text-[0.68rem] font-extrabold uppercase tracking-[0.12em] text-[var(--text-muted)]">Ruta pública</p>
+                      <div className="flex min-h-[44px] items-center rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 text-sm font-bold text-[var(--text-primary)]">
+                        {String(drafts.qr?.sessionRoutePath || "firma/h").replace(/^\/+|\/+$/g, "")}
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
