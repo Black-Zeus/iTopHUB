@@ -14,6 +14,7 @@ import { NormalizationPage } from "@pages/handover/NormalizationPage";
 import { HandoverSignaturePage } from "@pages/handover/HandoverSignaturePage";
 import { ReassignmentPage } from "@pages/reassignment/ReassignmentPage";
 import { LabPage } from "@pages/lab/LabPage";
+import { LabDocumentPage } from "@pages/lab/LabDocumentPage";
 import { DevicesPage } from "@pages/devices/DevicesPage";
 import { PDQPage } from "@pages/pdq/PDQPage";
 import { AssetsPage } from "@pages/assets/AssetsPage";
@@ -114,6 +115,7 @@ export const router = createBrowserRouter(
         { path: "reassignment", element: <RequireModuleAccess moduleCode="reassignment"><ReassignmentPage /></RequireModuleAccess> },
         { path: "reassignment/:slug", element: <RequireModuleAccess moduleCode="reassignment"><HandoverDocumentPage moduleVariant="reassignment" /></RequireModuleAccess> },
         { path: "lab",        element: <RequireModuleAccess moduleCode="lab"><LabPage /></RequireModuleAccess> },
+        { path: "lab/:slug",  element: <RequireModuleAccess moduleCode="lab"><LabDocumentPage /></RequireModuleAccess> },
         { path: "devices",    element: <RequireModuleAccess moduleCode="devices"><DevicesPage /></RequireModuleAccess> },
         {
           path: "pdq",

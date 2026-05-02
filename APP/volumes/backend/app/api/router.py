@@ -7,6 +7,7 @@ from api.routes.events import router as events_router
 from api.routes.handover import router as handover_router
 from api.routes.integrations import router as integrations_router
 from api.routes.itop import router as itop_router
+from api.routes.lab import router as lab_router
 from api.routes.reports import router as reports_router
 from api.routes.settings import router as settings_router
 from api.routes.system import router as system_router
@@ -23,5 +24,6 @@ api_router.include_router(integrations_router)
 api_router.include_router(settings_router)
 api_router.include_router(checklists_router)
 api_router.include_router(handover_router)
+api_router.include_router(lab_router)
 api_router.include_router(reports_router)
 api_router.include_router(events_router)
