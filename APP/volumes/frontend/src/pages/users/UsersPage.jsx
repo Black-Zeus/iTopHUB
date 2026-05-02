@@ -5,7 +5,7 @@ import { StatusChip, normalizeStatus } from "../../components/ui/general/StatusC
 import { Button } from "../../ui/Button";
 import { Icon } from "../../components/ui/icon/Icon";
 import ModalManager from "../../components/ui/modal";
-import { createUser, getUserRoles, getUsers, searchItopUsers, updateUser } from "../../services/user-service";
+import { createUser, getUserRoles, getUsers, searchItopUsers, syncUserItopEmail, updateUser } from "../../services/user-service";
 
 
 const STATUS_OPTIONS = [
@@ -61,11 +61,12 @@ function buildUserKpis(rows) {
 }
 
 
-function UserFormModalContent({ mode = "create", user = null, roles, onCancel, onSave }) {
+function UserFormModalContent({ mode = "create", user = null, roles, onCancel, onSave, onSyncEmail = null }) {
   const isCreate = mode === "create";
   const [form, setForm] = useState({
     username: user?.username || "",
     fullName: user?.person || "",
+    email: user?.asset || "",
     roleCode: user?.roleCode || roles[0]?.code || "support_general",
     statusCode: user?.statusCode || "active",
     tokenValue: user?.tokenMasked || "",
@@ -75,6 +76,7 @@ function UserFormModalContent({ mode = "create", user = null, roles, onCancel, o
   const [suggestions, setSuggestions] = useState([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [syncingEmail, setSyncingEmail] = useState(false);
   const [error, setError] = useState("");
   const [fullNameTouched, setFullNameTouched] = useState(false);
   const skipNextSuggestionSearchRef = useRef(false);
@@ -113,6 +115,7 @@ function UserFormModalContent({ mode = "create", user = null, roles, onCancel, o
               setForm((current) => ({
                 ...current,
                 fullName: exactMatch.fullName || exactMatch.username,
+                email: exactMatch.email || current.email,
                 itopPersonKey: exactMatch.itopPersonKey || "",
               }));
             }
@@ -143,6 +146,7 @@ function UserFormModalContent({ mode = "create", user = null, roles, onCancel, o
       ...current,
       username: item.username,
       fullName: item.fullName || item.username,
+      email: item.email || current.email,
       itopPersonKey: item.itopPersonKey || "",
     }));
     setFullNameTouched(false);
@@ -157,6 +161,7 @@ function UserFormModalContent({ mode = "create", user = null, roles, onCancel, o
       const payload = {
         username: form.username.trim(),
         fullName: form.fullName.trim() || form.username.trim(),
+        email: form.email.trim(),
         roleCode: form.roleCode,
         statusCode: form.statusCode,
         itopPersonKey: form.itopPersonKey,
@@ -174,6 +179,25 @@ function UserFormModalContent({ mode = "create", user = null, roles, onCancel, o
       setError(saveError.message || `No fue posible ${isCreate ? "vincular" : "guardar"} el usuario.`);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSyncEmail = async () => {
+    if (!onSyncEmail || !user?.id) {
+      return;
+    }
+    setSyncingEmail(true);
+    setError("");
+    try {
+      const syncedUser = await onSyncEmail();
+      setForm((current) => ({
+        ...current,
+        email: syncedUser?.asset || current.email,
+      }));
+    } catch (syncError) {
+      setError(syncError.message || "No fue posible sincronizar el correo desde iTop.");
+    } finally {
+      setSyncingEmail(false);
     }
   };
 
@@ -236,6 +260,34 @@ function UserFormModalContent({ mode = "create", user = null, roles, onCancel, o
             autoCorrect="off"
             className="h-[50px] rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 text-sm text-[var(--text-primary)] outline-none"
           />
+        </label>
+
+        <label className="grid gap-2">
+          <span className="text-sm font-semibold text-[var(--text-primary)]">Correo</span>
+          <div className="flex items-center gap-2">
+            <input
+              type="email"
+              value={form.email}
+              onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))}
+              spellCheck={false}
+              autoCorrect="off"
+              autoCapitalize="none"
+              placeholder="correo@organizacion.cl"
+              className="h-[50px] min-w-0 flex-1 rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 text-sm text-[var(--text-primary)] outline-none"
+            />
+            {!isCreate ? (
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={handleSyncEmail}
+                disabled={syncingEmail || !form.itopPersonKey}
+                title={form.itopPersonKey ? "Sincronizar correo desde iTop" : "Este usuario no tiene persona iTop vinculada"}
+              >
+                <Icon name="rotate" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              </Button>
+            ) : null}
+          </div>
         </label>
 
         <label className="grid gap-2">
@@ -360,6 +412,21 @@ export function UsersPage() {
           user={row}
           roles={roles}
           onCancel={() => ModalManager.close(modalId)}
+          onSyncEmail={async () => {
+            const response = await syncUserItopEmail(row.id);
+            const updated = response.item;
+            setRows((currentRows) =>
+              currentRows.map((currentRow) =>
+                currentRow.id === row.id
+                  ? { ...updated, status: mapUserStatusToTable(updated.statusCode) }
+                  : currentRow
+              )
+            );
+            if (response.session || row.id === sessionUser?.id) {
+              await refreshSession();
+            }
+            return updated;
+          }}
           onSave={async (payload) => {
             const response = await updateUser(row.id, payload);
             const updated = response.item;

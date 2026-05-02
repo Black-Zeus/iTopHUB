@@ -3,6 +3,7 @@ from pydantic import BaseModel
 
 class UserUpdateRequest(BaseModel):
     fullName: str
+    email: str = ""
     roleCode: str
     statusCode: str
     tokenValue: str = ""
@@ -12,6 +13,7 @@ class UserUpdateRequest(BaseModel):
 class UserCreateRequest(BaseModel):
     username: str
     fullName: str
+    email: str = ""
     roleCode: str
     statusCode: str
     tokenValue: str = ""

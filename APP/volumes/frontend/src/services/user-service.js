@@ -41,3 +41,13 @@ export async function createUser(userPayload) {
   });
   return payload.item;
 }
+
+
+export async function syncUserItopEmail(userId) {
+  const payload = await apiRequest(`/v1/users/${userId}/sync-itop-email`, {
+    method: "POST",
+    fallbackMessage: "No fue posible sincronizar el correo desde iTop.",
+    retryOnRevalidate: true,
+  });
+  return payload;
+}

@@ -22,6 +22,41 @@ STATUS_LABELS = {
     "blocked": "Bloqueado",
 }
 
+
+def _build_itop_connector(runtime_token: str) -> iTopCMDBConnector:
+    itop_config = get_itop_runtime_config()
+    return iTopCMDBConnector(
+        base_url=itop_config["integrationUrl"],
+        token=runtime_token,
+        username="hub-session-user",
+        verify_ssl=itop_config["verifySsl"],
+        timeout=itop_config["timeoutSeconds"],
+    )
+
+
+def _get_itop_person_data(connector: iTopCMDBConnector, person_key: str) -> dict[str, str]:
+    normalized_key = str(person_key or "").strip()
+    if not normalized_key.isdigit():
+        return {"email": "", "fullName": ""}
+
+    person = connector.get_person(
+        int(normalized_key),
+        output_fields="id,name,first_name,friendlyname,email,function,status",
+    )
+    if person is None:
+        return {"email": "", "fullName": ""}
+
+    full_name = str(
+        person.get("friendlyname")
+        or person.get("name")
+        or person.get("first_name")
+        or ""
+    ).strip()
+    return {
+        "email": str(person.get("email") or "").strip(),
+        "fullName": full_name,
+    }
+
 def _build_user_row(row: dict[str, Any]) -> dict[str, Any]:
     masked = ""
     if row.get("cipher_token") and row.get("token_nonce"):
@@ -101,6 +136,7 @@ def update_user(user_id: int, payload: dict[str, Any]) -> dict[str, Any] | None:
     user_query = """
         UPDATE hub_users
         SET full_name = %s,
+            email = %s,
             role_id = %s,
             status = %s
         WHERE id = %s
@@ -135,7 +171,13 @@ def update_user(user_id: int, payload: dict[str, Any]) -> dict[str, Any] | None:
 
             cursor.execute(
                 user_query,
-                (payload["fullName"].strip(), role_row["id"], payload["statusCode"], user_id),
+                (
+                    payload["fullName"].strip(),
+                    str(payload.get("email") or "").strip() or None,
+                    role_row["id"],
+                    payload["statusCode"],
+                    user_id,
+                ),
             )
 
             cursor.execute(fetch_query, (user_id,))
@@ -189,12 +231,13 @@ def create_user(payload: dict[str, Any]) -> dict[str, Any] | None:
 
             username = payload["username"].strip()
             itop_person_key = str(payload.get("itopPersonKey") or "").strip() or None
+            email = str(payload.get("email") or "").strip() or f"{username}@itophub.local"
             cursor.execute(
                 insert_user_query,
                 (
                     role_row["id"],
                     username,
-                    f"{username}@itophub.local",
+                    email,
                     payload["fullName"].strip() or username,
                     "0" * 64,
                     payload["statusCode"],
@@ -258,16 +301,10 @@ def search_itop_users(query: str, runtime_token: str) -> list[dict[str, Any]]:
     if len(normalized) < 2:
         return []
 
-    itop_config = get_itop_runtime_config()
-    connector = iTopCMDBConnector(
-        base_url=itop_config["integrationUrl"],
-        token=runtime_token,
-        username="hub-session-user",
-        verify_ssl=itop_config["verifySsl"],
-        timeout=itop_config["timeoutSeconds"],
-    )
+    connector = _build_itop_connector(runtime_token)
 
     items_by_username: dict[str, dict[str, Any]] = {}
+    person_cache: dict[str, dict[str, str]] = {}
     safe = normalized.replace("\\", "\\\\").replace("'", "\\'")
     search_terms = [term for term in normalized.split() if term]
 
@@ -294,19 +331,66 @@ def search_itop_users(query: str, runtime_token: str) -> list[dict[str, Any]]:
                 username = str(item.get("login") or item.get("friendlyname") or "").strip()
                 if not username:
                     continue
+                person_key = str(item.get("contactid") or "").strip()
+                if person_key not in person_cache:
+                    person_cache[person_key] = _get_itop_person_data(connector, person_key) if person_key else {"email": "", "fullName": ""}
+                person_data = person_cache.get(person_key) or {"email": "", "fullName": ""}
                 full_name = str(
-                    item.get("contactid_friendlyname")
+                    person_data.get("fullName")
+                    or item.get("contactid_friendlyname")
                     or item.get("friendlyname")
                     or username
                 ).strip()
                 items_by_username[username.lower()] = {
                     "username": username,
                     "fullName": full_name or username,
+                    "email": person_data.get("email") or "",
                     "status": str(item.get("status") or "").strip(),
                     "itopClass": item.itop_class,
-                    "itopPersonKey": str(item.get("contactid") or "").strip(),
+                    "itopPersonKey": person_key,
                 }
     finally:
         connector.close()
 
     return sorted(items_by_username.values(), key=lambda item: item["username"].lower())[:20]
+
+
+def sync_user_email_from_itop(user_id: int, runtime_token: str) -> dict[str, Any] | None:
+    user_row_query = """
+        SELECT id, username, itop_person_key
+        FROM hub_users
+        WHERE id = %s
+        LIMIT 1
+    """
+    update_query = """
+        UPDATE hub_users
+        SET email = %s
+        WHERE id = %s
+    """
+
+    with get_db_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(user_row_query, (user_id,))
+            user_row = cursor.fetchone()
+            if not user_row:
+                return None
+
+    person_key = str(user_row.get("itop_person_key") or "").strip()
+    if not person_key:
+        raise ValueError("El usuario no tiene una persona iTop vinculada para sincronizar el correo.")
+
+    connector = _build_itop_connector(runtime_token)
+    try:
+        person_data = _get_itop_person_data(connector, person_key)
+    finally:
+        connector.close()
+
+    email = str(person_data.get("email") or "").strip()
+    if not email:
+        raise ValueError("La persona iTop asociada no tiene un correo registrado.")
+
+    with get_db_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(update_query, (email, user_id))
+
+    return get_user(user_id)

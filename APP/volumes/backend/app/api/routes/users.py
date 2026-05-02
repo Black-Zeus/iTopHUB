@@ -4,9 +4,9 @@ from fastapi import APIRouter, Cookie, HTTPException
 
 from api.deps import ensure_session, model_to_dict, raise_auth_error
 from modules.auth.schema import ensure_token_storage_supported
-from modules.auth.service import AuthenticationError, get_session_user, refresh_session, register_user_token
+from modules.auth.service import AuthenticationError, get_runtime_token, get_session_user, refresh_session, register_user_token
 from schemas.users import UserCreateRequest, UserUpdateRequest
-from modules.users.service import create_user, get_user, list_roles, list_users, update_user
+from modules.users.service import create_user, get_user, list_roles, list_users, sync_user_email_from_itop, update_user
 
 
 router = APIRouter(prefix="/v1/users", tags=["users"])
@@ -95,3 +95,34 @@ def users_create(payload: UserCreateRequest, hub_session_id: str | None = Cookie
         raise HTTPException(status_code=404, detail="Role not found.")
 
     return {"item": created_user}
+
+
+@router.post("/{user_id}/sync-itop-email")
+def users_sync_itop_email(user_id: int, hub_session_id: str | None = Cookie(default=None)) -> dict[str, Any]:
+    session_id = ensure_session(hub_session_id)
+    try:
+        session_user = get_session_user(session_id)
+        runtime_token = get_runtime_token(session_id)
+        updated_user = sync_user_email_from_itop(user_id, runtime_token)
+        if session_user["id"] == user_id:
+            session = refresh_session(session_id)
+        else:
+            session = None
+    except AuthenticationError as exc:
+        raise_auth_error(exc)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Unable to sync user email: {exc}") from exc
+
+    if not updated_user:
+        raise HTTPException(status_code=404, detail="User not found.")
+
+    response_payload: dict[str, Any] = {"item": updated_user}
+    if session:
+        response_payload["session"] = {
+            "user": session["user"],
+            "expiresAt": session["expiresAt"],
+            "warningSeconds": session["warningSeconds"],
+        }
+    return response_payload
