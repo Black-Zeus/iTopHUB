@@ -10,7 +10,7 @@ import { HandoverPage } from "@pages/handover/HandoverPage";
 import { HandoverDocumentPage } from "@pages/handover/HandoverDocumentPage";
 import { ReturnHandoverPage } from "@pages/handover/ReturnHandoverPage";
 import { ReturnHandoverDocumentPage } from "@pages/handover/ReturnHandoverDocumentPage";
-import { NormalizationMockPage } from "@pages/handover/NormalizationMockPage";
+import { NormalizationPage } from "@pages/handover/NormalizationPage";
 import { HandoverSignaturePage } from "@pages/handover/HandoverSignaturePage";
 import { ReassignmentPage } from "@pages/reassignment/ReassignmentPage";
 import { LabPage } from "@pages/lab/LabPage";
@@ -109,7 +109,8 @@ export const router = createBrowserRouter(
         { path: "handover/:slug", element: <RequireModuleAccess moduleCode="handover"><HandoverDocumentPage /></RequireModuleAccess> },
         { path: "returns", element: <RequireModuleAccess moduleCode="handover"><ReturnHandoverPage /></RequireModuleAccess> },
         { path: "returns/:slug", element: <RequireModuleAccess moduleCode="handover"><ReturnHandoverDocumentPage /></RequireModuleAccess> },
-        { path: "normalization", element: <RequireModuleAccess moduleCode="handover"><NormalizationMockPage /></RequireModuleAccess> },
+        { path: "normalization", element: <RequireModuleAccess moduleCode="handover"><NormalizationPage /></RequireModuleAccess> },
+        { path: "normalization/:slug", element: <RequireModuleAccess moduleCode="handover"><HandoverDocumentPage moduleVariant="normalization" /></RequireModuleAccess> },
         { path: "reassignment", element: <RequireModuleAccess moduleCode="reassignment"><ReassignmentPage /></RequireModuleAccess> },
         { path: "reassignment/:slug", element: <RequireModuleAccess moduleCode="reassignment"><HandoverDocumentPage moduleVariant="reassignment" /></RequireModuleAccess> },
         { path: "lab",        element: <RequireModuleAccess moduleCode="lab"><LabPage /></RequireModuleAccess> },
