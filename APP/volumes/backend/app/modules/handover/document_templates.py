@@ -651,6 +651,22 @@ def _build_handover_footer_note() -> str:
     return f'<p class="muted" style="font-size:11px; margin:12px 0 0; text-align:justify;">{_escape(note)}</p>'
 
 
+def _resolve_document_owner(detail: dict[str, Any], type_definition: Any) -> dict[str, Any]:
+    owner = detail.get("owner") or {}
+    if _coerce_str(getattr(type_definition, "code", "")).lower() != "normalization":
+        return owner
+
+    requester_admin = detail.get("requesterAdmin") if isinstance(detail.get("requesterAdmin"), dict) else {}
+    requester_name = _coerce_str(requester_admin.get("name"))
+    if not requester_name:
+        return owner
+
+    return {
+        "userId": requester_admin.get("userId"),
+        "name": requester_name,
+    }
+
+
 def _get_reassignment_source_person(detail: dict[str, Any]) -> dict[str, Any]:
     additional_receivers = detail.get("additionalReceivers") or []
     for person in additional_receivers:
@@ -701,7 +717,7 @@ def _build_return_main_html(detail: dict[str, Any], type_definition: Any) -> tup
     generated_at = _format_datetime_label(detail.get("assignmentDate") or detail.get("generatedAt") or detail.get("creationDate"))
     receiver = detail.get("receiver") or {}
     items = detail.get("items") or []
-    owner = detail.get("owner") or {}
+    owner = _resolve_document_owner(detail, type_definition)
 
     asset_rows: list[str] = []
     for index, item in enumerate(items, start=1):
@@ -815,6 +831,7 @@ def _build_return_main_html(detail: dict[str, Any], type_definition: Any) -> tup
 def _build_reassignment_main_html(detail: dict[str, Any], type_definition: Any) -> tuple[str, str | None]:
     document_number = _coerce_str(detail.get("documentNumber"))
     generated_at = _format_datetime_label(detail.get("assignmentDate") or detail.get("generatedAt") or detail.get("creationDate"))
+    owner = _resolve_document_owner(detail, type_definition)
     source_person = _get_reassignment_source_person(detail)
     destination_person = detail.get("receiver") or {}
     owner = detail.get("owner") or {}
