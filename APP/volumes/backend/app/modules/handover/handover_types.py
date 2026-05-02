@@ -9,6 +9,45 @@ from modules.settings.service import is_requirement_ticket_enabled
 HANDOVER_DOCUMENT_LEGEND_TOKEN = "__handover_document_legend__"
 
 
+NORMALIZATION_MODES: tuple[str, ...] = (
+    "assign_to_person",
+    "remove_from_person",
+    "change_status",
+    "change_location",
+    "change_status_and_location",
+    "return_to_stock",
+    "assign_to_person_and_activate",
+)
+
+NORMALIZATION_MODE_LABELS: dict[str, str] = {
+    "assign_to_person": "Asociar a persona",
+    "remove_from_person": "Desvincular de persona",
+    "change_status": "Cambiar estado",
+    "change_location": "Cambiar localizacion",
+    "change_status_and_location": "Cambiar estado y localizacion",
+    "return_to_stock": "Desvincular y pasar a stock",
+    "assign_to_person_and_activate": "Asociar y pasar a produccion",
+}
+
+NORMALIZATION_MODES_REQUIRING_RECEIVER: frozenset[str] = frozenset({
+    "assign_to_person",
+    "remove_from_person",
+    "return_to_stock",
+    "assign_to_person_and_activate",
+})
+
+LEGACY_NORMALIZATION_MODE_ALIASES: dict[str, str] = {
+    "send_to_obsolete": "change_status",
+}
+
+
+def normalize_normalization_mode(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    if not normalized:
+        return ""
+    return LEGACY_NORMALIZATION_MODE_ALIASES.get(normalized, normalized)
+
+
 @dataclass(frozen=True)
 class HandoverTypeDefinition:
     code: str
@@ -36,6 +75,7 @@ class HandoverTypeDefinition:
     sync_assignment_on_evidence: bool = True
     attach_documents_on_evidence: bool = True
     requires_checklists: bool = True
+    requires_receiver: bool = True
 
 
 def _normalize_lookup_value(value: Any) -> str:
@@ -158,11 +198,15 @@ HANDOVER_TYPE_DEFINITIONS: dict[str, HandoverTypeDefinition] = {
         detail_subtitle="Detalle tecnico separado del acta principal",
         detail_code_label="Referencia acta",
         itop_document_type_names=("Acta de Normalizacion", "Acta"),
-        available_in_bootstrap=False,
+        available_in_bootstrap=True,
         requires_stock_assignment=False,
-        asset_selection_mode="none",
-        evidence_sync_mode="none",
-        sync_assignment_on_evidence=False,
+        allow_additional_receivers=False,
+        asset_selection_mode="any",
+        evidence_sync_mode="normalization",
+        sync_assignment_on_evidence=True,
+        attach_documents_on_evidence=True,
+        requires_checklists=False,
+        requires_receiver=False,
     ),
     "laboratory": HandoverTypeDefinition(
         code="laboratory",
