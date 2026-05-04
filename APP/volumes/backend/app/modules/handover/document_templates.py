@@ -10,8 +10,14 @@ import unicodedata
 
 from PIL import Image, ImageDraw, ImageFont
 
-from modules.handover.handover_types import HANDOVER_DOCUMENT_LEGEND_TOKEN, get_handover_type_definition
+from modules.handover.handover_types import (
+    HANDOVER_DOCUMENT_LEGEND_TOKEN,
+    NORMALIZATION_MODE_LABELS,
+    get_handover_type_definition,
+    normalize_normalization_mode,
+)
 from modules.settings.service import get_settings_panel, read_organization_logo_data_url
+from modules.settings.itop_catalog_service import ITOP_ASSET_STATUS_LABELS
 
 
 AGENT_SIGNATURE_STAMP_PATH = Path(__file__).resolve().parents[1] / "signature" / "assets" / "TimbreFirma.png"
@@ -352,6 +358,77 @@ def _resolve_normalization_responsible(detail: dict[str, Any]) -> dict[str, Any]
         "role": _coerce_str(requester_admin.get("role")) or "Administrador iTop Hub",
         "itopPersonKey": _coerce_str(requester_admin.get("itopPersonKey")),
     }
+
+
+def _build_normalization_mode_row(detail: dict[str, Any], type_definition: Any) -> str:
+    if _coerce_str(getattr(type_definition, "code", "")).lower() != "normalization":
+        return ""
+
+    mode = normalize_normalization_mode(detail.get("normalizationMode"))
+    if not mode:
+        return ""
+
+    label = NORMALIZATION_MODE_LABELS.get(mode) or mode.replace("_", " ").capitalize()
+    return f"""
+                    <tr>
+                        <td class="label-cell">Motivo del acta</td>
+                        <td>{_escape(label)}</td>
+                    </tr>
+    """
+
+
+def _resolve_normalization_status_label(value: Any) -> str:
+    status = _coerce_str(value).lower()
+    if not status:
+        return ""
+    return ITOP_ASSET_STATUS_LABELS.get(status, status)
+
+
+def _resolve_normalization_receiver_name(detail: dict[str, Any]) -> str:
+    receiver = detail.get("receiver") if isinstance(detail.get("receiver"), dict) else {}
+    return _coerce_str(receiver.get("name"))
+
+
+def _build_normalization_reason_detail_row(detail: dict[str, Any], type_definition: Any) -> str:
+    if _coerce_str(getattr(type_definition, "code", "")).lower() != "normalization":
+        return ""
+
+    mode = normalize_normalization_mode(detail.get("normalizationMode"))
+    params = detail.get("normalizationParams") if isinstance(detail.get("normalizationParams"), dict) else {}
+    receiver_name = _resolve_normalization_receiver_name(detail)
+    detail_parts: list[str] = []
+
+    if mode in {"change_status", "change_status_and_location"}:
+        target_status = _resolve_normalization_status_label(params.get("targetStatus"))
+        if target_status:
+            detail_parts.append(f"Estado destino: {target_status}")
+
+    if mode in {"change_location", "change_status_and_location"}:
+        target_location = _coerce_str(params.get("targetLocationName")) or _coerce_str(params.get("targetLocationId"))
+        if target_location:
+            detail_parts.append(f"Locacion destino: {target_location}")
+
+    if mode in {"assign_to_person", "assign_to_person_and_activate"} and receiver_name:
+        detail_parts.append(f"Responsable destino: {receiver_name}")
+
+    if mode in {"remove_from_person", "return_to_stock"} and receiver_name:
+        detail_parts.append(f"Responsable a desvincular: {receiver_name}")
+
+    if mode == "assign_to_person_and_activate":
+        detail_parts.append("Estado destino: En produccion")
+
+    if mode == "return_to_stock":
+        detail_parts.append("Estado destino: En stock")
+
+    if not detail_parts:
+        return ""
+
+    return f"""
+                    <tr>
+                        <td class="label-cell">Detalle del motivo</td>
+                        <td>{_escape(' / '.join(detail_parts))}</td>
+                    </tr>
+    """
 
 
 def _is_same_signature_actor(first: dict[str, Any], second: dict[str, Any]) -> bool:
@@ -1299,6 +1376,8 @@ def _build_delivery_main_html(detail: dict[str, Any], type_definition: Any) -> t
         <div class="section-body">
             <table>
                 <tbody>
+                    {_build_normalization_mode_row(detail, type_definition)}
+                    {_build_normalization_reason_detail_row(detail, type_definition)}
                     <tr>
                         <td class="label-cell">{_escape(type_definition.main_reason_label)}</td>
                         <td>{_escape(detail.get("reason"))}</td>
