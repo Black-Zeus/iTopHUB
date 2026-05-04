@@ -227,6 +227,27 @@ export async function finalizeLabClosure(recordId) {
 }
 
 
+export async function cancelLabRecord(recordId) {
+  const response = await apiRequest(`/v1/lab/records/${recordId}`, {
+    method: "PUT",
+    body: JSON.stringify({ status: "cancelled" }),
+    fallbackMessage: "No fue posible anular el acta de laboratorio.",
+    retryOnRevalidate: true,
+  });
+  return response.item;
+}
+
+
+export async function rollbackLabPhase(recordId, phase) {
+  const response = await apiRequest(`/v1/lab/records/${recordId}/rollback/${encodeURIComponent(phase)}`, {
+    method: "POST",
+    fallbackMessage: "No fue posible revertir la fase del acta.",
+    retryOnRevalidate: true,
+  });
+  return response.item;
+}
+
+
 export async function getPublicLabSignatureSession(token, { claimToken = "" } = {}) {
   const suffix = claimToken ? `?claim_token=${encodeURIComponent(claimToken)}` : "";
   const response = await publicApiRequest(`/v1/lab/signature-sessions/${encodeURIComponent(token)}${suffix}`, {

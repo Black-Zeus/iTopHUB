@@ -7,11 +7,8 @@ import unicodedata
 
 STATUS_DB_TO_UI = {
     "draft": "Borrador de ingreso",
-    "pending_entry_signature": "Pendiente firma ingreso",
     "in_execution": "En ejecucion",
-    "pending_processing_signature": "Pendiente firma ejecucion",
     "ready_for_closure": "Lista para cierre",
-    "pending_exit_signature": "Pendiente firma cierre",
     "pending_admin_signature": "Pendiente firma administrador",
     "pending_itop_sync": "Pendiente registro iTop",
     "completed_return_to_stock": "Cerrada a stock",
@@ -197,6 +194,9 @@ def should_require_signature(record: dict[str, Any], *, qr_enabled: bool) -> boo
     return bool(qr_enabled)
 
 
+OBSOLETE_EXIT_STATES = {"obsolete", "disposed"}
+
+
 def derive_status_db(
     record: dict[str, Any],
     *,
@@ -213,27 +213,21 @@ def derive_status_db(
     if not record.get("entry_generated_document"):
         return "draft"
 
-    if should_require_signature(record, qr_enabled=qr_enabled) and resolve_phase_signature_status(record, "entry") not in {"signed", "published"}:
-        return "pending_entry_signature"
-
     if not record.get("processing_generated_document"):
         return "in_execution"
-
-    if should_require_signature(record, qr_enabled=qr_enabled) and resolve_phase_signature_status(record, "processing") not in {"signed", "published"}:
-        return "pending_processing_signature"
 
     if not record.get("exit_generated_document"):
         return "ready_for_closure"
 
-    if should_require_signature(record, qr_enabled=qr_enabled) and resolve_phase_signature_status(record, "exit") not in {"signed", "published"}:
-        return "pending_exit_signature"
+    exit_final_state = coerce_str(record.get("exit_final_state")).lower()
+    is_obsolete = exit_final_state in OBSOLETE_EXIT_STATES or bool(record.get("marked_obsolete"))
 
-    if bool(record.get("marked_obsolete")) and resolve_admin_signature_status(record) not in {"signed", "published"}:
+    if is_obsolete and should_require_signature(record, qr_enabled=qr_enabled) and resolve_admin_signature_status(record) not in {"signed", "published"}:
         return "pending_admin_signature"
 
     if not is_itop_ticket_registered(record):
         return "pending_itop_sync"
 
-    if bool(record.get("marked_obsolete")):
+    if is_obsolete:
         return "completed_obsolete"
     return "completed_return_to_stock"

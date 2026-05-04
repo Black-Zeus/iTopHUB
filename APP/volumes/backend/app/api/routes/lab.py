@@ -21,6 +21,7 @@ from modules.lab.service import (
     get_public_lab_signature_document,
     get_public_lab_signature_session,
     list_lab_records,
+    rollback_lab_phase,
     submit_public_lab_signature,
     update_lab_record,
     upload_lab_evidences,
@@ -125,6 +126,24 @@ def lab_record_update(
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"No fue posible actualizar el acta: {exc}") from exc
+
+
+@router.post("/records/{record_id}/rollback/{phase}")
+def lab_record_rollback(
+    record_id: int,
+    phase: str,
+    hub_session_id: str | None = Cookie(default=None),
+) -> dict[str, Any]:
+    session_id = ensure_session(hub_session_id)
+    try:
+        _ensure_lab_access(session_id, write=True)
+        return {"item": rollback_lab_phase(record_id, phase)}
+    except AuthenticationError as exc:
+        raise_auth_error(exc)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"No fue posible revertir la fase: {exc}") from exc
 
 
 @router.post("/records/{record_id}/documents/{phase}")

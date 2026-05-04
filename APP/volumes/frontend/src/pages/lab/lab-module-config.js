@@ -18,11 +18,8 @@ export const LAB_REASON_OPTIONS = [
 
 export const LAB_STATUS_OPTIONS = [
   { value: "draft", label: "Borrador de ingreso" },
-  { value: "pending_entry_signature", label: "Pendiente firma ingreso" },
   { value: "in_execution", label: "En ejecucion" },
-  { value: "pending_processing_signature", label: "Pendiente firma ejecucion" },
   { value: "ready_for_closure", label: "Lista para cierre" },
-  { value: "pending_exit_signature", label: "Pendiente firma cierre" },
   { value: "pending_admin_signature", label: "Pendiente firma administrador" },
   { value: "pending_itop_sync", label: "Pendiente registro iTop" },
   { value: "completed_return_to_stock", label: "Cerrada a stock" },
@@ -32,17 +29,27 @@ export const LAB_STATUS_OPTIONS = [
 
 export const LAB_STATUS_UI_MAP = {
   "Borrador de ingreso": { tone: "warning", db: "draft" },
-  "Pendiente firma ingreso": { tone: "accent", db: "pending_entry_signature" },
   "En ejecucion": { tone: "accent", db: "in_execution" },
-  "Pendiente firma ejecucion": { tone: "accent", db: "pending_processing_signature" },
   "Lista para cierre": { tone: "default", db: "ready_for_closure" },
-  "Pendiente firma cierre": { tone: "accent", db: "pending_exit_signature" },
   "Pendiente firma administrador": { tone: "danger", db: "pending_admin_signature" },
   "Pendiente registro iTop": { tone: "warning", db: "pending_itop_sync" },
   "Cerrada a stock": { tone: "success", db: "completed_return_to_stock" },
   "Cerrada por obsolescencia": { tone: "danger", db: "completed_obsolete" },
   "Anulada": { tone: "danger", db: "cancelled" },
 };
+
+export const LAB_EXIT_FINAL_STATE_OPTIONS = [
+  { value: "production", label: "En produccion" },
+  { value: "stock", label: "A stock" },
+  { value: "implementation", label: "En implementacion" },
+  { value: "repair", label: "En reparacion" },
+  { value: "test", label: "En prueba" },
+  { value: "inactive", label: "Inactivo" },
+  { value: "obsolete", label: "Derivado a obsoleto" },
+  { value: "disposed", label: "Dado de baja" },
+];
+
+export const LAB_OBSOLETE_EXIT_STATES = new Set(["obsolete", "disposed"]);
 
 export function getReasonLabel(reasonValue) {
   return LAB_REASON_OPTIONS.find((opt) => opt.value === reasonValue)?.label || reasonValue || "—";
@@ -71,7 +78,7 @@ export function createEmptyLabForm(bootstrap = {}) {
     workPerformed: "",
     exitEvidences: [],
     exitGeneratedDocument: null,
-    markedObsolete: false,
+    exitFinalState: "",
     obsoleteNotes: "",
     normalizationActCode: "",
     itopTicket: null,
@@ -110,7 +117,7 @@ export function createFormFromDetail(detail) {
     workPerformed: detail.workPerformed || "",
     exitEvidences: detail.exitEvidences || [],
     exitGeneratedDocument: detail.exitGeneratedDocument || null,
-    markedObsolete: Boolean(detail.markedObsolete),
+    exitFinalState: detail.exitFinalState || "",
     obsoleteNotes: detail.obsoleteNotes || "",
     normalizationActCode: detail.normalizationActCode || "",
     itopTicket: detail.itopTicket || null,

@@ -68,6 +68,7 @@ class LabRecordUpdateRequest(BaseModel):
     workPerformed: str | None = None
     exitEvidences: list[dict[str, Any]] | None = None
     exitGeneratedDocument: dict[str, Any] | None = None
+    exitFinalState: str | None = None
     signatureWorkflow: dict[str, Any] | None = None
     itopTicket: dict[str, Any] | None = None
     markedObsolete: bool | None = None

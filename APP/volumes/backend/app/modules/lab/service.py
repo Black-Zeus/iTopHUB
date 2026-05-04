@@ -29,6 +29,7 @@ from modules.lab.repository import (
 from modules.lab.shared import (
     ALLOWED_EVIDENCE_EXTENSIONS,
     LAB_PHASE_SEQUENCE,
+    OBSOLETE_EXIT_STATES,
     PHASE_LABELS,
     REASON_DB_TO_UI,
     REASON_OPTIONS,
@@ -55,11 +56,13 @@ from modules.lab.storage_paths import (
     resolve_existing_lab_evidence,
 )
 from modules.settings.service import get_settings_panel
+from modules.users.service import list_users
 from modules.handover.service import (
     _build_itop_connector,
     _create_itop_attachment,
     _create_itop_handover_ticket,
     _ensure_ci_ticket_link,
+    _resolve_asset_itop_class,
 )
 
 
@@ -301,23 +304,20 @@ def _collect_phase_signature_states(record: dict[str, Any]) -> dict[str, dict[st
             "hasDocument": bool(_get_phase_document(record, phase_key)),
         }
     admin_workflow = get_admin_signature_workflow(record)
+    exit_final_state = _coerce_str(record.get("exit_final_state")).lower()
     result["adminApproval"] = {
         "workflow": admin_workflow,
         "status": resolve_admin_signature_status(record),
         "label": "Aprobacion administrativa",
-        "hasDocument": bool(_get_phase_document(record, "exit")) and bool(record.get("marked_obsolete")),
+        "hasDocument": bool(_get_phase_document(record, "exit")) and exit_final_state in OBSOLETE_EXIT_STATES,
     }
     return result
 
 
 def _resolve_next_signature_step(status_db: str) -> tuple[str, str]:
-    mapping = {
-        "pending_entry_signature": ("phase", "entry"),
-        "pending_processing_signature": ("phase", "processing"),
-        "pending_exit_signature": ("phase", "exit"),
-        "pending_admin_signature": ("admin", "adminApproval"),
-    }
-    return mapping.get(status_db, ("", ""))
+    if status_db == "pending_admin_signature":
+        return ("admin", "adminApproval")
+    return ("", "")
 
 
 def _build_lab_record_state(record: dict[str, Any]) -> dict[str, Any]:
@@ -400,6 +400,7 @@ def _serialize_record_for_response(row: dict[str, Any]) -> dict[str, Any]:
         "workPerformed": _coerce_str(row.get("work_performed")),
         "exitEvidences": row.get("exit_evidences") or [],
         "exitGeneratedDocument": row.get("exit_generated_document"),
+        "exitFinalState": _coerce_str(row.get("exit_final_state")),
         "signatureWorkflow": signature_workflow,
         "signatureStates": state["signatureStates"],
         "nextSignatureKind": state["nextSignatureKind"],
@@ -433,10 +434,34 @@ def _build_record_haystack(item: dict[str, Any]) -> str:
     return normalize_comparison_text(" ".join(str(part or "") for part in parts))
 
 
+EXIT_FINAL_STATE_OPTIONS = [
+    {"value": "production", "label": "En produccion"},
+    {"value": "stock", "label": "A stock"},
+    {"value": "implementation", "label": "En implementacion"},
+    {"value": "repair", "label": "En reparacion"},
+    {"value": "test", "label": "En prueba"},
+    {"value": "inactive", "label": "Inactivo"},
+    {"value": "obsolete", "label": "Derivado a obsoleto"},
+    {"value": "disposed", "label": "Dado de baja"},
+]
+
+
 def get_lab_bootstrap(session_user: dict[str, Any]) -> dict[str, Any]:
     checklists_data = list_checklists_payload()
     lab_checklist_templates = checklists_data["itemsByModule"].get("lab", [])
     qr_settings = _get_qr_settings()
+
+    all_users = list_users()
+    admin_options = [
+        {
+            "userId": u.get("id"),
+            "name": _coerce_str(u.get("fullName") or u.get("username")),
+            "itopPersonKey": _coerce_str(u.get("itopPersonKey")),
+        }
+        for u in all_users
+        if u.get("status") == "active" and u.get("isAdmin")
+    ]
+
     return {
         "currentUser": {
             "id": session_user.get("id"),
@@ -448,6 +473,8 @@ def get_lab_bootstrap(session_user: dict[str, Any]) -> dict[str, Any]:
             {"value": db_key, "label": ui_label}
             for db_key, ui_label in STATUS_DB_TO_UI.items()
         ],
+        "exitFinalStateOptions": EXIT_FINAL_STATE_OPTIONS,
+        "adminOptions": admin_options,
         "checklistTemplates": lab_checklist_templates,
         "searchHints": {
             "minCharsAssets": 2,
@@ -527,9 +554,10 @@ def create_lab_record(payload: dict[str, Any], session_user: dict[str, Any]) -> 
         "work_performed": _coerce_str(payload.get("workPerformed")),
         "exit_evidences": payload.get("exitEvidences") or [],
         "exit_generated_document": None,
+        "exit_final_state": _coerce_str(payload.get("exitFinalState")),
         "signature_workflow": {},
         "itop_ticket_summary": {},
-        "marked_obsolete": bool(payload.get("markedObsolete")),
+        "marked_obsolete": False,
         "obsolete_notes": _coerce_str(payload.get("obsoleteNotes")),
         "normalization_act_code": _coerce_str(payload.get("normalizationActCode")),
     }
@@ -593,12 +621,15 @@ def update_lab_record(record_id: int, payload: dict[str, Any]) -> dict[str, Any]
         "work_performed": _coerce_str(payload.get("workPerformed")) if "workPerformed" in payload else _coerce_str(existing.get("work_performed")),
         "exit_evidences": payload.get("exitEvidences") if "exitEvidences" in payload else existing.get("exit_evidences") or [],
         "exit_generated_document": payload.get("exitGeneratedDocument") if "exitGeneratedDocument" in payload else existing.get("exit_generated_document"),
+        "exit_final_state": _coerce_str(payload.get("exitFinalState")) if "exitFinalState" in payload else _coerce_str(existing.get("exit_final_state")),
         "signature_workflow": signature_workflow if isinstance(signature_workflow, dict) else {},
         "itop_ticket_summary": itop_ticket_summary if isinstance(itop_ticket_summary, dict) else {},
-        "marked_obsolete": bool(payload.get("markedObsolete", existing.get("marked_obsolete", False))),
         "obsolete_notes": _coerce_str(payload.get("obsoleteNotes")) if "obsoleteNotes" in payload else _coerce_str(existing.get("obsolete_notes")),
         "normalization_act_code": _coerce_str(payload.get("normalizationActCode")) if "normalizationActCode" in payload else _coerce_str(existing.get("normalization_act_code")),
     }
+
+    exit_final_state_val = _coerce_str(record.get("exit_final_state")).lower()
+    record["marked_obsolete"] = exit_final_state_val in OBSOLETE_EXIT_STATES
 
     forced_status_db = STATUS_UI_TO_DB.get(_coerce_str(payload.get("status")), _coerce_str(payload.get("status")).lower())
     record["status"] = derive_status_db(
@@ -629,6 +660,59 @@ def update_lab_record(record_id: int, payload: dict[str, Any]) -> dict[str, Any]
     return _serialize_record_for_response(row)
 
 
+PHASE_ROLLBACK_FIELDS: dict[str, list[str]] = {
+    "entry": [
+        "entry_generated_document", "entry_evidences",
+        "entry_observations", "entry_condition_notes", "entry_received_notes",
+    ],
+    "processing": [
+        "processing_generated_document", "processing_evidences",
+        "processing_observations", "processing_checklists", "processing_date",
+    ],
+    "exit": [
+        "exit_generated_document", "exit_evidences",
+        "exit_observations", "work_performed", "exit_date", "exit_final_state",
+        "marked_obsolete", "obsolete_notes",
+    ],
+}
+
+
+def rollback_lab_phase(record_id: int, phase: str) -> dict[str, Any]:
+    normalized_phase = normalize_phase_key(phase)
+    if not normalized_phase:
+        raise HTTPException(status_code=422, detail=f"Fase '{phase}' no válida.")
+
+    existing = fetch_lab_record_row(record_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail=f"Acta de laboratorio #{record_id} no encontrada.")
+
+    if _coerce_str(existing.get("status")) in {"completed_return_to_stock", "completed_obsolete", "cancelled"}:
+        raise HTTPException(status_code=422, detail="No es posible revertir una acta cerrada o anulada.")
+
+    phases_to_clear = _phases_at_or_after(normalized_phase)
+    payload: dict[str, Any] = {}
+    for p in phases_to_clear:
+        for field in PHASE_ROLLBACK_FIELDS.get(p, []):
+            if field in ("entry_evidences", "processing_evidences", "exit_evidences", "processing_checklists"):
+                payload[field] = []
+            elif field in ("marked_obsolete",):
+                payload[field] = False
+            else:
+                payload[field] = None
+
+    save_lab_record(record_id, {**{k: existing.get(k) for k in existing}, **payload})
+    row = fetch_lab_record_row(record_id)
+    return _serialize_record_for_response(row)
+
+
+def _phases_at_or_after(phase: str) -> list[str]:
+    try:
+        idx = list(LAB_PHASE_SEQUENCE).index(phase)
+    except ValueError:
+        return []
+    return list(LAB_PHASE_SEQUENCE[idx:])
+
+
 def _validate_entry_document_generation(row: dict[str, Any]) -> None:
     if not _coerce_str(row.get("asset_itop_id")):
         raise HTTPException(status_code=422, detail="Debes seleccionar un activo antes de generar el acta de entrada.")
@@ -641,8 +725,6 @@ def _validate_entry_document_generation(row: dict[str, Any]) -> None:
 def _validate_processing_document_generation(row: dict[str, Any]) -> None:
     if not row.get("entry_generated_document"):
         raise HTTPException(status_code=422, detail="Debes generar primero el acta de ingreso para continuar con la ejecución.")
-    if resolve_phase_signature_status(row, "entry") not in {"signed", "published"}:
-        raise HTTPException(status_code=422, detail="Debes firmar primero el acta de ingreso antes de generar la ejecución.")
     if not row.get("processing_date"):
         raise HTTPException(status_code=422, detail="Debes indicar la fecha de ejecución antes de generar el acta de ejecución.")
     if not _is_processing_checklist_complete(row.get("processing_checklists") or []):
@@ -652,13 +734,14 @@ def _validate_processing_document_generation(row: dict[str, Any]) -> None:
 def _validate_exit_document_generation(row: dict[str, Any]) -> None:
     if not row.get("processing_generated_document"):
         raise HTTPException(status_code=422, detail="Debes generar primero el acta de ejecución antes de generar el cierre.")
-    if resolve_phase_signature_status(row, "processing") not in {"signed", "published"}:
-        raise HTTPException(status_code=422, detail="Debes firmar primero el acta de ejecución antes de generar el cierre.")
     if not row.get("exit_date"):
         raise HTTPException(status_code=422, detail="Debes indicar la fecha de cierre antes de generar el acta.")
     if not _coerce_str(row.get("work_performed")):
         raise HTTPException(status_code=422, detail="Debes completar el trabajo realizado antes de generar el acta de cierre.")
-    if bool(row.get("marked_obsolete")) and not _normalize_requester_admin({}, existing=row).get("userId"):
+    exit_final_state = _coerce_str(row.get("exit_final_state")).lower()
+    if not exit_final_state:
+        raise HTTPException(status_code=422, detail="Debes seleccionar el estado final del activo antes de generar el acta de cierre.")
+    if exit_final_state in OBSOLETE_EXIT_STATES and not _normalize_requester_admin({}, existing=row).get("userId"):
         raise HTTPException(status_code=422, detail="Debes seleccionar un administrador responsable antes de cerrar un acta derivada a obsoleto.")
 
 
@@ -1404,6 +1487,16 @@ def finalize_lab_closure(record_id: int, session_user: dict[str, Any], runtime_t
                 asset_label=_coerce_str(current_row.get("asset_code") or current_row.get("asset_name")),
                 document_number=_coerce_str(current_row.get("document_number")),
             )
+
+            exit_final_state = _coerce_str(current_row.get("exit_final_state")).lower()
+            if exit_final_state:
+                asset_class = _resolve_asset_itop_class(connector, asset_id)
+                connector.update_ci_status(
+                    asset_class,
+                    asset_id,
+                    exit_final_state,
+                    comment=f"Estado actualizado desde acta de laboratorio {_coerce_str(current_row.get('document_number'))}".strip(),
+                )
     finally:
         connector.close()
 
