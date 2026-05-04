@@ -1,28 +1,47 @@
 export const LAB_REASON_OPTIONS = [
-  { value: "maintenance",    label: "Mantenimiento" },
-  { value: "cleaning",       label: "Limpieza" },
+  { value: "maintenance", label: "Mantenimiento" },
+  { value: "cleaning", label: "Limpieza" },
+  { value: "backup", label: "Respaldo" },
+  { value: "virus_analysis", label: "Analisis de virus" },
+  { value: "full_reset", label: "Reinicio completo" },
+  { value: "warranty_referral", label: "Derivado a garantia" },
+  { value: "donation_format", label: "Formateo para donacion" },
+  { value: "retirement_format", label: "Formateo para baja" },
+  { value: "hardware_analysis", label: "Analisis de hardware" },
+  { value: "hardware_repair", label: "Reparacion de hardware" },
+  { value: "software_update", label: "Actualizacion de software" },
+  { value: "functional_verification", label: "Verificacion funcional" },
   { value: "reinstallation", label: "Reinstalacion" },
-  { value: "backup",         label: "Respaldo" },
-  { value: "diagnosis",      label: "Diagnostico" },
-  { value: "software_update",label: "Actualizacion de software" },
-  { value: "verification",   label: "Verificacion funcional" },
-  { value: "hardware_repair",label: "Reparacion de hardware" },
+  { value: "diagnosis", label: "Diagnostico" },
+  { value: "other", label: "Otro procedimiento" },
 ];
 
 export const LAB_STATUS_OPTIONS = [
-  { value: "draft",             label: "En creacion" },
-  { value: "in_lab",            label: "En laboratorio" },
-  { value: "completed",         label: "Completada" },
-  { value: "derived_obsolete",  label: "Derivada a obsoleto" },
-  { value: "cancelled",         label: "Anulada" },
+  { value: "draft", label: "Borrador de ingreso" },
+  { value: "pending_entry_signature", label: "Pendiente firma ingreso" },
+  { value: "in_execution", label: "En ejecucion" },
+  { value: "pending_processing_signature", label: "Pendiente firma ejecucion" },
+  { value: "ready_for_closure", label: "Lista para cierre" },
+  { value: "pending_exit_signature", label: "Pendiente firma cierre" },
+  { value: "pending_admin_signature", label: "Pendiente firma administrador" },
+  { value: "pending_itop_sync", label: "Pendiente registro iTop" },
+  { value: "completed_return_to_stock", label: "Cerrada a stock" },
+  { value: "completed_obsolete", label: "Cerrada por obsolescencia" },
+  { value: "cancelled", label: "Anulada" },
 ];
 
 export const LAB_STATUS_UI_MAP = {
-  "En creacion":        { tone: "warning", db: "draft" },
-  "En laboratorio":     { tone: "accent",  db: "in_lab" },
-  "Completada":         { tone: "success", db: "completed" },
-  "Derivada a obsoleto":{ tone: "danger",  db: "derived_obsolete" },
-  "Anulada":            { tone: "danger",  db: "cancelled" },
+  "Borrador de ingreso": { tone: "warning", db: "draft" },
+  "Pendiente firma ingreso": { tone: "accent", db: "pending_entry_signature" },
+  "En ejecucion": { tone: "accent", db: "in_execution" },
+  "Pendiente firma ejecucion": { tone: "accent", db: "pending_processing_signature" },
+  "Lista para cierre": { tone: "default", db: "ready_for_closure" },
+  "Pendiente firma cierre": { tone: "accent", db: "pending_exit_signature" },
+  "Pendiente firma administrador": { tone: "danger", db: "pending_admin_signature" },
+  "Pendiente registro iTop": { tone: "warning", db: "pending_itop_sync" },
+  "Cerrada a stock": { tone: "success", db: "completed_return_to_stock" },
+  "Cerrada por obsolescencia": { tone: "danger", db: "completed_obsolete" },
+  "Anulada": { tone: "danger", db: "cancelled" },
 };
 
 export function getReasonLabel(reasonValue) {
@@ -33,9 +52,13 @@ export function createEmptyLabForm(bootstrap = {}) {
   const today = bootstrap?.currentDate || new Date().toISOString().slice(0, 10);
   return {
     reason: "maintenance",
+    requestedActions: ["maintenance"],
     asset: null,
+    requesterAdmin: null,
     entryDate: today,
     entryObservations: "",
+    entryConditionNotes: "",
+    entryReceivedNotes: "",
     entryEvidences: [],
     entryGeneratedDocument: null,
     processingDate: today,
@@ -51,12 +74,14 @@ export function createEmptyLabForm(bootstrap = {}) {
     markedObsolete: false,
     obsoleteNotes: "",
     normalizationActCode: "",
+    itopTicket: null,
   };
 }
 
 export function createFormFromDetail(detail) {
   return {
     reason: detail.reason || "maintenance",
+    requestedActions: detail.requestedActions || (detail.reason ? [detail.reason] : ["maintenance"]),
     asset: detail.assetItopId ? {
       id: String(detail.assetItopId),
       code: detail.assetCode || "",
@@ -65,9 +90,14 @@ export function createFormFromDetail(detail) {
       serial: detail.assetSerial || "",
       organization: detail.assetOrganization || "",
       location: detail.assetLocation || "",
+      status: detail.assetStatus || "",
+      assignedUser: detail.assetAssignedUser || "",
     } : null,
+    requesterAdmin: detail.requesterAdmin || null,
     entryDate: detail.entryDate || "",
     entryObservations: detail.entryObservations || "",
+    entryConditionNotes: detail.entryConditionNotes || "",
+    entryReceivedNotes: detail.entryReceivedNotes || "",
     entryEvidences: detail.entryEvidences || [],
     entryGeneratedDocument: detail.entryGeneratedDocument || null,
     processingDate: detail.processingDate || "",
@@ -83,5 +113,6 @@ export function createFormFromDetail(detail) {
     markedObsolete: Boolean(detail.markedObsolete),
     obsoleteNotes: detail.obsoleteNotes || "",
     normalizationActCode: detail.normalizationActCode || "",
+    itopTicket: detail.itopTicket || null,
   };
 }
