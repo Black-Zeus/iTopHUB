@@ -1,36 +1,52 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import ModalManager from "../../components/ui/modal";
 import { DataTable, FilterDropdown, KpiCard, Panel, PanelHeader } from "../../components/ui/general";
 import { SearchFilterInput } from "../../components/ui/general/SearchFilterInput";
 import { StatusChip } from "../../components/ui/general/StatusChip";
 import { Icon } from "../../components/ui/icon/Icon";
 import { Button } from "../../ui/Button";
-import { listLabRecords } from "../../services/lab-service";
+import { useToast } from "../../ui";
+import {
+  createLabSignatureSession,
+  getLabSignatureSession,
+  listLabRecords,
+} from "../../services/lab-service";
 import { downloadRowsAsCsv } from "../../utils/export-csv";
 import { LAB_REASON_OPTIONS, LAB_STATUS_OPTIONS, getReasonLabel } from "./lab-module-config";
 
 const FILTER_CONTROL_HEIGHT = "h-[66px]";
 
+function buildQrImageUrl(value = "") {
+  const normalizedValue = String(value || "").trim();
+  return normalizedValue
+    ? `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(normalizedValue)}`
+    : "";
+}
+
 function buildKpis(rows) {
-  const draft    = rows.filter((r) => r.status === "En creacion").length;
-  const inLab    = rows.filter((r) => r.status === "En laboratorio").length;
-  const done     = rows.filter((r) => r.status === "Completada").length;
-  const derived  = rows.filter((r) => r.status === "Derivada a obsoleto").length;
-  const cancelled = rows.filter((r) => r.status === "Anulada").length;
+  const draft = rows.filter((row) => row.statusCode === "draft").length;
+  const inLab = rows.filter((row) => row.statusCode === "in_lab").length;
+  const pendingSignature = rows.filter((row) => row.statusCode === "pending_signature").length;
+  const closed = rows.filter((row) => ["signed", "completed"].includes(row.statusCode)).length;
+  const derived = rows.filter((row) => row.statusCode === "derived_obsolete").length;
+  const cancelled = rows.filter((row) => row.statusCode === "cancelled").length;
 
   return [
-    { label: "Total actas",          value: String(rows.length).padStart(2, "0"),  helper: "Registros guardados",    tone: "default",  filterValue: "" },
-    { label: "En creacion",          value: String(draft).padStart(2, "0"),        helper: "Pendientes de cierre",   tone: "warning",  filterValue: "draft" },
-    { label: "En laboratorio",       value: String(inLab).padStart(2, "0"),        helper: "En proceso activo",      tone: "default",  filterValue: "in_lab" },
-    { label: "Completadas",          value: String(done).padStart(2, "0"),         helper: "Proceso finalizado",     tone: "success",  filterValue: "completed" },
-    { label: "Derivadas a obsoleto", value: String(derived).padStart(2, "0"),      helper: "Con normalizacion",      tone: "danger",   filterValue: "derived_obsolete" },
-    { label: "Anuladas",             value: String(cancelled).padStart(2, "0"),    helper: "Fuera de flujo",         tone: "danger",   filterValue: "cancelled" },
+    { label: "Total actas", value: String(rows.length).padStart(2, "0"), helper: "Registros guardados", tone: "default", filterValue: "" },
+    { label: "En creacion", value: String(draft).padStart(2, "0"), helper: "Pendientes de inicio", tone: "warning", filterValue: "draft" },
+    { label: "En laboratorio", value: String(inLab).padStart(2, "0"), helper: "Trabajo en curso", tone: "default", filterValue: "in_lab" },
+    { label: "Pendiente firma", value: String(pendingSignature).padStart(2, "0"), helper: "Salida emitida con QR", tone: "default", filterValue: "pending_signature" },
+    { label: "Cerradas", value: String(closed).padStart(2, "0"), helper: "Firmadas o completadas", tone: "success", filterValue: "" },
+    { label: "Derivadas", value: String(derived + cancelled).padStart(2, "0"), helper: "Obsoletas o anuladas", tone: "danger", filterValue: "" },
   ];
 }
 
 function chunkActions(actions = [], size = 3) {
   const rows = [];
-  for (let i = 0; i < actions.length; i += size) rows.push(actions.slice(i, i + size));
+  for (let index = 0; index < actions.length; index += size) {
+    rows.push(actions.slice(index, index + size));
+  }
   return rows;
 }
 
@@ -44,9 +60,9 @@ function renderFilterSelection({ label, selectedOptions }) {
         {selectedOptions.length === 0 ? (
           <span className="block truncate text-sm font-semibold text-[var(--text-primary)]">Todos</span>
         ) : (
-          selectedOptions.map((opt) => (
-            <span key={opt.value} className="inline-flex rounded-full bg-[var(--accent-soft)] px-2.5 py-1 text-xs font-semibold text-[var(--accent-strong)]">
-              {opt.label}
+          selectedOptions.map((option) => (
+            <span key={option.value} className="inline-flex rounded-full bg-[var(--accent-soft)] px-2.5 py-1 text-xs font-semibold text-[var(--accent-strong)]">
+              {option.label}
             </span>
           ))
         )}
@@ -64,47 +80,175 @@ function getFilterOptionClassName(_, isActive) {
 function formatDate(isoDate) {
   if (!isoDate) return "—";
   try {
-    return new Intl.DateTimeFormat("es-CL", { dateStyle: "medium" }).format(new Date(isoDate + "T12:00:00"));
+    return new Intl.DateTimeFormat("es-CL", { dateStyle: "medium" }).format(new Date(`${isoDate}T12:00:00`));
   } catch {
     return isoDate;
   }
 }
 
-function PhaseBadge({ hasEntry, hasProcessing, hasExit }) {
-  if (hasExit) {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-[rgba(127,191,156,0.14)] px-2.5 py-1 text-xs font-semibold text-[var(--success)]">
-        <span className="h-1.5 w-1.5 rounded-full bg-current" />
-        3 fases
-      </span>
-    );
-  }
-  if (hasProcessing) {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-[rgba(106,63,160,0.1)] px-2.5 py-1 text-xs font-semibold text-[rgba(106,63,160,0.9)]">
-        <span className="h-1.5 w-1.5 rounded-full bg-current" />
-        Entrada + Proceso
-      </span>
-    );
-  }
-  if (hasEntry) {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-[var(--accent-soft)] px-2.5 py-1 text-xs font-semibold text-[var(--accent-strong)]">
-        <span className="h-1.5 w-1.5 rounded-full bg-current" />
-        Solo entrada
-      </span>
-    );
-  }
+function SignatureQrModal({ row, sessionData, onRefresh, onRegenerate, onClose }) {
+  const publicUrl = String(sessionData?.publicUrl || "").trim();
+  const qrImageUrl = buildQrImageUrl(publicUrl);
+  const [qrLoading, setQrLoading] = useState(Boolean(qrImageUrl));
+  const [qrFailed, setQrFailed] = useState(false);
+
+  useEffect(() => {
+    if (!sessionData?.documentId) {
+      return undefined;
+    }
+    if (!["pending", "claimed", "signed", "published"].includes(sessionData.status)) {
+      return undefined;
+    }
+    const intervalId = window.setInterval(() => {
+      onRefresh?.();
+    }, 4000);
+    return () => window.clearInterval(intervalId);
+  }, [onRefresh, sessionData?.documentId, sessionData?.status]);
+
+  useEffect(() => {
+    setQrLoading(Boolean(qrImageUrl));
+    setQrFailed(false);
+  }, [qrImageUrl]);
+
+  const isSigned = ["signed", "published"].includes(sessionData?.status) || ["Firmada", "Completada", "Derivada a obsoleto"].includes(sessionData?.documentStatus);
+  const isExpired = sessionData?.status === "expired";
+  const isClaimed = sessionData?.status === "claimed";
+  const isOccupied = sessionData?.status === "occupied";
+  const canRenderQr = Boolean(qrImageUrl) && !isExpired && !isOccupied && !qrFailed;
+  const statusLabel = isSigned ? "Firmada" : isExpired ? "Expirada" : isOccupied ? "Ocupada" : isClaimed ? "En uso" : "Disponible";
+  const statusClassName = isSigned
+    ? "bg-[#dcfce7] text-[#15803d]"
+    : isExpired || isOccupied
+      ? "bg-[#fef3c7] text-[#92400e]"
+      : isClaimed
+        ? "bg-[#e0f2fe] text-[#0369a1]"
+        : "bg-[#dbeafe] text-[#1d4ed8]";
+
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-[rgba(224,181,107,0.14)] px-2.5 py-1 text-xs font-semibold text-[var(--warning)]">
-      <span className="h-1.5 w-1.5 rounded-full bg-current" />
-      Sin documentos
-    </span>
+    <div className="grid gap-5">
+      <div className="rounded-[24px] border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-[var(--shadow-soft)]">
+        <div className="flex items-start justify-between gap-4 rounded-t-[24px] bg-[#0f172a] px-6 py-5 text-white">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-300">Firma digital</p>
+            <h2 className="mt-2 text-xl font-bold">QR para {row.code}</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-300">
+              El responsable actual del activo debe escanear este código desde su móvil para revisar el acta de salida y registrar su firma digital.
+            </p>
+          </div>
+          <span className={`rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-[0.08em] ${statusClassName}`}>
+            {statusLabel}
+          </span>
+        </div>
+
+        <div className="grid gap-5 p-6 lg:grid-cols-[320px_1fr]">
+          <section className="rounded-[20px] border border-[var(--border-color)] bg-[var(--bg-app)] p-5 text-center">
+            <div className="relative mx-auto flex h-[260px] w-[260px] items-center justify-center overflow-hidden rounded-[18px] border border-[#2d465b] bg-[#edf3fa] shadow-[0_16px_34px_rgba(15,23,42,0.08)]">
+              {canRenderQr ? (
+                <>
+                  {qrLoading ? (
+                    <div className="absolute inset-0 flex items-center justify-center bg-[#edf3fa]">
+                      <div className="flex flex-col items-center gap-3">
+                        <span className="h-8 w-8 animate-spin rounded-full border-2 border-[#bfd0e4] border-t-[#2563eb]" />
+                        <span className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
+                          Generando QR...
+                        </span>
+                      </div>
+                    </div>
+                  ) : null}
+                  <img
+                    src={qrImageUrl}
+                    alt={`QR de firma para ${row.code}`}
+                    className={`h-[250px] w-[250px] object-contain transition-opacity duration-200 ${qrLoading ? "opacity-0" : "opacity-100"}`}
+                    onLoad={() => setQrLoading(false)}
+                    onError={() => {
+                      setQrLoading(false);
+                      setQrFailed(true);
+                    }}
+                  />
+                </>
+              ) : (
+                <span className="px-6 text-sm font-semibold text-slate-500">
+                  {isExpired || isOccupied ? "Genera una nueva sesión QR para continuar." : "No fue posible preparar el código QR."}
+                </span>
+              )}
+            </div>
+            <p className="mt-4 text-sm text-slate-500">
+              Este QR está pensado para uso móvil y queda reservado al primer dispositivo que lo abra.
+            </p>
+          </section>
+
+          <section className="grid gap-4">
+            <div className="grid gap-3 rounded-[20px] border border-[#2d465b] bg-[var(--bg-app)] p-4 md:grid-cols-2">
+              <div className="rounded-[16px] bg-[#101b28] px-4 py-3">
+                <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-[#8fa9be]">Acta</p>
+                <p className="mt-1 text-sm font-semibold text-slate-100">{sessionData?.documentNumber || row.code}</p>
+              </div>
+              <div className="rounded-[16px] bg-[#101b28] px-4 py-3">
+                <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-[#8fa9be]">Expira</p>
+                <p className="mt-1 text-sm font-semibold text-slate-100">{sessionData?.expiresAt || "-"}</p>
+              </div>
+              <div className="rounded-[16px] bg-[#101b28] px-4 py-3">
+                <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-[#8fa9be]">Responsable del activo</p>
+                <p className="mt-1 text-sm font-semibold text-slate-100">{sessionData?.receiver?.name || row.assetAssignedUser || "-"}</p>
+              </div>
+              <div className="rounded-[16px] bg-[#101b28] px-4 py-3">
+                <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-[#8fa9be]">Estado Hub</p>
+                <p className="mt-1 text-sm font-semibold text-slate-100">{sessionData?.documentStatus || row.status || "-"}</p>
+              </div>
+            </div>
+
+            <div className={`rounded-[20px] border px-4 py-4 ${
+              isSigned
+                ? "border-[#1f6a45] bg-[#112c21]"
+                : isExpired || isOccupied
+                  ? "border-[#7c5b18] bg-[#33250d]"
+                  : "border-[#2d5f88] bg-[#11283f]"
+            }`}>
+              <p className="text-sm font-semibold text-slate-100">
+                {isSigned
+                  ? "La firma del responsable ya fue registrada. El acta de laboratorio quedó cerrada con su PDF firmado."
+                  : isExpired
+                    ? "La vigencia del QR terminó. Genera una nueva sesión para retomar la firma."
+                    : isOccupied
+                      ? "Este QR fue abierto desde otro dispositivo. Genera una nueva sesión si necesitas reiniciar el proceso."
+                      : isClaimed
+                        ? "La sesión ya fue abierta desde un dispositivo móvil y quedó bloqueada para ese equipo hasta que firme o expire."
+                        : "Esperando que el responsable del activo abra el QR desde su móvil. Esta ventana se actualiza automáticamente."}
+              </p>
+              {sessionData?.claimedAt && !isSigned ? (
+                <p className="mt-2 text-xs font-semibold uppercase tracking-[0.08em] text-slate-300">
+                  Abierto en dispositivo móvil: {sessionData.claimedAt}
+                </p>
+              ) : null}
+              {sessionData?.completedAt ? (
+                <p className="mt-2 text-xs font-semibold uppercase tracking-[0.08em] text-slate-300">
+                  Firmada en {sessionData.completedAt}
+                </p>
+              ) : null}
+            </div>
+
+            <div className="flex justify-end">
+              <div className="flex flex-wrap justify-end gap-3">
+                {!isSigned ? (
+                  <Button variant="secondary" onClick={onRegenerate}>Regenerar QR</Button>
+                ) : null}
+                <Button variant="secondary" onClick={onRefresh}>Actualizar estado</Button>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <div className="flex justify-end">
+        <Button variant="secondary" onClick={onClose} className="min-w-[7.5rem]">Cerrar</Button>
+      </div>
+    </div>
   );
 }
 
 export function LabPage() {
   const navigate = useNavigate();
+  const { add } = useToast();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -140,6 +284,111 @@ export function LabPage() {
     await loadRecords(nextFilters);
   };
 
+  const openQrModal = async (row) => {
+    const loadingModalId = ModalManager.loading({
+      title: `Preparando QR ${row.code}`,
+      message: "Generando la sesión de firma móvil...",
+      showProgress: false,
+      showCancel: false,
+    });
+
+    try {
+      const sessionData = row.statusCode === "signed"
+        ? await getLabSignatureSession(row.id)
+        : await createLabSignatureSession(row.id);
+      ModalManager.close(loadingModalId);
+      let modalId = null;
+
+      const refreshSession = async () => {
+        const refreshed = await getLabSignatureSession(row.id);
+        if (modalId) {
+          ModalManager.update(modalId, {
+            content: (
+              <SignatureQrModal
+                row={row}
+                sessionData={refreshed}
+                onRefresh={refreshSession}
+                onRegenerate={regenerateSession}
+                onClose={() => ModalManager.close(modalId)}
+              />
+            ),
+          });
+        }
+        if (["Firmada", "Completada", "Derivada a obsoleto"].includes(refreshed.documentStatus)) {
+          await loadRecords(filters);
+        }
+      };
+
+      const regenerateSession = async () => {
+        const confirmed = await ModalManager.confirm({
+          title: "Regenerar QR",
+          message: `Se invalidará el QR actual de ${row.code}.`,
+          content: "El código actualmente abierto quedará dado de baja y se emitirá uno nuevo para continuar la firma desde otro dispositivo.",
+          buttons: { cancel: "Cancelar", confirm: "Regenerar QR" },
+        });
+        if (!confirmed) {
+          return;
+        }
+
+        const regenerateLoadingId = ModalManager.loading({
+          title: "Regenerando QR",
+          message: "Dando de baja la sesión actual y emitiendo un nuevo código...",
+          showProgress: false,
+          showCancel: false,
+        });
+        try {
+          const refreshed = await createLabSignatureSession(row.id, { forceNew: true });
+          if (modalId) {
+            ModalManager.update(modalId, {
+              content: (
+                <SignatureQrModal
+                  row={row}
+                  sessionData={refreshed}
+                  onRefresh={refreshSession}
+                  onRegenerate={regenerateSession}
+                  onClose={() => ModalManager.close(modalId)}
+                />
+              ),
+            });
+          }
+          add({
+            title: "QR regenerado",
+            description: `El código anterior de ${row.code} quedó invalidado y ya puedes usar el nuevo QR.`,
+            tone: "success",
+          });
+        } catch (regenerateError) {
+          ModalManager.error({
+            title: "No fue posible regenerar el QR",
+            message: regenerateError.message || "No fue posible invalidar la sesión actual de firma.",
+          });
+        } finally {
+          ModalManager.close(regenerateLoadingId);
+        }
+      };
+
+      modalId = ModalManager.custom({
+        title: `Firma QR ${row.code}`,
+        size: "clientWide",
+        showFooter: false,
+        content: (
+          <SignatureQrModal
+            row={row}
+            sessionData={sessionData}
+            onRefresh={refreshSession}
+            onRegenerate={regenerateSession}
+            onClose={() => ModalManager.close(modalId)}
+          />
+        ),
+      });
+    } catch (signatureError) {
+      ModalManager.close(loadingModalId);
+      ModalManager.error({
+        title: "No fue posible abrir el QR",
+        message: signatureError.message || "No fue posible preparar la sesión de firma digital.",
+      });
+    }
+  };
+
   const actionButtonClassName =
     "inline-flex w-full min-h-[36px] items-center justify-center gap-1.5 whitespace-nowrap px-2 py-1.5 text-[11px]";
 
@@ -152,26 +401,22 @@ export function LabPage() {
       cellClassName: "w-[9rem] min-w-[9rem]",
     },
     {
-      key: "reason",
+      key: "reasonLabel",
       label: "Motivo",
       sortable: true,
       render: (_, row) => getReasonLabel(row.reason),
-    },
-    {
-      key: "asset",
-      label: "Activo",
-      sortable: true,
-      render: (_, row) => {
-        const name = row.assetName || row.assetCode || "—";
-        const code = row.assetCode && row.assetName ? `[${row.assetCode}] ` : "";
-        return <span title={name}>{code}{name}</span>;
-      },
     },
     {
       key: "ownerName",
       label: "Especialista",
       sortable: true,
       render: (value) => value || "—",
+    },
+    {
+      key: "assetAssignedUser",
+      label: "Responsable activo",
+      sortable: true,
+      render: (value) => value || "Sin asignar",
     },
     {
       key: "entryDate",
@@ -182,23 +427,17 @@ export function LabPage() {
       render: (value) => formatDate(value),
     },
     {
-      key: "phase",
-      label: "Fases",
+      key: "currentPhaseLabel",
+      label: "Fase actual",
       headerClassName: "w-[9rem] min-w-[9rem]",
       cellClassName: "w-[9rem] min-w-[9rem]",
-      render: (_, row) => (
-        <PhaseBadge
-          hasEntry={Boolean(row.entryGeneratedDocument)}
-          hasProcessing={Boolean(row.processingGeneratedDocument)}
-          hasExit={Boolean(row.exitGeneratedDocument)}
-        />
-      ),
+      render: (value) => value || "Entrada",
     },
     {
       key: "status",
       label: "Estado",
-      headerClassName: "w-[8.5rem] min-w-[8.5rem]",
-      cellClassName: "w-[8.5rem] min-w-[8.5rem]",
+      headerClassName: "w-[9rem] min-w-[9rem]",
+      cellClassName: "w-[9rem] min-w-[9rem]",
       render: (value) => <StatusChip status={value} />,
     },
     {
@@ -207,33 +446,36 @@ export function LabPage() {
       headerClassName: "w-[16rem] min-w-[16rem] text-right",
       cellClassName: "w-[16rem] min-w-[16rem] align-top",
       render: (_, row) => {
-        const isDraft      = row.status === "En creacion";
-        const isInLab      = row.status === "En laboratorio";
-        const isCompleted  = row.status === "Completada";
-        const isDerived    = row.status === "Derivada a obsoleto";
-        const isCancelled  = row.status === "Anulada";
-        const isReadOnly   = isCompleted || isDerived || isCancelled;
-
+        const isEditable = ["draft", "in_lab"].includes(row.statusCode);
+        const hasDocuments = Boolean(row.entryGeneratedDocument || row.processingGeneratedDocument || row.exitGeneratedDocument);
         const actions = [];
 
-        if (isDraft || isInLab) {
-          actions.push({ key: "edit",  label: "Editar", icon: "edit",   onClick: () => navigate(`/lab/${row.id}`) });
+        actions.push({
+          key: isEditable ? "edit" : "view",
+          label: isEditable ? "Editar" : "Ver",
+          icon: isEditable ? "edit" : "eye",
+          onClick: () => navigate(`/lab/${row.id}`),
+        });
+
+        if (hasDocuments) {
+          actions.push({
+            key: "docs",
+            label: "Docs",
+            icon: "fileLines",
+            onClick: () => navigate(`/lab/${row.id}`),
+          });
         }
-        if (isReadOnly) {
-          actions.push({ key: "view",  label: "Ver",    icon: "eye",    onClick: () => navigate(`/lab/${row.id}`) });
-        }
-        if (isDraft) {
-          actions.push({ key: "entry", label: "Entrada", icon: "document", onClick: () => navigate(`/lab/${row.id}`) });
-        }
-        if (isInLab) {
-          actions.push({ key: "exit",  label: "Salida",  icon: "document", onClick: () => navigate(`/lab/${row.id}`) });
-        }
-        if (isInLab || isCompleted || isDerived) {
-          actions.push({ key: "docs",  label: "Docs",   icon: "download", onClick: () => navigate(`/lab/${row.id}`) });
+
+        if (row.canOpenQr && ["pending_signature", "signed"].includes(row.statusCode)) {
+          actions.push({
+            key: "qr",
+            label: "QR",
+            icon: "mobile",
+            onClick: () => openQrModal(row),
+          });
         }
 
         const actionRows = chunkActions(actions, 3);
-
         return (
           <div className="ml-auto flex w-full max-w-[16rem] flex-col gap-1.5">
             {actionRows.map((actionRow, index) => (
@@ -264,7 +506,6 @@ export function LabPage() {
 
   return (
     <div className="grid gap-5">
-      {/* KPI cards — 6 columnas en xl */}
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
         {kpis.map((kpi) => (
           <KpiCard
@@ -282,7 +523,6 @@ export function LabPage() {
         </div>
       ) : null}
 
-      {/* Panel de filtros */}
       <Panel>
         <PanelHeader eyebrow="Laboratorio" title="Filtros Actas de Laboratorio" />
         <form className="grid gap-4" onSubmit={handleFilterSubmit}>
@@ -292,7 +532,7 @@ export function LabPage() {
                 <div className="min-w-0 xl:col-span-2">
                   <SearchFilterInput
                     value={filters.query}
-                    placeholder="Buscar por acta, activo, especialista o motivo"
+                    placeholder="Buscar por acta, motivo, responsable, especialista o activo"
                     onChange={(event) => setFilters((current) => ({ ...current, query: event.target.value }))}
                   />
                 </div>
@@ -301,10 +541,7 @@ export function LabPage() {
                   <FilterDropdown
                     label="Estado"
                     selectedValues={filters.status ? [filters.status] : []}
-                    options={[
-                      { value: "all", label: "Todos" },
-                      ...LAB_STATUS_OPTIONS,
-                    ]}
+                    options={[{ value: "all", label: "Todos" }, ...LAB_STATUS_OPTIONS]}
                     selectionMode="single"
                     onToggleOption={(value) => setFilters((current) => ({ ...current, status: value === "all" ? "" : value }))}
                     onClear={() => setFilters((current) => ({ ...current, status: "" }))}
@@ -313,12 +550,8 @@ export function LabPage() {
                     menuOffsetClassName="top-[calc(100%+0.55rem)]"
                     menuClassName="rounded-[18px]"
                     renderSelection={renderFilterSelection}
-                    renderOptionLeading={() => (
-                      <span className="inline-flex h-2.5 w-2.5 rounded-full bg-current opacity-70" />
-                    )}
-                    renderOptionDescription={(option) =>
-                      option.value === "all" ? "Sin restriccion aplicada" : "Selecciona un estado"
-                    }
+                    renderOptionLeading={() => <span className="inline-flex h-2.5 w-2.5 rounded-full bg-current opacity-70" />}
+                    renderOptionDescription={(option) => option.value === "all" ? "Sin restricción aplicada" : "Selecciona un estado"}
                     getOptionClassName={getFilterOptionClassName}
                   />
                 </div>
@@ -327,10 +560,7 @@ export function LabPage() {
                   <FilterDropdown
                     label="Motivo"
                     selectedValues={filters.reason ? [filters.reason] : []}
-                    options={[
-                      { value: "all", label: "Todos" },
-                      ...LAB_REASON_OPTIONS,
-                    ]}
+                    options={[{ value: "all", label: "Todos" }, ...LAB_REASON_OPTIONS]}
                     selectionMode="single"
                     onToggleOption={(value) => setFilters((current) => ({ ...current, reason: value === "all" ? "" : value }))}
                     onClear={() => setFilters((current) => ({ ...current, reason: "" }))}
@@ -339,12 +569,8 @@ export function LabPage() {
                     menuOffsetClassName="top-[calc(100%+0.55rem)]"
                     menuClassName="rounded-[18px]"
                     renderSelection={renderFilterSelection}
-                    renderOptionLeading={() => (
-                      <span className="inline-flex h-2.5 w-2.5 rounded-full bg-current opacity-70" />
-                    )}
-                    renderOptionDescription={(option) =>
-                      option.value === "all" ? "Sin restriccion aplicada" : "Selecciona un motivo"
-                    }
+                    renderOptionLeading={() => <span className="inline-flex h-2.5 w-2.5 rounded-full bg-current opacity-70" />}
+                    renderOptionDescription={(option) => option.value === "all" ? "Sin restricción aplicada" : "Selecciona un motivo"}
                     getOptionClassName={getFilterOptionClassName}
                   />
                 </div>
@@ -367,7 +593,6 @@ export function LabPage() {
         </form>
       </Panel>
 
-      {/* Panel de listado */}
       <Panel>
         <PanelHeader
           eyebrow="Laboratorio"
@@ -380,15 +605,15 @@ export function LabPage() {
                 onClick={() =>
                   downloadRowsAsCsv({
                     filename: "actas_laboratorio.csv",
-                    header: ["Acta", "Motivo", "Activo", "Especialista", "Fecha ingreso", "Estado", "Fases"],
-                    rows: rows.map((r) => [
-                      r.code,
-                      getReasonLabel(r.reason),
-                      r.assetName || r.assetCode || "",
-                      r.ownerName || "",
-                      formatDate(r.entryDate),
-                      r.status,
-                      r.exitGeneratedDocument ? "3 fases" : r.processingGeneratedDocument ? "Entrada + Proceso" : r.entryGeneratedDocument ? "Solo entrada" : "Sin documentos",
+                    header: ["Acta", "Motivo", "Especialista", "Responsable activo", "Ingreso", "Fase actual", "Estado"],
+                    rows: rows.map((row) => [
+                      row.code,
+                      row.reasonLabel || getReasonLabel(row.reason),
+                      row.ownerName || "",
+                      row.assetAssignedUser || "",
+                      formatDate(row.entryDate),
+                      row.currentPhaseLabel || "",
+                      row.status,
                     ]),
                   })
                 }

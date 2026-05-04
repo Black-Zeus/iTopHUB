@@ -19,6 +19,7 @@ import {
   updateLabRecord,
   uploadLabEvidences,
 } from "../../services/lab-service";
+import { getUsers } from "../../services/user-service";
 import {
   LAB_REASON_OPTIONS,
   createEmptyLabForm,
@@ -97,12 +98,12 @@ function PhasePanel({ eyebrow, title, accent, isCollapsed, onToggle, summary, ch
     : "";
   return (
     <div className={`${SECTION_PANEL_CLASS} ${borderClass} overflow-hidden`}>
-      <button
-        type="button"
-        onClick={onToggle}
-        className="w-full px-5 pt-5 pb-4 text-left flex items-start justify-between gap-3 hover:bg-[var(--bg-app)] transition-colors"
-      >
-        <div className="min-w-0 flex-1">
+      <div className="flex items-start justify-between gap-3 px-5 pt-5 pb-4 hover:bg-[var(--bg-app)] transition-colors">
+        <button
+          type="button"
+          onClick={onToggle}
+          className="min-w-0 flex-1 text-left"
+        >
           {eyebrow && (
             <p className="mb-0.5 text-[0.7rem] font-semibold uppercase tracking-[0.1em] text-[var(--text-muted)]">
               {eyebrow}
@@ -114,14 +115,14 @@ function PhasePanel({ eyebrow, title, accent, isCollapsed, onToggle, summary, ch
           {isCollapsed && summary && (
             <p className="mt-1 text-xs text-[var(--text-muted)] truncate">{summary}</p>
           )}
-        </div>
+        </button>
         <CollapseToggleButton
           isCollapsed={isCollapsed}
-          onClick={(e) => { e.stopPropagation(); onToggle(); }}
+          onClick={onToggle}
           collapsedLabel="Expandir"
           expandedLabel="Colapsar"
         />
-      </button>
+      </div>
       <div
         className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out ${isCollapsed ? "overflow-hidden" : "overflow-visible"}`}
         style={{ gridTemplateRows: isCollapsed ? "0fr" : "1fr", opacity: isCollapsed ? 0 : 1 }}
@@ -150,7 +151,7 @@ function MessageBanner({ type = "info", children }) {
   );
 }
 
-function UploadedEvidenceCard({ evidence, recordId, onView, onRemove }) {
+function UploadedEvidenceCard({ evidence, recordId, onView, onRemove, onChangeCaption, readOnly = false }) {
   const [previewUrl, setPreviewUrl] = useState("");
   const [loadingPreview, setLoadingPreview] = useState(true);
 
@@ -185,11 +186,25 @@ function UploadedEvidenceCard({ evidence, recordId, onView, onRemove }) {
             </div>
           )}
         </div>
-        <p className="truncate px-1 text-xs font-semibold text-[var(--text-primary)]">{name}</p>
-        {evidence.caption ? (
-          <p className="line-clamp-2 px-1 text-[0.68rem] text-[var(--text-muted)]">{evidence.caption}</p>
-        ) : null}
       </button>
+      <div className="grid gap-2 px-1">
+        <p className="truncate text-xs font-semibold text-[var(--text-primary)]">{name}</p>
+        {readOnly ? (
+          evidence.caption ? (
+            <p className="line-clamp-3 text-[0.68rem] text-[var(--text-muted)]">{evidence.caption}</p>
+          ) : (
+            <p className="text-[0.68rem] italic text-[var(--text-muted)]">Sin glosa</p>
+          )
+        ) : (
+          <textarea
+            rows={4}
+            value={evidence.caption || ""}
+            onChange={(event) => onChangeCaption?.(evidence.storedName, event.target.value)}
+            placeholder="Observacion (opcional)"
+            className="w-full rounded-[8px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1.5 text-xs text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)] resize-none"
+          />
+        )}
+      </div>
       {onRemove && (
         <button
           type="button"
@@ -205,7 +220,7 @@ function UploadedEvidenceCard({ evidence, recordId, onView, onRemove }) {
 }
 
 const EvidenceUploader = forwardRef(function EvidenceUploader(
-  { evidences = [], onView, recordId, onRemove },
+  { evidences = [], onView, recordId, onRemove, onChangeCaption, readOnly = false },
   ref
 ) {
   const fileInputRef = useRef(null);
@@ -246,6 +261,7 @@ const EvidenceUploader = forwardRef(function EvidenceUploader(
       <button
         type="button"
         onClick={() => fileInputRef.current?.click()}
+        disabled={readOnly}
         className="flex w-fit items-center gap-2 rounded-[12px] border border-dashed border-[var(--border-color)] px-3 py-2 text-xs font-medium text-[var(--text-muted)] hover:border-[var(--accent-strong)] hover:text-[var(--accent-strong)] transition-colors"
       >
         <Icon name="plus" size={12} />
@@ -293,7 +309,9 @@ const EvidenceUploader = forwardRef(function EvidenceUploader(
               evidence={ev}
               recordId={recordId}
               onView={onView}
-              onRemove={onRemove ? (name) => onRemove(name) : undefined}
+              onRemove={!readOnly && onRemove ? (name) => onRemove(name) : undefined}
+              onChangeCaption={onChangeCaption}
+              readOnly={readOnly}
             />
           ))}
         </div>
@@ -470,6 +488,7 @@ export function LabDocumentPage() {
 
   const [bootstrap, setBootstrap] = useState(null);
   const [detail, setDetail] = useState(null);
+  const [adminOptions, setAdminOptions] = useState([]);
   const [form, setForm] = useState(() => createEmptyLabForm());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -492,12 +511,14 @@ export function LabDocumentPage() {
       setLoading(true);
       setError("");
       try {
-        const [boot, rec] = await Promise.all([
+        const [boot, rec, users] = await Promise.all([
           getLabBootstrap(),
           isNew ? Promise.resolve(null) : getLabRecord(slug).then((r) => r?.item || null),
+          getUsers().catch(() => []),
         ]);
         if (!cancelled) {
           setBootstrap(boot);
+          setAdminOptions((users || []).filter((user) => user?.isAdmin && user?.statusCode === "active"));
           if (rec) {
             setDetail(rec);
             setForm(createFormFromDetail(rec));
@@ -524,6 +545,31 @@ export function LabDocumentPage() {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
+  function buildSavePayload() {
+    return {
+      reason: form.reason,
+      requestedActions: form.requestedActions,
+      asset: form.asset,
+      requesterAdmin: form.requesterAdmin,
+      entryDate: form.entryDate,
+      entryObservations: form.entryObservations,
+      entryConditionNotes: form.entryConditionNotes,
+      entryReceivedNotes: form.entryReceivedNotes,
+      processingDate: form.processingDate,
+      processingObservations: form.processingObservations,
+      processingChecklists: form.processingChecklists,
+      exitDate: form.exitDate,
+      exitObservations: form.exitObservations,
+      workPerformed: form.workPerformed,
+      markedObsolete: form.markedObsolete,
+      obsoleteNotes: form.obsoleteNotes,
+      normalizationActCode: form.normalizationActCode,
+      entryEvidences: form.entryEvidences,
+      processingEvidences: form.processingEvidences,
+      exitEvidences: form.exitEvidences,
+    };
+  }
+
   const minCharsAssets = bootstrap?.searchHints?.minCharsAssets || 2;
   const checklistTemplates = bootstrap?.checklistTemplates || [];
 
@@ -541,7 +587,15 @@ export function LabDocumentPage() {
     saveChecklistsToBackend([...form.processingChecklists, cloned]);
   }
 
-  function removeChecklist(templateId) {
+  async function removeChecklist(templateId) {
+    const confirmed = await ModalManager.confirm({
+      title: "Quitar checklist",
+      message: "Se eliminará el checklist de esta fase.",
+      buttons: { cancel: "Cancelar", confirm: "Quitar" },
+    });
+    if (!confirmed) {
+      return;
+    }
     const updated = form.processingChecklists.filter((cl) => String(cl.templateId) !== String(templateId));
     setField("processingChecklists", updated);
     saveChecklistsToBackend(updated);
@@ -568,6 +622,29 @@ export function LabDocumentPage() {
     } catch {
       // silent — user can still save via the main save button
     }
+  }
+
+  async function requestRemoveEvidence(fieldKey, evidenceName) {
+    const confirmed = await ModalManager.confirm({
+      title: "Quitar adjunto",
+      message: "La imagen se quitará del acta cuando guardes los cambios.",
+      buttons: { cancel: "Cancelar", confirm: "Quitar" },
+    });
+    if (!confirmed) {
+      return;
+    }
+    setField(fieldKey, form[fieldKey].filter((item) => item.storedName !== evidenceName));
+  }
+
+  function updateEvidenceCaption(fieldKey, evidenceName, caption) {
+    setForm((prev) => ({
+      ...prev,
+      [fieldKey]: prev[fieldKey].map((item) => (
+        item.storedName === evidenceName
+          ? { ...item, caption }
+          : item
+      )),
+    }));
   }
 
   // Debounced inline asset search
@@ -598,43 +675,31 @@ export function LabDocumentPage() {
   async function handleSave({ silent = false } = {}) {
     if (!form.asset) {
       showToast({ title: "Debes seleccionar un activo antes de guardar.", tone: "danger" });
-      return;
+      return null;
     }
     if (!form.entryDate) {
       showToast({ title: "Debes indicar la fecha de ingreso.", tone: "danger" });
-      return;
+      return null;
+    }
+    if (!form.requestedActions?.length) {
+      showToast({ title: "Debes seleccionar al menos una accion solicitada.", tone: "danger" });
+      return null;
+    }
+    if (form.markedObsolete && !form.requesterAdmin?.userId) {
+      showToast({ title: "Debes seleccionar un administrador responsable para derivar a obsoleto.", tone: "danger" });
+      return null;
     }
     setSaving(true);
     try {
       let savedId;
+      const savePayload = buildSavePayload();
       if (isNew) {
-        const result = await createLabRecord({
-          reason: form.reason,
-          asset: form.asset,
-          entryDate: form.entryDate,
-          entryObservations: form.entryObservations,
-        });
+        const result = await createLabRecord(savePayload);
         savedId = result?.item?.id;
         if (!savedId) throw new Error("No fue posible crear el acta.");
       } else {
         savedId = Number(slug);
-        await updateLabRecord(slug, {
-          reason: form.reason,
-          asset: form.asset,
-          entryDate: form.entryDate,
-          entryObservations: form.entryObservations,
-          processingDate: form.processingDate,
-          processingObservations: form.processingObservations,
-          processingChecklists: form.processingChecklists,
-          exitDate: form.exitDate,
-          exitObservations: form.exitObservations,
-          workPerformed: form.workPerformed,
-          markedObsolete: form.markedObsolete,
-          obsoleteNotes: form.obsoleteNotes,
-          entryEvidences: form.entryEvidences,
-          processingEvidences: form.processingEvidences,
-          exitEvidences: form.exitEvidences,
-        });
+        await updateLabRecord(slug, savePayload);
       }
 
       // Upload staged evidences from all phases
@@ -654,19 +719,22 @@ export function LabDocumentPage() {
         }
       }
 
+      const updated = await getLabRecord(String(savedId));
+      const updatedItem = updated?.item || null;
       if (isNew) {
         if (!silent) showToast({ title: "Acta creada correctamente.", tone: "success" });
         navigate(`/lab/${savedId}`, { replace: true });
       } else {
-        const updated = await getLabRecord(String(savedId));
-        if (updated?.item) {
-          setDetail(updated.item);
-          setForm(createFormFromDetail(updated.item));
+        if (updatedItem) {
+          setDetail(updatedItem);
+          setForm(createFormFromDetail(updatedItem));
         }
         if (!silent) showToast({ title: "Acta guardada correctamente.", tone: "success" });
       }
+      return { savedId, item: updatedItem };
     } catch (err) {
       showToast({ title: err.message || "No fue posible guardar el acta.", tone: "danger" });
+      return null;
     } finally {
       setSaving(false);
     }
@@ -677,9 +745,24 @@ export function LabDocumentPage() {
     const isCurrentlyCollapsed = collapsedPhases[phase];
     const isExpanding = isCurrentlyCollapsed;
 
-    if (isExpanding && !isNew) {
-      // Validate before opening exit phase
+    if (isExpanding) {
+      if (phase === "processing" && !form.entryGeneratedDocument) {
+        showToast({ title: "Genera primero el acta de entrada para avanzar a procesamiento.", tone: "danger" });
+        return;
+      }
+      if (phase === "processing" && detail?.signatureStates?.entry?.status !== "signed") {
+        showToast({ title: "Debes firmar primero el acta de ingreso antes de avanzar a ejecucion.", tone: "danger" });
+        return;
+      }
       if (phase === "exit") {
+        if (!form.processingGeneratedDocument) {
+          showToast({ title: "Genera primero el acta de procesamiento para avanzar a salida.", tone: "danger" });
+          return;
+        }
+        if (detail?.signatureStates?.processing?.status !== "signed") {
+          showToast({ title: "Debes firmar primero el acta de ejecucion antes de avanzar al cierre.", tone: "danger" });
+          return;
+        }
         if (form.processingChecklists.length === 0) {
           showToast({ title: "Debes agregar al menos un checklist en la fase de procesamiento.", tone: "danger" });
           return;
@@ -695,7 +778,12 @@ export function LabDocumentPage() {
           return;
         }
       }
-      await handleSave({ silent: true });
+      if (!isReadOnly) {
+        const saveResult = await handleSave({ silent: true });
+        if (!saveResult) {
+          return;
+        }
+      }
     }
 
     setCollapsedPhases((prev) => ({ ...prev, [phase]: !prev[phase] }));
@@ -703,17 +791,21 @@ export function LabDocumentPage() {
 
   // Generate document
   async function handleGenerateDocument(phase, setGenerating) {
-    if (isNew) {
-      showToast({ title: "Guarda el acta primero antes de generar documentos.", tone: "danger" });
-      return;
-    }
     setGenerating(true);
     try {
-      const result = await generateLabDocument(slug, phase);
+      const saveResult = await handleSave({ silent: true });
+      const targetId = saveResult?.savedId || (!isNew ? Number(slug) : null);
+      if (!targetId) {
+        return;
+      }
+      const result = await generateLabDocument(targetId, phase);
       if (result?.record) {
         setDetail(result.record);
         setForm(createFormFromDetail(result.record));
         showToast({ title: `Documento de ${phase} generado correctamente.`, tone: "success" });
+        if (isNew) {
+          navigate(`/lab/${targetId}`, { replace: true });
+        }
       }
     } catch (err) {
       showToast({ title: err.message || `No fue posible generar el documento de ${phase}.`, tone: "danger" });
@@ -784,7 +876,7 @@ export function LabDocumentPage() {
     }
     ModalManager.confirm({
       title: "Derivar a normalizacion",
-      message: `El activo ${detail?.assetName || "seleccionado"} sera marcado como obsoleto y se generara un acta de normalizacion con cambio de estado. ¿Deseas continuar?`,
+      message: `El activo ${detail?.assetName || "seleccionado"} quedará marcado para obsolescencia cuando cierres esta acta. ¿Deseas continuar?`,
       confirmLabel: "Derivar a obsoleto",
       cancelLabel: "Cancelar",
       onConfirm: async () => {
@@ -792,13 +884,12 @@ export function LabDocumentPage() {
           const result = await updateLabRecord(slug, {
             markedObsolete: true,
             obsoleteNotes: form.obsoleteNotes,
-            status: "Derivada a obsoleto",
           });
           if (result?.item) {
             setDetail(result.item);
             setForm(createFormFromDetail(result.item));
             showToast({
-              title: "Activo marcado como obsoleto. Recuerda generar el acta de salida y el acta de normalizacion.",
+              title: "Derivación preparada. La salida quedará marcada para obsolescencia cuando cierres el acta.",
               tone: "success",
             });
           }
@@ -809,12 +900,21 @@ export function LabDocumentPage() {
     });
   }
 
-  const isProcessingPhaseEnabled = !isNew && Boolean(detail?.entryDate || form.entryDate);
-  const isExitPhaseEnabled = !isNew && Boolean(detail?.entryDate || form.entryDate);
+  const isProcessingPhaseEnabled = Boolean(form.entryGeneratedDocument) && detail?.signatureStates?.entry?.status === "signed";
+  const isExitPhaseEnabled = Boolean(form.processingGeneratedDocument) && detail?.signatureStates?.processing?.status === "signed";
   const hasEntryDoc = Boolean(form.entryGeneratedDocument);
   const hasProcessingDoc = Boolean(form.processingGeneratedDocument);
   const hasExitDoc = Boolean(form.exitGeneratedDocument);
-  const isReadOnly = Boolean(detail?.status === "Completada" || detail?.status === "Anulada");
+  const isReadOnly = Boolean(detail && [
+    "Pendiente firma ingreso",
+    "Pendiente firma ejecucion",
+    "Pendiente firma cierre",
+    "Pendiente firma administrador",
+    "Pendiente registro iTop",
+    "Cerrada a stock",
+    "Cerrada por obsolescencia",
+    "Anulada",
+  ].includes(detail.status));
 
   if (loading) {
     return (
@@ -874,7 +974,13 @@ export function LabDocumentPage() {
 
       {isReadOnly && (
         <MessageBanner type="info">
-          Esta acta esta en estado <strong>{detail?.status}</strong> y no puede ser editada.
+          Esta acta está en estado <strong>{detail?.status}</strong> y no puede ser editada.
+        </MessageBanner>
+      )}
+
+      {detail?.status?.startsWith("Pendiente firma") && (
+        <MessageBanner type="warning">
+          Ya existe una fase pendiente de firma. Continúa el QR desde el listado principal para destrabar el flujo.
         </MessageBanner>
       )}
 
@@ -974,6 +1080,38 @@ export function LabDocumentPage() {
                 getOptionClassName={getReasonDropdownOptionClassName}
               />
             </Field>
+
+            <Field label="Acciones solicitadas" helper="Estas son las acciones que el agente deberá ejecutar durante la fase técnica.">
+              <FilterDropdown
+                label="Acciones solicitadas"
+                selectedValues={form.requestedActions || []}
+                options={LAB_REASON_OPTIONS}
+                selectionMode="multiple"
+                onToggleOption={(value) => {
+                  const exists = (form.requestedActions || []).includes(value);
+                  setField(
+                    "requestedActions",
+                    exists
+                      ? form.requestedActions.filter((item) => item !== value)
+                      : [...(form.requestedActions || []), value]
+                  );
+                }}
+                onClear={() => setField("requestedActions", form.reason ? [form.reason] : [])}
+                disabled={isReadOnly}
+                title="Seleccionar acciones"
+                description="Selecciona una o más acciones asociadas al ingreso de este equipo."
+                triggerClassName="py-3"
+                buttonHeightClassName="min-h-[66px]"
+                menuOffsetClassName="top-[calc(100%+0.55rem)]"
+                menuClassName="rounded-[18px]"
+                renderSelection={renderReasonDropdownSelection}
+                renderOptionLeading={() => (
+                  <span className="inline-flex h-2.5 w-2.5 rounded-full bg-current opacity-70" />
+                )}
+                renderOptionDescription={(option) => option.label}
+                getOptionClassName={getReasonDropdownOptionClassName}
+              />
+            </Field>
           </div>
         </div>
       </SectionPanel>
@@ -1024,13 +1162,39 @@ export function LabDocumentPage() {
             />
           </Field>
 
+          <div className="grid gap-5 md:grid-cols-2">
+            <Field label="Estado base / problemas fisicos" helper="Detalla golpes, faltantes, carcasa, pantalla, teclado u otras condiciones visibles.">
+              <textarea
+                rows={4}
+                value={form.entryConditionNotes}
+                onChange={(e) => setField("entryConditionNotes", e.target.value)}
+                disabled={isReadOnly}
+                placeholder="Condicion física del equipo, daños visibles, accesorios faltantes..."
+                className={TEXTAREA_CLASS}
+              />
+            </Field>
+
+            <Field label="Notas recibidas con el equipo" helper="Registra glosas o indicaciones entregadas junto al activo.">
+              <textarea
+                rows={4}
+                value={form.entryReceivedNotes}
+                onChange={(e) => setField("entryReceivedNotes", e.target.value)}
+                disabled={isReadOnly}
+                placeholder="Comentarios del usuario, contexto de la falla, ticket previo, observaciones..."
+                className={TEXTAREA_CLASS}
+              />
+            </Field>
+          </div>
+
           <Field label="Evidencias de entrada" helper="Imagenes del estado del equipo al ingresar (jpg, jpeg, png).">
             <EvidenceUploader
               ref={entryUploaderRef}
               evidences={form.entryEvidences}
               onView={handleViewEvidence}
               recordId={isNew ? null : Number(slug)}
-              onRemove={(name) => setField("entryEvidences", form.entryEvidences.filter((e) => e.storedName !== name))}
+              onRemove={(name) => requestRemoveEvidence("entryEvidences", name)}
+              onChangeCaption={(name, caption) => updateEvidenceCaption("entryEvidences", name, caption)}
+              readOnly={isReadOnly}
             />
           </Field>
 
@@ -1187,14 +1351,16 @@ export function LabDocumentPage() {
             </div>
 
             <Field label="Evidencias de procesamiento" helper="Imagenes del proceso realizado (jpg, jpeg, png).">
-              <EvidenceUploader
-                ref={processingUploaderRef}
-                evidences={form.processingEvidences}
-                onView={handleViewEvidence}
-                recordId={isNew ? null : Number(slug)}
-                onRemove={(name) => setField("processingEvidences", form.processingEvidences.filter((e) => e.storedName !== name))}
-              />
-            </Field>
+            <EvidenceUploader
+              ref={processingUploaderRef}
+              evidences={form.processingEvidences}
+              onView={handleViewEvidence}
+              recordId={isNew ? null : Number(slug)}
+              onRemove={(name) => requestRemoveEvidence("processingEvidences", name)}
+              onChangeCaption={(name, caption) => updateEvidenceCaption("processingEvidences", name, caption)}
+              readOnly={isReadOnly}
+            />
+          </Field>
 
             {!isReadOnly && (
               <div className="flex flex-col items-end gap-1.5">
@@ -1279,14 +1445,16 @@ export function LabDocumentPage() {
             </Field>
 
             <Field label="Evidencias de salida" helper="Imagenes del estado del equipo al egresar (jpg, jpeg, png).">
-              <EvidenceUploader
-                ref={exitUploaderRef}
-                evidences={form.exitEvidences}
-                onView={handleViewEvidence}
-                recordId={isNew ? null : Number(slug)}
-                onRemove={(name) => setField("exitEvidences", form.exitEvidences.filter((e) => e.storedName !== name))}
-              />
-            </Field>
+            <EvidenceUploader
+              ref={exitUploaderRef}
+              evidences={form.exitEvidences}
+              onView={handleViewEvidence}
+              recordId={isNew ? null : Number(slug)}
+              onRemove={(name) => requestRemoveEvidence("exitEvidences", name)}
+              onChangeCaption={(name, caption) => updateEvidenceCaption("exitEvidences", name, caption)}
+              readOnly={isReadOnly}
+            />
+          </Field>
 
             {/* Derivacion a obsoleto */}
             {!isReadOnly && (
@@ -1390,7 +1558,7 @@ export function LabDocumentPage() {
                 className="flex items-center gap-3 rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-app)] p-4 text-left hover:border-[var(--accent-strong)] hover:bg-[var(--accent-soft)] transition-colors"
               >
                 <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--accent-soft)] text-[var(--accent-strong)]">
-                  <Icon name="document" size={16} />
+                  <Icon name="fileLines" size={16} />
                 </span>
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.06em] text-[var(--text-muted)]">Acta de entrada</p>
@@ -1405,7 +1573,7 @@ export function LabDocumentPage() {
                 className="flex items-center gap-3 rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-app)] p-4 text-left hover:border-[rgba(106,63,160,0.5)] hover:bg-[rgba(106,63,160,0.06)] transition-colors"
               >
                 <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[rgba(106,63,160,0.1)] text-[rgba(106,63,160,0.9)]">
-                  <Icon name="document" size={16} />
+                  <Icon name="fileLines" size={16} />
                 </span>
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.06em] text-[var(--text-muted)]">Acta de procesamiento</p>
@@ -1420,7 +1588,7 @@ export function LabDocumentPage() {
                 className="flex items-center gap-3 rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-app)] p-4 text-left hover:border-[var(--success)] hover:bg-[rgba(127,191,156,0.08)] transition-colors"
               >
                 <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[rgba(127,191,156,0.14)] text-[var(--success)]">
-                  <Icon name="document" size={16} />
+                  <Icon name="fileLines" size={16} />
                 </span>
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.06em] text-[var(--text-muted)]">Acta de salida</p>

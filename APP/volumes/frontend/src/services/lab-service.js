@@ -1,6 +1,63 @@
 import { apiRequest } from "@services/api-client";
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
+const PUBLIC_API_BASE_URL = "/api";
+
+
+async function parsePublicApiResponse(response, fallbackMessage) {
+  let payload = null;
+  let rawText = "";
+
+  try {
+    rawText = await response.text();
+    payload = rawText ? JSON.parse(rawText) : null;
+  } catch {
+    payload = null;
+  }
+
+  if (response.ok) {
+    return payload;
+  }
+
+  const detail = payload?.detail;
+  const message =
+    (detail && typeof detail === "object" ? detail.message : null)
+    || (typeof detail === "string" ? detail : null)
+    || rawText
+    || fallbackMessage;
+
+  const error = new Error(message || fallbackMessage);
+  if (detail && typeof detail === "object" && detail.brand) {
+    error.brand = detail.brand;
+  }
+  throw error;
+}
+
+
+async function publicApiRequest(path, options = {}) {
+  const {
+    fallbackMessage = "No fue posible completar la solicitud pública.",
+    ...fetchOptions
+  } = options;
+  const isFormDataBody = typeof FormData !== "undefined" && fetchOptions.body instanceof FormData;
+  const requestHeaders = {
+    Accept: "application/json",
+    ...(!isFormDataBody && fetchOptions.body ? { "Content-Type": "application/json" } : {}),
+    ...(fetchOptions.headers || {}),
+  };
+
+  let response;
+  try {
+    response = await fetch(`${PUBLIC_API_BASE_URL}${path}`, {
+      headers: requestHeaders,
+      ...fetchOptions,
+    });
+  } catch {
+    throw new Error(fallbackMessage);
+  }
+
+  return parsePublicApiResponse(response, fallbackMessage);
+}
 
 
 function readFileAsBase64(file) {
@@ -129,4 +186,99 @@ export async function fetchLabEvidenceBlob(recordId, storedName) {
   const blob = await response.blob();
   const blobUrl = URL.createObjectURL(blob);
   return { url: blobUrl };
+}
+
+
+export async function createLabSignatureSession(recordId, { forceNew = false, phase = "", workflowKind = "" } = {}) {
+  const params = new URLSearchParams();
+  if (forceNew) params.set("force_new", "true");
+  if (phase) params.set("phase", phase);
+  if (workflowKind) params.set("workflow_kind", workflowKind);
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  const response = await apiRequest(`/v1/lab/records/${recordId}/signature-session${suffix}`, {
+    method: "POST",
+    fallbackMessage: "No fue posible abrir la sesión QR de firma.",
+    retryOnRevalidate: true,
+  });
+  return response.item;
+}
+
+
+export async function getLabSignatureSession(recordId, { phase = "", workflowKind = "" } = {}) {
+  const params = new URLSearchParams();
+  if (phase) params.set("phase", phase);
+  if (workflowKind) params.set("workflow_kind", workflowKind);
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  const response = await apiRequest(`/v1/lab/records/${recordId}/signature-session${suffix}`, {
+    fallbackMessage: "No fue posible consultar la sesión QR de firma.",
+    retryOnRevalidate: true,
+  });
+  return response.item;
+}
+
+
+export async function finalizeLabClosure(recordId) {
+  const response = await apiRequest(`/v1/lab/records/${recordId}/finalize-closure`, {
+    method: "POST",
+    fallbackMessage: "No fue posible registrar el cierre del acta en iTop.",
+    retryOnRevalidate: true,
+  });
+  return response.item;
+}
+
+
+export async function getPublicLabSignatureSession(token, { claimToken = "" } = {}) {
+  const suffix = claimToken ? `?claim_token=${encodeURIComponent(claimToken)}` : "";
+  const response = await publicApiRequest(`/v1/lab/signature-sessions/${encodeURIComponent(token)}${suffix}`, {
+    fallbackMessage: "No fue posible cargar la sesión pública de firma.",
+  });
+  return response.item;
+}
+
+
+export async function submitPublicLabSignature(token, payload) {
+  const response = await publicApiRequest(`/v1/lab/signature-sessions/${encodeURIComponent(token)}/submit`, {
+    method: "POST",
+    body: JSON.stringify(payload || {}),
+    fallbackMessage: "No fue posible registrar la firma digital.",
+  });
+  return response.item;
+}
+
+
+export async function fetchPublicLabSignatureDocumentBlob(token, documentKind, { claimToken = "" } = {}) {
+  const suffix = claimToken ? `?claim_token=${encodeURIComponent(claimToken)}` : "";
+  let response;
+  try {
+    response = await fetch(
+      `${PUBLIC_API_BASE_URL}/v1/lab/signature-sessions/${encodeURIComponent(token)}/documents/${encodeURIComponent(documentKind)}${suffix}`
+    );
+  } catch {
+    throw new Error("No fue posible obtener el documento de la sesión de firma.");
+  }
+  if (!response.ok) {
+    let rawText = "";
+    try {
+      rawText = await response.text();
+      const payload = rawText ? JSON.parse(rawText) : null;
+      const detail = payload?.detail;
+      throw new Error(
+        (detail && typeof detail === "object" ? detail.message : null)
+        || (typeof detail === "string" ? detail : null)
+        || rawText
+        || "No fue posible obtener el documento de la sesión de firma."
+      );
+    } catch (error) {
+      if (error instanceof Error && error.message) {
+        throw error;
+      }
+      throw new Error("No fue posible obtener el documento de la sesión de firma.");
+    }
+  }
+  const blob = await response.blob();
+  const disposition = response.headers.get("Content-Disposition") || "";
+  const match = disposition.match(/filename[^;=\n]*=(['"]?)([^'"\n;]+)\1/i);
+  const filename = match?.[2]?.trim() || null;
+  const namedBlob = filename ? new File([blob], filename, { type: "application/pdf" }) : blob;
+  return { blob, url: URL.createObjectURL(namedBlob), filename };
 }
