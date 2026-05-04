@@ -54,7 +54,7 @@ function resolveActaSubjectSuffix(actaType) {
 
 function buildResponsibleLabel(requester, actaType) {
   const normalizedRequester = normalizeText(requester);
-  return normalizedRequester ? `${normalizedRequester} // ${resolveActaSubjectSuffix(actaType)}` : "";
+  return normalizedRequester ? `${resolveActaSubjectSuffix(actaType)} // ${normalizedRequester}` : "";
 }
 
 function ensureSubjectSuffix(subject, requester, actaType) {

@@ -149,6 +149,59 @@ function buildItopTicketUrl(integrationUrl, ticketId, ticketClass) {
   return `${base}/pages/UI.php?operation=details&class=${encodeURIComponent(cls)}&id=${encodeURIComponent(id)}`;
 }
 
+const NORMALIZATION_STATUS_LABELS = {
+  production: "En produccion",
+  stock: "En stock",
+  implementation: "En implementacion",
+  obsolete: "Obsoleto",
+  repair: "En reparacion",
+  test: "En prueba",
+  inactive: "Inactivo",
+  disposed: "Eliminado",
+};
+
+function resolveNormalizationStatusLabel(value) {
+  const status = String(value || "").trim().toLowerCase();
+  if (!status) return "";
+  return NORMALIZATION_STATUS_LABELS[status] || status;
+}
+
+function buildNormalizationTicketDetail(detail, modeValue) {
+  const params = detail?.normalizationParams && typeof detail.normalizationParams === "object"
+    ? detail.normalizationParams
+    : {};
+  const receiverName = String(detail?.receiver?.name || "").trim();
+  const parts = [];
+
+  if (["change_status", "change_status_and_location"].includes(modeValue)) {
+    const targetStatus = resolveNormalizationStatusLabel(params.targetStatus);
+    if (targetStatus) parts.push(`Estado destino: ${targetStatus}`);
+  }
+
+  if (["change_location", "change_status_and_location"].includes(modeValue)) {
+    const targetLocation = String(params.targetLocationName || params.targetLocationId || "").trim();
+    if (targetLocation) parts.push(`Locacion destino: ${targetLocation}`);
+  }
+
+  if (["assign_to_person", "assign_to_person_and_activate"].includes(modeValue) && receiverName) {
+    parts.push(`Responsable destino: ${receiverName}`);
+  }
+
+  if (["remove_from_person", "return_to_stock"].includes(modeValue) && receiverName) {
+    parts.push(`Responsable a desvincular: ${receiverName}`);
+  }
+
+  if (modeValue === "assign_to_person_and_activate") {
+    parts.push("Estado destino: En produccion");
+  }
+
+  if (modeValue === "return_to_stock") {
+    parts.push("Estado destino: En stock");
+  }
+
+  return parts.join(" / ");
+}
+
 function buildTicketDescription(row, template, detail, moduleConfig) {
   const code = String(row?.code || "").trim();
   const detailCode = code ? buildDetailDocumentNumber(code) : "";
@@ -186,7 +239,10 @@ function buildTicketDescription(row, template, detail, moduleConfig) {
   lines.push("");
   if (code) lines.push(`* Acta: ${code}.`);
   if (detailCode) lines.push(`* Detalle: ${detailCode}.`);
-  if (normalizationModeLabel) lines.push(`* Modo de operacion: ${normalizationModeLabel}.`);
+  if (normalizationModeLabel) {
+    const normalizationDetail = buildNormalizationTicketDetail(detail, normalizationModeValue);
+    lines.push(`* Modo de operacion: ${normalizationModeLabel}${normalizationDetail ? ` >> ${normalizationDetail}` : ""}.`);
+  }
   if (moduleConfig?.key === "return" && returnReason) {
     lines.push("");
     lines.push("Motivo de devolucion:");
@@ -2095,7 +2151,7 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
           });
         }
 
-        if (isDraft || isIssued) {
+        if (isDraft || isIssued || isSigned) {
           actions.push({
             key: "void",
             label: "Anular",
