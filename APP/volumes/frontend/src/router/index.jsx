@@ -15,6 +15,7 @@ import { HandoverSignaturePage } from "@pages/handover/HandoverSignaturePage";
 import { ReassignmentPage } from "@pages/reassignment/ReassignmentPage";
 import { LabPage } from "@pages/lab/LabPage";
 import { LabDocumentPage } from "@pages/lab/LabDocumentPage";
+import { LabSignaturePage } from "@pages/lab/LabSignaturePage";
 import { DevicesPage } from "@pages/devices/DevicesPage";
 import { PDQPage } from "@pages/pdq/PDQPage";
 import { AssetsPage } from "@pages/assets/AssetsPage";
@@ -96,6 +97,7 @@ export const router = createBrowserRouter(
   [
     { path: "/login", element: <LoginPage /> },
     { path: "/firma/h/:token", element: <HandoverSignaturePage /> },
+    { path: "/firma/l/:token", element: <LabSignaturePage /> },
     {
       path: "/",
       element: (

@@ -99,6 +99,8 @@ export function MobileSignatureSessionPage({
   openDocument,
   submitSignature,
 }) {
+  const allowedPendingStatuses = ["Emitida", "Pendiente de firma", "En laboratorio"];
+  const allowedCompletedStatuses = ["Firmada", "Confirmada", "Completada", "Derivada a obsoleto"];
   const signaturePadRef = useRef(null);
   const [session, setSession] = useState(null);
   const [brand, setBrand] = useState({});
@@ -156,8 +158,8 @@ export function MobileSignatureSessionPage({
 
   const sessionStatus = `${session?.status || ""}`.trim().toLowerCase();
   const documentStatus = `${session?.documentStatus || ""}`.trim();
-  const isUnavailable = !session || ["expired", "cancelled", "occupied"].includes(sessionStatus) || !["Emitida", "Firmada", "Confirmada"].includes(documentStatus);
-  const isCompleted = ["signed", "published"].includes(sessionStatus) || ["Firmada", "Confirmada"].includes(documentStatus);
+  const isUnavailable = !session || ["expired", "cancelled", "occupied"].includes(sessionStatus) || ![...allowedPendingStatuses, ...allowedCompletedStatuses].includes(documentStatus);
+  const isCompleted = ["signed", "published"].includes(sessionStatus) || allowedCompletedStatuses.includes(documentStatus);
   const isClaimed = sessionStatus === "claimed";
 
   const handleSubmit = async () => {
