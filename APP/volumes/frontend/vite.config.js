@@ -23,6 +23,21 @@ function spaFallback(base) {
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   const base = env.VITE_BASE_URL ?? "/itop-hub/";
+  const hmrHost = env.VITE_HMR_HOST?.trim() || undefined;
+  const hmrClientPort = Number(env.VITE_HMR_CLIENT_PORT || env.NGINX_HTTP_PORT || 80);
+  const allowedHosts = (() => {
+    const raw = env.VITE_DEV_ALLOWED_HOSTS?.trim();
+    if (!raw) {
+      return ["localhost", "nginx", "itophub-nginx"];
+    }
+    if (raw === "*" || raw.toLowerCase() === "all") {
+      return true;
+    }
+    return raw
+      .split(",")
+      .map((host) => host.trim())
+      .filter(Boolean);
+  })();
 
   return {
     plugins: [react(), spaFallback(base)],
@@ -48,12 +63,12 @@ export default defineConfig(({ mode }) => {
       host: "0.0.0.0",
       port: 5173,
       strictPort: true,
-      allowedHosts: ["localhost", "nginx", "itophub-nginx"],
+      allowedHosts,
 
       hmr: {
         // Host y puerto público (donde nginx escucha)
-        host: "localhost",
-        clientPort: 80,
+        host: hmrHost,
+        clientPort: Number.isFinite(hmrClientPort) && hmrClientPort > 0 ? hmrClientPort : 80,
         // El path del WS debe ser solo la base, sin duplicar.
         // Vite NO concatena base + clientPort aquí — path es el path final
         // que el cliente usará para conectar el socket.
