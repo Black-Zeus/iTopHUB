@@ -71,6 +71,7 @@ def fetch_lab_record_rows(
             r.id,
             r.document_number,
             r.reason,
+            r.requested_actions,
             r.status,
             r.asset_itop_id,
             r.asset_code,
@@ -79,14 +80,26 @@ def fetch_lab_record_rows(
             r.asset_serial,
             r.asset_organization,
             r.asset_location,
+            r.asset_status,
+            r.asset_assigned_user,
             r.owner_user_id,
             r.owner_name,
+            r.requester_admin_user_id,
+            r.requester_admin_name,
+            r.requester_admin_itop_person_key,
             r.entry_date,
+            r.entry_observations,
+            r.entry_condition_notes,
+            r.entry_received_notes,
+            r.processing_date,
             r.exit_date,
             r.marked_obsolete,
             r.normalization_act_code,
             r.entry_generated_document,
+            r.processing_generated_document,
             r.exit_generated_document,
+            r.signature_workflow,
+            r.itop_ticket_summary,
             r.created_at,
             r.updated_at
         FROM hub_lab_records r
@@ -102,8 +115,12 @@ def fetch_lab_record_rows(
     for row in rows:
         result.append({
             **row,
+            "requested_actions": _json_loads_safe(row.get("requested_actions")) or [],
             "entry_generated_document": _json_loads_safe(row.get("entry_generated_document")),
+            "processing_generated_document": _json_loads_safe(row.get("processing_generated_document")),
             "exit_generated_document": _json_loads_safe(row.get("exit_generated_document")),
+            "signature_workflow": _json_loads_safe(row.get("signature_workflow")) or {},
+            "itop_ticket_summary": _json_loads_safe(row.get("itop_ticket_summary")) or {},
         })
     return result
 
@@ -122,10 +139,49 @@ def fetch_lab_record_row(record_id: int) -> dict[str, Any] | None:
         return None
     return {
         **row,
+        "requested_actions": _json_loads_safe(row.get("requested_actions")) or [],
         "entry_evidences": _json_loads_safe(row.get("entry_evidences")) or [],
         "entry_generated_document": _json_loads_safe(row.get("entry_generated_document")),
+        "processing_evidences": _json_loads_safe(row.get("processing_evidences")) or [],
+        "processing_generated_document": _json_loads_safe(row.get("processing_generated_document")),
+        "processing_checklists": _json_loads_safe(row.get("processing_checklists")) or [],
         "exit_evidences": _json_loads_safe(row.get("exit_evidences")) or [],
         "exit_generated_document": _json_loads_safe(row.get("exit_generated_document")),
+        "signature_workflow": _json_loads_safe(row.get("signature_workflow")) or {},
+        "itop_ticket_summary": _json_loads_safe(row.get("itop_ticket_summary")) or {},
+    }
+
+
+def fetch_lab_record_row_by_signature_token(signature_token: str) -> dict[str, Any] | None:
+    normalized_token = str(signature_token or "").strip()
+    if not normalized_token:
+        return None
+
+    sql = """
+        SELECT *
+        FROM hub_lab_records
+        WHERE signature_workflow LIKE %s
+        ORDER BY id DESC
+        LIMIT 1
+    """
+    with get_db_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(sql, (f'%"token": "{normalized_token}"%',))
+            row = cursor.fetchone()
+    if not row:
+        return None
+    return {
+        **row,
+        "requested_actions": _json_loads_safe(row.get("requested_actions")) or [],
+        "entry_evidences": _json_loads_safe(row.get("entry_evidences")) or [],
+        "entry_generated_document": _json_loads_safe(row.get("entry_generated_document")),
+        "processing_evidences": _json_loads_safe(row.get("processing_evidences")) or [],
+        "processing_generated_document": _json_loads_safe(row.get("processing_generated_document")),
+        "processing_checklists": _json_loads_safe(row.get("processing_checklists")) or [],
+        "exit_evidences": _json_loads_safe(row.get("exit_evidences")) or [],
+        "exit_generated_document": _json_loads_safe(row.get("exit_generated_document")),
+        "signature_workflow": _json_loads_safe(row.get("signature_workflow")) or {},
+        "itop_ticket_summary": _json_loads_safe(row.get("itop_ticket_summary")) or {},
     }
 
 
@@ -137,6 +193,7 @@ def save_lab_record(
         INSERT INTO hub_lab_records (
             document_number,
             reason,
+            requested_actions,
             status,
             asset_itop_id,
             asset_code,
@@ -145,31 +202,48 @@ def save_lab_record(
             asset_serial,
             asset_organization,
             asset_location,
+            asset_status,
+            asset_assigned_user,
             owner_user_id,
             owner_name,
+            requester_admin_user_id,
+            requester_admin_name,
+            requester_admin_itop_person_key,
             entry_date,
             entry_observations,
+            entry_condition_notes,
+            entry_received_notes,
             entry_evidences,
             entry_generated_document,
+            processing_date,
+            processing_observations,
+            processing_evidences,
+            processing_generated_document,
+            processing_checklists,
             exit_date,
             exit_observations,
             work_performed,
             exit_evidences,
             exit_generated_document,
+            signature_workflow,
+            itop_ticket_summary,
             marked_obsolete,
             obsolete_notes,
             normalization_act_code
         )
         VALUES (
-            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-            %s, %s, %s, %s
+            %s, %s, %s, %s, %s, %s, %s, %s,
+            %s, %s, %s, %s, %s, %s, %s, %s,
+            %s, %s, %s, %s, %s, %s, %s, %s,
+            %s, %s, %s, %s, %s, %s, %s, %s,
+            %s, %s, %s, %s, %s, %s, %s
         )
     """
     update_sql = """
         UPDATE hub_lab_records
         SET
             reason = %s,
+            requested_actions = %s,
             status = %s,
             asset_itop_id = %s,
             asset_code = %s,
@@ -178,17 +252,31 @@ def save_lab_record(
             asset_serial = %s,
             asset_organization = %s,
             asset_location = %s,
+            asset_status = %s,
+            asset_assigned_user = %s,
             owner_user_id = %s,
             owner_name = %s,
+            requester_admin_user_id = %s,
+            requester_admin_name = %s,
+            requester_admin_itop_person_key = %s,
             entry_date = %s,
             entry_observations = %s,
+            entry_condition_notes = %s,
+            entry_received_notes = %s,
             entry_evidences = %s,
             entry_generated_document = %s,
+            processing_date = %s,
+            processing_observations = %s,
+            processing_evidences = %s,
+            processing_generated_document = %s,
+            processing_checklists = %s,
             exit_date = %s,
             exit_observations = %s,
             work_performed = %s,
             exit_evidences = %s,
             exit_generated_document = %s,
+            signature_workflow = %s,
+            itop_ticket_summary = %s,
             marked_obsolete = %s,
             obsolete_notes = %s,
             normalization_act_code = %s
@@ -208,6 +296,7 @@ def save_lab_record(
                     (
                         record.get("document_number", ""),
                         record.get("reason", "maintenance"),
+                        _json_str(record.get("requested_actions", [])),
                         record.get("status", "draft"),
                         record.get("asset_itop_id"),
                         record.get("asset_code"),
@@ -216,17 +305,31 @@ def save_lab_record(
                         record.get("asset_serial"),
                         record.get("asset_organization"),
                         record.get("asset_location"),
+                        record.get("asset_status"),
+                        record.get("asset_assigned_user"),
                         record.get("owner_user_id"),
                         record.get("owner_name"),
+                        record.get("requester_admin_user_id"),
+                        record.get("requester_admin_name"),
+                        record.get("requester_admin_itop_person_key"),
                         record.get("entry_date"),
                         record.get("entry_observations"),
+                        record.get("entry_condition_notes"),
+                        record.get("entry_received_notes"),
                         _json_str(record.get("entry_evidences", [])),
                         _json_str(record.get("entry_generated_document")),
+                        record.get("processing_date"),
+                        record.get("processing_observations"),
+                        _json_str(record.get("processing_evidences", [])),
+                        _json_str(record.get("processing_generated_document")),
+                        _json_str(record.get("processing_checklists", [])),
                         record.get("exit_date"),
                         record.get("exit_observations"),
                         record.get("work_performed"),
                         _json_str(record.get("exit_evidences", [])),
                         _json_str(record.get("exit_generated_document")),
+                        _json_str(record.get("signature_workflow") or {}),
+                        _json_str(record.get("itop_ticket_summary") or {}),
                         int(bool(record.get("marked_obsolete", False))),
                         record.get("obsolete_notes"),
                         record.get("normalization_act_code"),
@@ -238,6 +341,7 @@ def save_lab_record(
                     update_sql,
                     (
                         record.get("reason", "maintenance"),
+                        _json_str(record.get("requested_actions", [])),
                         record.get("status", "draft"),
                         record.get("asset_itop_id"),
                         record.get("asset_code"),
@@ -246,17 +350,31 @@ def save_lab_record(
                         record.get("asset_serial"),
                         record.get("asset_organization"),
                         record.get("asset_location"),
+                        record.get("asset_status"),
+                        record.get("asset_assigned_user"),
                         record.get("owner_user_id"),
                         record.get("owner_name"),
+                        record.get("requester_admin_user_id"),
+                        record.get("requester_admin_name"),
+                        record.get("requester_admin_itop_person_key"),
                         record.get("entry_date"),
                         record.get("entry_observations"),
+                        record.get("entry_condition_notes"),
+                        record.get("entry_received_notes"),
                         _json_str(record.get("entry_evidences", [])),
                         _json_str(record.get("entry_generated_document")),
+                        record.get("processing_date"),
+                        record.get("processing_observations"),
+                        _json_str(record.get("processing_evidences", [])),
+                        _json_str(record.get("processing_generated_document")),
+                        _json_str(record.get("processing_checklists", [])),
                         record.get("exit_date"),
                         record.get("exit_observations"),
                         record.get("work_performed"),
                         _json_str(record.get("exit_evidences", [])),
                         _json_str(record.get("exit_generated_document")),
+                        _json_str(record.get("signature_workflow") or {}),
+                        _json_str(record.get("itop_ticket_summary") or {}),
                         int(bool(record.get("marked_obsolete", False))),
                         record.get("obsolete_notes"),
                         record.get("normalization_act_code"),
