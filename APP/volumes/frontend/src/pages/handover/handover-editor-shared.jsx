@@ -680,6 +680,7 @@ export function HandoverEditorSections({
   assetResults,
   assetSearchQuery,
   setAssetSearchQuery,
+  onSearchAssets = () => {},
   activeTemplates,
   selectedTemplateByAsset,
   setSelectedTemplateByAsset,
@@ -1451,9 +1452,21 @@ export function HandoverEditorSections({
             </div>
           ) : (
           <div className="relative z-0 mb-16">
-            <Field label={assetSearchLabel}>
-              <input type="search" value={assetSearchQuery} onChange={(event) => setAssetSearchQuery(event.target.value)} className={INPUT_CLASS_NAME} placeholder={`${assetSearchPlaceholder} (${minCharsAssets}+ caracteres)`} />
-            </Field>
+            <form
+              className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end"
+              onSubmit={(event) => {
+                event.preventDefault();
+                onSearchAssets();
+              }}
+            >
+              <Field label={assetSearchLabel}>
+                <input type="search" value={assetSearchQuery} onChange={(event) => setAssetSearchQuery(event.target.value)} className={INPUT_CLASS_NAME} placeholder={`${assetSearchPlaceholder} (${minCharsAssets}+ caracteres)`} />
+              </Field>
+              <Button type="submit" variant="secondary" disabled={assetLoading || assetSearchQuery.trim().length < minCharsAssets}>
+                <Icon name="search" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                Buscar
+              </Button>
+            </form>
 
             {assetSearchQuery.trim().length > 0 && assetSearchQuery.trim().length < minCharsAssets ? (
               <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-20">

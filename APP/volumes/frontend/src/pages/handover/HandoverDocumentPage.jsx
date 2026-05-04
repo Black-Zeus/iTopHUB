@@ -314,6 +314,7 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
   const [peopleResults, setPeopleResults] = useState([]);
   const [peopleLoading, setPeopleLoading] = useState(false);
   const [assetSearchQuery, setAssetSearchQuery] = useState("");
+  const [assetSearchRequestId, setAssetSearchRequestId] = useState(0);
   const [assetResults, setAssetResults] = useState([]);
   const [assetLoading, setAssetLoading] = useState(false);
   const [selectedTemplateByAsset, setSelectedTemplateByAsset] = useState({});
@@ -919,7 +920,11 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [assetSearchQuery, effectiveIsAssignedAssetFlow, minCharsAssets]);
+  }, [assetSearchQuery, assetSearchRequestId, effectiveIsAssignedAssetFlow, minCharsAssets]);
+
+  const searchAssetsNow = () => {
+    setAssetSearchRequestId((current) => current + 1);
+  };
 
   const addAssetToForm = (asset, receiverOverride = null) => {
     const resolvedAssignmentResponsible = receiverOverride || (isReassignmentFlow ? sourceResponsible : form.receiver);
@@ -1842,6 +1847,7 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
             assetResults={assetResults}
             assetSearchQuery={assetSearchQuery}
             setAssetSearchQuery={setAssetSearchQuery}
+            onSearchAssets={searchAssetsNow}
             activeTemplates={activeTemplates}
             selectedTemplateByAsset={selectedTemplateByAsset}
             setSelectedTemplateByAsset={setSelectedTemplateByAsset}
