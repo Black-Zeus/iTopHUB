@@ -485,7 +485,7 @@ def _load_asset_summary(connector: iTopCMDBConnector, item):
         ci_class,
         item.id,
         output_fields=(
-            "id,name,friendlyname,finalclass,status,type,asset_number,serialnumber,"
+            "id,name,friendlyname,finalclass,status,asset_number,serialnumber,"
             "brand_id_friendlyname,brand_name,model_id_friendlyname,model_name,"
             "org_id_friendlyname,organization_name,location_id_friendlyname,location_name"
         ),
@@ -494,7 +494,7 @@ def _load_asset_summary(connector: iTopCMDBConnector, item):
 
 
 ASSET_SEARCH_OUTPUT_FIELDS = (
-    "id,name,friendlyname,finalclass,status,type,asset_number,serialnumber,"
+    "id,name,friendlyname,finalclass,status,asset_number,serialnumber,"
     "brand_id_friendlyname,brand_name,model_id_friendlyname,model_name,"
     "org_id_friendlyname,organization_name,location_id_friendlyname,location_name,"
     "end_of_warranty"

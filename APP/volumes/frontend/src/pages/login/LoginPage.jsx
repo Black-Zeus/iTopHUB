@@ -70,7 +70,7 @@ export function LoginPage() {
 
   const [form, setForm] = useState({ username: "", password: "" });
   const [wizardForm, setWizardForm] = useState({
-    integrationUrl: "http://itop",
+    integrationUrl: "",
     username: "",
     password: "",
     tokenValue: "",
@@ -156,7 +156,10 @@ export function LoginPage() {
     }
   };
 
-  const derivedApiUrl = `${(wizardForm.integrationUrl || "").trim().replace(/\/$/, "")}/webservices/rest.php`;
+  const normalizedIntegrationUrl = (wizardForm.integrationUrl || "").trim().replace(/\/$/, "");
+  const derivedApiUrl = normalizedIntegrationUrl
+    ? `${normalizedIntegrationUrl}/webservices/rest.php`
+    : "Se completará cuando indiques la IP o URL base de iTop";
 
   return (
     <main className="relative grid min-h-screen items-center overflow-hidden bg-[linear-gradient(180deg,#d7e2ea_0%,#cedbe4_100%)] px-5 py-4 dark:bg-[linear-gradient(180deg,#0f1821_0%,#14202a_100%)]">
@@ -263,7 +266,7 @@ export function LoginPage() {
                     name="integrationUrl"
                     value={wizardForm.integrationUrl}
                     onChange={setWizardField("integrationUrl")}
-                    placeholder="http://itop"
+                    placeholder="http://192.168.1.50 o http://itop-servidor"
                     required
                     className={wizardInputClass}
                   />
