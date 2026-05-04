@@ -1,12 +1,19 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
-import { CollapseToggleButton, FilterDropdown, Panel } from "../../components/ui/general";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { ActaPublicationModalContent, CollapseToggleButton, FilterDropdown, Panel } from "../../components/ui/general";
 import { ScrollToTopButton } from "../../components/ui/general/ScrollToTopButton";
 import { Icon } from "../../components/ui/icon/Icon";
 import ModalManager from "../../components/ui/modal";
 import { Button } from "../../ui/Button";
 import { useToast } from "../../ui";
 import { searchItopAssets } from "../../services/itop-service";
+import {
+  getItopCurrentUserTeams,
+  getItopRequirementCatalog,
+  getItopTicketDefaults,
+  searchItopTeamPeople,
+  searchItopTeams,
+} from "../../services/itop-service";
 import { cloneTemplate } from "../handover/handover-editor-shared";
 
 import {
@@ -23,8 +30,8 @@ import {
   uploadLabEvidences,
 } from "../../services/lab-service";
 import {
-  LAB_EXIT_FINAL_STATE_OPTIONS,
   LAB_OBSOLETE_EXIT_STATES,
+  LAB_REQUESTED_ACTION_OPTIONS,
   LAB_REASON_OPTIONS,
   createEmptyLabForm,
   createFormFromDetail,
@@ -38,13 +45,98 @@ const SECTION_PANEL_CLASS = "rounded-[var(--radius-md)] border border-[var(--bor
 const CLOSED_STATUSES = [
   "Pendiente firma administrador",
   "Pendiente registro iTop",
-  "Cerrada a stock",
-  "Cerrada por obsolescencia",
+  "Cerrada",
+  "Cerrada con normalizacion",
   "Anulada",
 ];
 
+const PHASE_COLLAPSED_STATE = {
+  entry: { entry: false, processing: true, exit: true },
+  processing: { entry: true, processing: false, exit: true },
+  exit: { entry: true, processing: true, exit: false },
+};
+
+const GENERATED_DOCUMENT_NEXT_PHASE = {
+  entrada: "processing",
+  procesamiento: "exit",
+  salida: "exit",
+};
+
+function normalizeTicketOptions(options = []) {
+  return options
+    .map((option) => ({
+      ...option,
+      value: String(option?.value ?? option?.id ?? "").trim(),
+      label: String(option?.label ?? option?.name ?? option?.person ?? "").trim(),
+    }))
+    .filter((option) => option.value && option.label);
+}
+
+function buildAnalystOption(sessionUser) {
+  const value = String(sessionUser?.itopPersonKey || sessionUser?.itopPersonId || "").trim();
+  const label = String(sessionUser?.name || sessionUser?.username || "").trim();
+  return value && label ? { value, label } : null;
+}
+
+function findCurrentAnalystOption(options = [], sessionUser = null) {
+  const normalizedOptions = normalizeTicketOptions(options);
+  const personKey = String(sessionUser?.itopPersonKey || sessionUser?.itopPersonId || "").trim();
+  if (personKey) {
+    const byKey = normalizedOptions.find((option) => option.value === personKey);
+    if (byKey) return byKey;
+  }
+  const sessionName = String(sessionUser?.name || sessionUser?.username || "").trim().toLowerCase();
+  return normalizedOptions.find((option) => String(option.label || "").trim().toLowerCase() === sessionName) || null;
+}
+
+function normalizeAnalystOptions(items = [], sessionUser = null, allowFallback = false) {
+  const fallback = buildAnalystOption(sessionUser);
+  const normalizedSessionKey = String(sessionUser?.itopPersonKey || sessionUser?.itopPersonId || "").trim();
+  const normalizedSessionName = String(sessionUser?.name || sessionUser?.username || "").trim().toLowerCase();
+  const options = normalizeTicketOptions(items.map((item) => ({
+    ...item,
+    value: item.id,
+    label: item.person || item.name,
+  }))).map((option) => ({
+    ...option,
+    isCurrent: Boolean(
+      (normalizedSessionKey && option.value === normalizedSessionKey)
+      || (normalizedSessionName && String(option.label || "").trim().toLowerCase() === normalizedSessionName)
+    ),
+  }));
+  return options.length ? options : (allowFallback && fallback ? [{ ...fallback, isCurrent: true }] : []);
+}
+
+function buildLabTicketDescription(detail, form) {
+  const requestedActions = (detail?.requestedActionLabels || []).join(", ");
+  const lines = [
+    `Acta: ${detail?.code || ""}`,
+    `Activo: ${[detail?.assetCode, detail?.assetName].filter(Boolean).join(" / ") || "Sin activo"}`,
+    `Motivo principal: ${detail?.reasonLabel || form.reason || "Sin detalle"}`,
+    `Acciones solicitadas: ${requestedActions || "Sin detalle"}`,
+    `Estado base / condicion: ${form.entryConditionNotes || "Sin detalle"}`,
+    `Observaciones de ingreso: ${form.entryObservations || "Sin observaciones"}`,
+    `Notas recibidas: ${form.entryReceivedNotes || "Sin notas"}`,
+    `Observaciones de ejecucion: ${form.processingObservations || "Sin observaciones"}`,
+    `Trabajo realizado: ${form.workPerformed || "Sin detalle"}`,
+    `Observaciones de cierre: ${form.exitObservations || "Sin observaciones"}`,
+  ];
+  if (form.exitFinalState && form.exitFinalState !== "no_change") {
+    lines.push(`Derivacion a normalizacion: cambio de estado CMDB a ${form.exitFinalState}.`);
+    if (form.normalizationActCode) {
+      lines.push(`Acta de normalizacion asociada: ${form.normalizationActCode}.`);
+    }
+    if (form.obsoleteNotes) {
+      lines.push(`Justificacion: ${form.obsoleteNotes}`);
+    }
+  }
+  return lines.join("\n");
+}
+
 function renderReasonDropdownSelection({ label, selectedOptions }) {
-  const selected = selectedOptions[0] || null;
+  const selectedLabel = selectedOptions.length > 1
+    ? `${selectedOptions.length} seleccionadas`
+    : selectedOptions[0]?.label;
   return (
     <span className="flex min-w-0 items-center gap-3">
       <span className="min-w-0 flex-1">
@@ -52,7 +144,7 @@ function renderReasonDropdownSelection({ label, selectedOptions }) {
           {label}
         </span>
         <span className="mt-1 block truncate text-sm font-semibold text-[var(--text-primary)]">
-          {selected?.label || "Selecciona un motivo"}
+          {selectedLabel || "Selecciona una opcion"}
         </span>
       </span>
     </span>
@@ -525,6 +617,7 @@ function DocumentPreviewModal({ recordId, document, onClose }) {
 export function LabDocumentPage() {
   const navigate = useNavigate();
   const { slug } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { add: showToast } = useToast();
 
   const isNew = slug === "new";
@@ -532,6 +625,7 @@ export function LabDocumentPage() {
   const entryUploaderRef = useRef(null);
   const processingUploaderRef = useRef(null);
   const exitUploaderRef = useRef(null);
+  const autoTicketOpenedRef = useRef(false);
 
   const [bootstrap, setBootstrap] = useState(null);
   const [detail, setDetail] = useState(null);
@@ -581,11 +675,7 @@ export function LabDocumentPage() {
           if (rec) {
             setDetail(rec);
             setForm(createFormFromDetail(rec));
-            setCollapsedPhases({
-              entry: false,
-              processing: !(rec.processingDate || rec.processingChecklists?.length),
-              exit: !rec.exitDate,
-            });
+            setCollapsedPhases(PHASE_COLLAPSED_STATE[rec.currentPhase] || PHASE_COLLAPSED_STATE.entry);
           } else {
             setForm(createEmptyLabForm(boot));
           }
@@ -631,6 +721,9 @@ export function LabDocumentPage() {
 
   const minCharsAssets = bootstrap?.searchHints?.minCharsAssets || 2;
   const checklistTemplates = bootstrap?.checklistTemplates || [];
+  const exitFinalStateOptions = bootstrap?.exitFinalStateOptions?.length
+    ? bootstrap.exitFinalStateOptions
+    : [{ value: "no_change", label: "Sin modificar CMDB" }];
 
   function addChecklist() {
     if (!selectedChecklistTemplateId) return;
@@ -806,32 +899,157 @@ export function LabDocumentPage() {
     }
   }
 
-  async function handleFinalizeItop() {
-    const confirmed = await ModalManager.confirm({
-      title: "Registrar en iTop",
-      message: `¿Registrar el acta ${detail?.code} en iTop?`,
-      content: "Se creará un ticket UserRequest en iTop con todos los PDFs adjuntos y el activo vinculado. El acta pasará a estado cerrado.",
-      buttons: { cancel: "Cancelar", confirm: "Registrar en iTop" },
+  function buildLabRequesterOptions(sourceDetail = detail) {
+    const options = [];
+    const append = ({ value, label, roleLabel }) => {
+      const normalizedValue = String(value || "").trim();
+      const normalizedLabel = String(label || "").trim();
+      if (!normalizedValue || !normalizedLabel || options.some((option) => option.value === normalizedValue)) return;
+      options.push({ value: normalizedValue, label: normalizedLabel, roleLabel });
+    };
+    append({
+      value: sourceDetail?.requesterAdmin?.itopPersonKey,
+      label: sourceDetail?.requesterAdmin?.name,
+      roleLabel: "Administrador responsable",
     });
-    if (!confirmed) return;
-    setFinalizingItop(true);
+    append({
+      value: bootstrap?.currentUser?.itopPersonKey,
+      label: bootstrap?.currentUser?.name,
+      roleLabel: "Usuario conectado",
+    });
+    return options;
+  }
+
+  function buildLabPublicationDocuments(sourceDetail = detail) {
+    return [
+      { documentType: "Recepcion", document: sourceDetail?.entryGeneratedDocument },
+      { documentType: "Analisis/procesamiento", document: sourceDetail?.processingGeneratedDocument },
+      { documentType: "Cierre", document: sourceDetail?.exitGeneratedDocument },
+    ].filter((item) => item.document?.storedName).map((item, index) => ({
+      id: item.document.storedName || `lab-doc-${index}`,
+      name: item.document.filename || item.document.storedName,
+      documentType: item.documentType,
+      uploadedAt: item.document.generatedAt || "",
+      origin: "generated",
+      iconName: "fileLines",
+      isAvailable: true,
+      payload: item.document,
+    }));
+  }
+
+  async function openLabTicketPublicationFlow(sourceDetail, onSuccess) {
+    const loadingModalId = ModalManager.loading({
+      title: "Preparando ticket iTop",
+      message: "Cargando configuracion, catalogos y grupos del usuario conectado...",
+      showProgress: false,
+      showCancel: false,
+    });
     try {
-      const result = await finalizeLabClosure(Number(slug));
-      if (result) {
-        setDetail(result);
-        setForm(createFormFromDetail(result));
+      const [ticketConfig, catalogPayload, teamsPayload] = await Promise.all([
+        getItopTicketDefaults(),
+        getItopRequirementCatalog(),
+        getItopCurrentUserTeams(),
+      ]);
+      ModalManager.close(loadingModalId);
+
+      const requesterOptions = buildLabRequesterOptions(sourceDetail);
+      if (!requesterOptions.length) {
+        throw new Error("No hay solicitante iTop disponible. Selecciona un administrador con persona iTop asociada o registra tu persona iTop antes de cerrar.");
       }
-      showToast({ title: "Acta registrada en iTop correctamente.", tone: "success" });
+
+      const fallbackTeams = (teamsPayload.items || []).length ? [] : await searchItopTeams({ query: "" });
+      const groupOptions = normalizeTicketOptions((teamsPayload.items || []).length ? teamsPayload.items : fallbackTeams);
+      const initialGroupId = groupOptions.length === 1 ? groupOptions[0].value : "";
+      const initialGroupAnalysts = initialGroupId ? await searchItopTeamPeople({ teamId: initialGroupId }) : [];
+      const analystOptions = normalizeAnalystOptions(initialGroupAnalysts, teamsPayload.sessionUser, Boolean(initialGroupId));
+      const analystOption = findCurrentAnalystOption(analystOptions, teamsPayload.sessionUser) || (analystOptions.length === 1 ? analystOptions[0] : null);
+      const currentAnalystOption = buildAnalystOption(teamsPayload.sessionUser);
+      const selectedRequester = requesterOptions[0];
+      const documents = buildLabPublicationDocuments(sourceDetail);
+      let publicationModalId = null;
+
+      publicationModalId = ModalManager.custom({
+        title: `Registrar en iTop ${sourceDetail?.code || ""}`.trim(),
+        size: "personDetail",
+        showFooter: false,
+        closeOnOverlayClick: false,
+        closeOnEscape: false,
+        content: (
+          <ActaPublicationModalContent
+            initialValues={{
+              actaType: "Laboratorio",
+              requesterId: selectedRequester.value,
+              requester: selectedRequester.label,
+              groupId: initialGroupId,
+              groupName: initialGroupId ? groupOptions[0].label : "",
+              analystId: analystOption?.value || "",
+              analystName: analystOption?.label || "",
+              subject: ticketConfig.requirementSubject || `Acta laboratorio ${sourceDetail?.code || ""}`.trim(),
+              description: buildLabTicketDescription(sourceDetail, form),
+              origin: ticketConfig.requirementOrigin || "",
+              impact: ticketConfig.requirementImpact || "",
+              urgency: ticketConfig.requirementUrgency || "",
+              priority: ticketConfig.requirementPriority || "",
+              category: ticketConfig.requirementServiceId || "",
+              subcategory: ticketConfig.requirementServiceSubcategoryId || "",
+            }}
+            options={{
+              requesterOptions,
+              originOptions: catalogPayload.origins || [],
+              impactOptions: catalogPayload.impacts || [],
+              urgencyOptions: catalogPayload.urgencies || [],
+              priorityOptions: catalogPayload.priorities || [],
+              categoryOptions: catalogPayload.services || [],
+              subcategoryOptions: catalogPayload.serviceSubcategories || [],
+              groupOptions,
+              analystOptions,
+              currentAnalystOption,
+            }}
+            documents={documents}
+            onLoadAnalystOptions={async (teamId) => normalizeAnalystOptions(await searchItopTeamPeople({ teamId }), teamsPayload.sessionUser, Boolean(teamId))}
+            onPreviewDocument={(document) => {
+              if (document?.payload) handleViewDocument(document.payload);
+            }}
+            submitLabel="Registrar en iTop"
+            submittingLabel="Registrando..."
+            onCancel={() => ModalManager.close(publicationModalId)}
+            onSubmit={async (ticketPayload) => {
+              ModalManager.close(publicationModalId);
+              await onSuccess(ticketPayload);
+            }}
+          />
+        ),
+      });
+    } catch (prepareError) {
+      ModalManager.close(loadingModalId);
+      throw prepareError;
+    }
+  }
+
+  async function handleFinalizeItop() {
+    try {
+      const refreshed = await getLabRecord(slug).then((response) => response?.item || detail);
+      await openLabTicketPublicationFlow(refreshed, async (ticketPayload) => {
+        setFinalizingItop(true);
+        try {
+          const result = await finalizeLabClosure(Number(slug), ticketPayload);
+          if (result) {
+            setDetail(result);
+            setForm(createFormFromDetail(result));
+          }
+          showToast({ title: "Acta registrada en iTop correctamente.", tone: "success" });
+        } finally {
+          setFinalizingItop(false);
+        }
+      });
     } catch (err) {
       showToast({ title: err.message || "No fue posible registrar el acta en iTop.", tone: "danger" });
-    } finally {
-      setFinalizingItop(false);
     }
   }
 
   async function handleRollbackPhase(phase) {
-    const phaseLabel = { entry: "entrada", processing: "procesamiento", exit: "salida" }[phase] || phase;
-    const downstream = { entry: "procesamiento y salida", processing: "salida", exit: "" }[phase] || "";
+    const phaseLabel = { entry: "recepcion", processing: "analisis/procesamiento", exit: "cierre" }[phase] || phase;
+    const downstream = { entry: "analisis/procesamiento y cierre", processing: "cierre", exit: "" }[phase] || "";
     const confirmed = await ModalManager.confirm({
       title: `Revertir fase de ${phaseLabel}`,
       message: `Se eliminará el acta de ${phaseLabel} y todos sus datos.`,
@@ -872,19 +1090,21 @@ export function LabDocumentPage() {
     const isExpanding = collapsedPhases[phase];
     if (isExpanding) {
       if (phase === "processing" && !form.entryGeneratedDocument) {
-        showToast({ title: "Genera primero el acta de entrada para habilitar el procesamiento.", tone: "danger" });
+        showToast({ title: "Genera primero el acta de recepcion para habilitar el analisis/procesamiento.", tone: "danger" });
         return;
       }
       if (phase === "exit" && !form.processingGeneratedDocument) {
-        showToast({ title: "Genera primero el acta de procesamiento para habilitar la fase de salida.", tone: "danger" });
+        showToast({ title: "Genera primero el acta de analisis/procesamiento para habilitar el cierre.", tone: "danger" });
         return;
       }
+      setCollapsedPhases(PHASE_COLLAPSED_STATE[phase] || PHASE_COLLAPSED_STATE.entry);
+      return;
     }
-    setCollapsedPhases((prev) => ({ ...prev, [phase]: !prev[phase] }));
+    setCollapsedPhases((prev) => ({ ...prev, [phase]: true }));
   }
 
   async function handleGenerateDocument(phase, setGenerating, { alreadyHasDoc = false } = {}) {
-    const phaseLabel = { entrada: "entrada", procesamiento: "procesamiento", salida: "salida" }[phase] || phase;
+    const phaseLabel = { entrada: "recepcion", procesamiento: "analisis/procesamiento", salida: "cierre" }[phase] || phase;
     if (alreadyHasDoc) {
       const confirmed = await ModalManager.confirm({
         title: `Regenerar acta de ${phaseLabel}`,
@@ -911,6 +1131,8 @@ export function LabDocumentPage() {
       if (result?.record) {
         setDetail(result.record);
         setForm(createFormFromDetail(result.record));
+        const nextPhase = GENERATED_DOCUMENT_NEXT_PHASE[phase] || result.record.currentPhase || "entry";
+        setCollapsedPhases(PHASE_COLLAPSED_STATE[nextPhase] || PHASE_COLLAPSED_STATE.entry);
         showToast({ title: `Acta de ${phaseLabel} generada correctamente.`, tone: "success" });
         if (isNew) navigate(`/lab/${targetId}`, { replace: true });
       }
@@ -979,6 +1201,9 @@ export function LabDocumentPage() {
   const isProcessingPhaseEnabled = hasEntryDoc;
   const isExitPhaseEnabled = hasProcessingDoc;
 
+  const entrySignatureStatus = detail?.signatureStates?.entry?.status || "";
+  const processingSignatureStatus = detail?.signatureStates?.processing?.status || "";
+  const exitSignatureStatus = detail?.signatureStates?.exit?.status || "";
   const adminSignatureStatus = detail?.signatureStates?.adminApproval?.status || "";
   const isObsoleteExit = LAB_OBSOLETE_EXIT_STATES.has(form.exitFinalState);
 
@@ -989,12 +1214,25 @@ export function LabDocumentPage() {
   const exitLocked = hasExitDoc;
 
   const isReadOnly = isGlobalReadOnly;
-  const isCancellable = !isNew && detail && !["Anulada", "Cerrada a stock", "Cerrada por obsolescencia"].includes(detail.status);
+  const isCancellable = !isNew && detail && !["Anulada", "Cerrada", "Cerrada con normalizacion"].includes(detail.status);
   const isPendingItop = statusCode === "pending_itop_sync";
   const isCompleted = ["completed_return_to_stock", "completed_obsolete"].includes(statusCode);
   const itopTicket = form.itopTicket || detail?.itopTicket || null;
   const canOpenQr = detail?.canOpenQr !== false;
   const adminOptions = bootstrap?.adminOptions || [];
+
+  useEffect(() => {
+    if (isNew || loading || autoTicketOpenedRef.current || searchParams.get("ticket") !== "1") {
+      return;
+    }
+    if (statusCode !== "pending_itop_sync") {
+      setSearchParams({}, { replace: true });
+      return;
+    }
+    autoTicketOpenedRef.current = true;
+    setSearchParams({}, { replace: true });
+    handleFinalizeItop();
+  }, [isNew, loading, searchParams, setSearchParams, statusCode]);
 
   if (loading) {
     return (
@@ -1074,7 +1312,7 @@ export function LabDocumentPage() {
         <SectionPanel eyebrow="Siguiente paso" title="Registrar acta en iTop" accent="itop">
           <div className="grid gap-4">
             <p className="text-sm text-[var(--text-secondary)]">
-              Todas las fases están firmadas. El siguiente paso es registrar esta acta en iTop como UserRequest, adjuntando los PDFs generados y vinculando el activo.
+              Todas las fases están listas. El siguiente paso es registrar esta acta en iTop como UserRequest, adjuntando los PDFs generados y vinculando el activo solo para trazabilidad.
             </p>
             <div className="flex flex-wrap items-center gap-3">
               <Button
@@ -1095,7 +1333,7 @@ export function LabDocumentPage() {
                 )}
               </Button>
               <p className="text-xs text-[var(--text-muted)]">
-                Se creará un ticket UserRequest con los documentos de las 3 fases adjuntos.
+                No se modificará estado, asignación ni locación del activo desde este registro.
               </p>
             </div>
           </div>
@@ -1157,7 +1395,7 @@ export function LabDocumentPage() {
                 </div>
               </div>
             ) : (
-              <div className="relative z-10">
+              <div className="relative z-20 mb-16">
                 <input
                   type="search"
                   value={assetSearchQuery}
@@ -1167,11 +1405,11 @@ export function LabDocumentPage() {
                   className={INPUT_CLASS}
                 />
                 {assetSearchQuery.trim().length > 0 && assetSearchQuery.trim().length < minCharsAssets ? (
-                  <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)]">
+                  <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-20">
                     <MessageBanner>Ingresa al menos {minCharsAssets} caracteres para buscar activos en CMDB.</MessageBanner>
                   </div>
                 ) : assetResults.length > 0 ? (
-                  <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] max-h-[min(320px,calc(100vh-12rem))] overflow-y-auto rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-2 shadow-[var(--shadow-soft)]">
+                  <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-20 max-h-[min(320px,calc(100vh-12rem))] overflow-y-auto rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-2 shadow-[var(--shadow-soft)]">
                     <div className="grid gap-3">
                       {assetResults.map((asset) => (
                         <AssetResultCard
@@ -1183,7 +1421,7 @@ export function LabDocumentPage() {
                     </div>
                   </div>
                 ) : assetLoading ? (
-                  <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)]">
+                  <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-20">
                     <MessageBanner>Buscando activos en CMDB...</MessageBanner>
                   </div>
                 ) : null}
@@ -1207,7 +1445,7 @@ export function LabDocumentPage() {
                 options={LAB_REASON_OPTIONS}
                 selectionMode="single"
                 onToggleOption={(value) => setField("reason", value)}
-                onClear={() => setField("reason", "maintenance")}
+                onClear={() => setField("reason", "incident")}
                 disabled={isGlobalReadOnly || entryLocked}
                 title="Seleccionar motivo de ingreso"
                 description="Selecciona el motivo por el cual el activo ingresa al laboratorio."
@@ -1228,7 +1466,7 @@ export function LabDocumentPage() {
               <FilterDropdown
                 label="Acciones solicitadas"
                 selectedValues={form.requestedActions || []}
-                options={LAB_REASON_OPTIONS}
+                options={LAB_REQUESTED_ACTION_OPTIONS}
                 selectionMode="multiple"
                 onToggleOption={(value) => {
                   const exists = (form.requestedActions || []).includes(value);
@@ -1239,7 +1477,7 @@ export function LabDocumentPage() {
                       : [...(form.requestedActions || []), value]
                   );
                 }}
-                onClear={() => setField("requestedActions", form.reason ? [form.reason] : [])}
+                onClear={() => setField("requestedActions", [])}
                 disabled={isGlobalReadOnly || entryLocked}
                 title="Seleccionar acciones"
                 description="Selecciona una o más acciones asociadas al ingreso de este equipo."
@@ -1262,7 +1500,7 @@ export function LabDocumentPage() {
       {/* FASE DE ENTRADA */}
       <PhasePanel
         eyebrow="Fase 1"
-        title="Acta de entrada"
+        title="Acta de recepcion"
         accent="entry"
         isCollapsed={collapsedPhases.entry}
         onToggle={() => handlePhaseToggle("entry")}
@@ -1272,9 +1510,9 @@ export function LabDocumentPage() {
           {hasEntryDoc && (
             <div className="flex flex-wrap items-center justify-between gap-3">
               <MessageBanner type="success">
-                Acta de entrada generada.{" "}
+                Acta de recepcion generada.{" "}
                 <button type="button" className="font-semibold underline" onClick={() => handleViewDocument(form.entryGeneratedDocument)}>
-                  Ver acta de entrada
+                  Ver acta de recepcion
                 </button>
                 {entryLocked && !isGlobalReadOnly && (
                   <span className="ml-2 text-xs text-[var(--text-muted)]">— fase bloqueada.</span>
@@ -1288,7 +1526,7 @@ export function LabDocumentPage() {
                   className="border-[rgba(210,138,138,0.4)] text-[var(--danger)] hover:bg-[rgba(210,138,138,0.08)]"
                 >
                   <Icon name="undo" size={12} className="mr-1" />
-                  Revertir entrada
+                  Revertir recepcion
                 </Button>
               )}
             </div>
@@ -1341,7 +1579,7 @@ export function LabDocumentPage() {
             </Field>
           </div>
 
-          <Field label="Evidencias de entrada" helper="Imagenes del estado del equipo al ingresar (jpg, jpeg, png).">
+          <Field label="Evidencias de recepcion" helper="Imagenes del estado del equipo al ingresar (jpg, jpeg, png).">
             <EvidenceUploader
               ref={entryUploaderRef}
               evidences={form.entryEvidences}
@@ -1365,7 +1603,7 @@ export function LabDocumentPage() {
                     <span className="mr-2 h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
                     Generando...
                   </>
-                ) : "Confirmar entrada y generar acta"}
+                ) : "Confirmar recepcion y generar acta"}
               </Button>
               {isNew && <p className="text-xs text-[var(--text-muted)]">Guarda el acta primero para poder generar documentos.</p>}
               {!isNew && !form.entryDate && <p className="text-xs text-[var(--text-muted)]">Ingresa la fecha de ingreso para habilitar este boton.</p>}
@@ -1377,7 +1615,7 @@ export function LabDocumentPage() {
       {/* FASE DE PROCESAMIENTO */}
       <PhasePanel
         eyebrow="Fase 2"
-        title="Acta de procesamiento"
+        title="Acta de analisis/procesamiento"
         accent="processing"
         isCollapsed={collapsedPhases.processing}
         onToggle={() => handlePhaseToggle("processing")}
@@ -1385,16 +1623,16 @@ export function LabDocumentPage() {
       >
         {!isProcessingPhaseEnabled ? (
           <MessageBanner type="info">
-            Genera el acta de entrada para habilitar la fase de procesamiento.
+            Genera el acta de recepcion para habilitar la fase de analisis/procesamiento.
           </MessageBanner>
         ) : (
           <div className="grid gap-5">
             {hasProcessingDoc && (
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <MessageBanner type="success">
-                  Acta de procesamiento generada.{" "}
+                  Acta de analisis/procesamiento generada.{" "}
                   <button type="button" className="font-semibold underline" onClick={() => handleViewDocument(form.processingGeneratedDocument)}>
-                    Ver acta de procesamiento
+                    Ver acta de analisis/procesamiento
                   </button>
                   {processingLocked && !isGlobalReadOnly && (
                     <span className="ml-2 text-xs text-[var(--text-muted)]">— fase bloqueada.</span>
@@ -1408,14 +1646,14 @@ export function LabDocumentPage() {
                     className="border-[rgba(210,138,138,0.4)] text-[var(--danger)] hover:bg-[rgba(210,138,138,0.08)]"
                   >
                     <Icon name="undo" size={12} className="mr-1" />
-                    Revertir procesamiento
+                    Revertir analisis/procesamiento
                   </Button>
                 )}
               </div>
             )}
 
-            <div className="grid gap-5 md:grid-cols-2">
-              <Field label="Fecha de procesamiento">
+            <div className="grid gap-5 md:grid-cols-2 md:items-start">
+              <Field label="Fecha de analisis/procesamiento">
                 <input
                   type="date"
                   value={form.processingDate}
@@ -1426,7 +1664,7 @@ export function LabDocumentPage() {
               </Field>
             </div>
 
-            <Field label="Observaciones de procesamiento" helper="Describe el proceso realizado, condiciones del entorno y hallazgos intermedios.">
+            <Field label="Observaciones de analisis/procesamiento" helper="Describe el proceso realizado, condiciones del entorno y hallazgos intermedios.">
               <textarea
                 rows={4}
                 value={form.processingObservations}
@@ -1513,7 +1751,7 @@ export function LabDocumentPage() {
               )}
             </div>
 
-            <Field label="Evidencias de procesamiento" helper="Imagenes del proceso realizado (jpg, jpeg, png).">
+            <Field label="Evidencias de analisis/procesamiento" helper="Imagenes del proceso realizado (jpg, jpeg, png).">
               <EvidenceUploader
                 ref={processingUploaderRef}
                 evidences={form.processingEvidences}
@@ -1534,9 +1772,9 @@ export function LabDocumentPage() {
                 >
                   {generatingProcessing ? (
                     <><span className="mr-2 h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />Generando...</>
-                  ) : "Confirmar procesamiento y generar acta"}
+                  ) : "Confirmar analisis/procesamiento y generar acta"}
                 </Button>
-                {!form.processingDate && <p className="text-xs text-[var(--text-muted)]">Ingresa la fecha de procesamiento para habilitar este boton.</p>}
+                {!form.processingDate && <p className="text-xs text-[var(--text-muted)]">Ingresa la fecha de analisis/procesamiento para habilitar este boton.</p>}
               </div>
             )}
           </div>
@@ -1546,7 +1784,7 @@ export function LabDocumentPage() {
       {/* FASE DE SALIDA */}
       <PhasePanel
         eyebrow="Fase 3"
-        title="Acta de salida"
+        title="Acta de cierre"
         accent="exit"
         isCollapsed={collapsedPhases.exit}
         onToggle={() => handlePhaseToggle("exit")}
@@ -1554,16 +1792,16 @@ export function LabDocumentPage() {
       >
         {!isExitPhaseEnabled ? (
           <MessageBanner type="info">
-            Genera el acta de procesamiento para habilitar la fase de salida.
+            Genera el acta de analisis/procesamiento para habilitar el cierre.
           </MessageBanner>
         ) : (
           <div className="grid gap-5">
             {hasExitDoc && (
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <MessageBanner type="success">
-                  Acta de salida generada.{" "}
+                  Acta de cierre generada.{" "}
                   <button type="button" className="font-semibold underline" onClick={() => handleViewDocument(form.exitGeneratedDocument)}>
-                    Ver acta de salida
+                    Ver acta de cierre
                   </button>
                   {exitLocked && !isGlobalReadOnly && (
                     <span className="ml-2 text-xs text-[var(--text-muted)]">— fase bloqueada.</span>
@@ -1577,14 +1815,14 @@ export function LabDocumentPage() {
                     className="border-[rgba(210,138,138,0.4)] text-[var(--danger)] hover:bg-[rgba(210,138,138,0.08)]"
                   >
                     <Icon name="undo" size={12} className="mr-1" />
-                    Revertir salida
+                    Revertir cierre
                   </Button>
                 )}
               </div>
             )}
 
-            <div className="grid gap-5 md:grid-cols-2">
-              <Field label="Fecha de salida de laboratorio">
+            <div className="grid gap-5 md:grid-cols-2 md:items-start">
+              <Field label="Fecha de cierre de laboratorio">
                 <input
                   type="date"
                   value={form.exitDate}
@@ -1594,15 +1832,15 @@ export function LabDocumentPage() {
                 />
               </Field>
 
-              <Field label="Estado final del activo" helper="Estado al que pasará el activo en iTop al cerrar el acta.">
+              <Field label="Derivación CMDB">
                 <select
                   value={form.exitFinalState}
                   onChange={(e) => setField("exitFinalState", e.target.value)}
                   disabled={isGlobalReadOnly || exitLocked}
                   className={`${INPUT_CLASS} cursor-pointer`}
                 >
-                  <option value="">Selecciona el estado final...</option>
-                  {LAB_EXIT_FINAL_STATE_OPTIONS.map((opt) => (
+                  <option value="">Selecciona cómo cerrar...</option>
+                  {exitFinalStateOptions.map((opt) => (
                     <option key={opt.value} value={opt.value}>{opt.label}</option>
                   ))}
                 </select>
@@ -1620,7 +1858,7 @@ export function LabDocumentPage() {
               />
             </Field>
 
-            <Field label="Observaciones de salida" helper="Estado final del equipo, resultado del trabajo y cualquier observacion relevante.">
+            <Field label="Observaciones de cierre" helper="Estado final del equipo, resultado del trabajo y cualquier observacion relevante.">
               <textarea
                 rows={3}
                 value={form.exitObservations}
@@ -1631,7 +1869,7 @@ export function LabDocumentPage() {
               />
             </Field>
 
-            <Field label="Evidencias de salida" helper="Imagenes del estado del equipo al egresar (jpg, jpeg, png).">
+            <Field label="Evidencias de cierre" helper="Imagenes del estado del equipo al egresar (jpg, jpeg, png).">
               <EvidenceUploader
                 ref={exitUploaderRef}
                 evidences={form.exitEvidences}
@@ -1643,7 +1881,7 @@ export function LabDocumentPage() {
               />
             </Field>
 
-            {/* Admin approval — solo cuando estado obsolete/disposed */}
+            {/* Admin approval — solo cuando estado obsolete */}
             {isObsoleteExit && (
               <div className="rounded-[14px] border border-[rgba(210,138,138,0.3)] bg-[rgba(210,138,138,0.06)] p-4 grid gap-3">
                 <p className="text-sm font-semibold text-[var(--danger)]">
@@ -1734,11 +1972,11 @@ export function LabDocumentPage() {
                 >
                   {generatingExit ? (
                     <><span className="mr-2 h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />Generando...</>
-                  ) : "Confirmar salida y generar acta"}
+                  ) : "Confirmar cierre y generar acta"}
                 </Button>
                 {(!form.exitDate || !form.workPerformed.trim() || !form.exitFinalState) && (
                   <p className="text-xs text-[var(--text-muted)]">
-                    {!form.exitDate ? "Ingresa la fecha de salida." : !form.exitFinalState ? "Selecciona el estado final del activo." : "Completa el campo «Trabajo realizado»."}
+                    {!form.exitDate ? "Ingresa la fecha de cierre." : !form.exitFinalState ? "Selecciona si corresponde derivación CMDB." : "Completa el campo «Trabajo realizado»."}
                   </p>
                 )}
               </div>
@@ -1761,7 +1999,7 @@ export function LabDocumentPage() {
                   <Icon name="fileLines" size={16} />
                 </span>
                 <div className="min-w-0">
-                  <p className="text-xs font-semibold uppercase tracking-[0.06em] text-[var(--text-muted)]">Acta de entrada</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.06em] text-[var(--text-muted)]">Acta de recepcion</p>
                   <p className="mt-0.5 truncate text-sm font-semibold text-[var(--text-primary)]">{form.entryGeneratedDocument?.filename || "entrada.pdf"}</p>
                   {entrySignatureStatus && <SignatureBadge status={entrySignatureStatus} />}
                 </div>
@@ -1777,7 +2015,7 @@ export function LabDocumentPage() {
                   <Icon name="fileLines" size={16} />
                 </span>
                 <div className="min-w-0">
-                  <p className="text-xs font-semibold uppercase tracking-[0.06em] text-[var(--text-muted)]">Acta de procesamiento</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.06em] text-[var(--text-muted)]">Acta de analisis/procesamiento</p>
                   <p className="mt-0.5 truncate text-sm font-semibold text-[var(--text-primary)]">{form.processingGeneratedDocument?.filename || "procesamiento.pdf"}</p>
                   {processingSignatureStatus && <SignatureBadge status={processingSignatureStatus} />}
                 </div>
@@ -1793,7 +2031,7 @@ export function LabDocumentPage() {
                   <Icon name="fileLines" size={16} />
                 </span>
                 <div className="min-w-0">
-                  <p className="text-xs font-semibold uppercase tracking-[0.06em] text-[var(--text-muted)]">Acta de salida</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.06em] text-[var(--text-muted)]">Acta de cierre</p>
                   <p className="mt-0.5 truncate text-sm font-semibold text-[var(--text-primary)]">{form.exitGeneratedDocument?.filename || "salida.pdf"}</p>
                   {exitSignatureStatus && <SignatureBadge status={exitSignatureStatus} />}
                 </div>

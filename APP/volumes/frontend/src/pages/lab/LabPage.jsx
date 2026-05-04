@@ -10,7 +10,6 @@ import { useToast } from "../../ui";
 import {
   cancelLabRecord,
   fetchLabDocumentBlob,
-  finalizeLabClosure,
   listLabRecords,
 } from "../../services/lab-service";
 import { openLabQrModal } from "./LabSignatureQrModal";
@@ -286,33 +285,8 @@ export function LabPage() {
     }
   };
 
-  const handleFinalizeItop = async (row) => {
-    const confirmed = await ModalManager.confirm({
-      title: "Registrar en iTop",
-      message: `¿Registrar el acta ${row.code} en iTop?`,
-      content: "Se creará un ticket UserRequest en iTop con todos los PDFs adjuntos y el activo vinculado.",
-      buttons: { cancel: "Cancelar", confirm: "Registrar en iTop" },
-    });
-    if (!confirmed) return;
-
-    const itopLoadingId = ModalManager.loading({
-      title: "Registrando en iTop",
-      message: `Sincronizando acta ${row.code} con iTop...`,
-      showProgress: false,
-      showCancel: false,
-    });
-    try {
-      await finalizeLabClosure(row.id);
-      add({ title: "Registrado en iTop", description: `El acta ${row.code} fue sincronizada con iTop correctamente.`, tone: "success" });
-      await loadRecords(filters);
-    } catch (itopError) {
-      ModalManager.error({
-        title: "No fue posible registrar en iTop",
-        message: itopError.message || "Ocurrió un error al intentar sincronizar el acta con iTop.",
-      });
-    } finally {
-      ModalManager.close(itopLoadingId);
-    }
+  const handleFinalizeItop = (row) => {
+    navigate(`/lab/${row.id}?ticket=1`);
   };
 
   const actionButtonClassName =
@@ -442,8 +416,8 @@ export function LabPage() {
                     className={`${actionButtonClassName}${action.danger ? " text-[var(--danger)] hover:border-[rgba(210,138,138,0.4)] hover:bg-[rgba(210,138,138,0.08)]" : ""}`}
                     onClick={action.onClick}
                   >
-                    <Icon name={action.icon} size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                    {action.label}
+                    <Icon name={action.key === "itop" ? "fileLines" : action.icon} size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    {action.key === "itop" ? "Ticket" : action.label}
                   </Button>
                 ))}
               </div>

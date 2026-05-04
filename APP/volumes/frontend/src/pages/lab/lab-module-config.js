@@ -1,19 +1,26 @@
 export const LAB_REASON_OPTIONS = [
-  { value: "maintenance", label: "Mantenimiento" },
-  { value: "cleaning", label: "Limpieza" },
-  { value: "backup", label: "Respaldo" },
-  { value: "virus_analysis", label: "Analisis de virus" },
-  { value: "full_reset", label: "Reinicio completo" },
-  { value: "warranty_referral", label: "Derivado a garantia" },
-  { value: "donation_format", label: "Formateo para donacion" },
-  { value: "retirement_format", label: "Formateo para baja" },
-  { value: "hardware_analysis", label: "Analisis de hardware" },
-  { value: "hardware_repair", label: "Reparacion de hardware" },
-  { value: "software_update", label: "Actualizacion de software" },
-  { value: "functional_verification", label: "Verificacion funcional" },
-  { value: "reinstallation", label: "Reinstalacion" },
-  { value: "diagnosis", label: "Diagnostico" },
+  { value: "incident", label: "Incidente o falla reportada" },
+  { value: "preventive", label: "Mantencion preventiva" },
+  { value: "corrective", label: "Mantencion correctiva" },
+  { value: "warranty", label: "Revision por garantia" },
+  { value: "preparation", label: "Preparacion operacional" },
+  { value: "decommission", label: "Preparacion para baja" },
   { value: "other", label: "Otro procedimiento" },
+];
+
+export const LAB_REQUESTED_ACTION_OPTIONS = [
+  { value: "diagnose", label: "Diagnosticar falla" },
+  { value: "inspect_hardware", label: "Revisar hardware" },
+  { value: "repair_hardware", label: "Reparar hardware" },
+  { value: "clean_equipment", label: "Limpiar equipo" },
+  { value: "backup_data", label: "Respaldar informacion" },
+  { value: "scan_malware", label: "Analizar malware" },
+  { value: "reset_os", label: "Reinstalar o restaurar sistema" },
+  { value: "update_software", label: "Actualizar software" },
+  { value: "functional_test", label: "Verificar funcionamiento" },
+  { value: "prepare_warranty", label: "Preparar derivacion a garantia" },
+  { value: "prepare_decommission", label: "Preparar para baja" },
+  { value: "other", label: "Otra accion tecnica" },
 ];
 
 export const LAB_STATUS_OPTIONS = [
@@ -22,8 +29,8 @@ export const LAB_STATUS_OPTIONS = [
   { value: "ready_for_closure", label: "Lista para cierre" },
   { value: "pending_admin_signature", label: "Pendiente firma administrador" },
   { value: "pending_itop_sync", label: "Pendiente registro iTop" },
-  { value: "completed_return_to_stock", label: "Cerrada a stock" },
-  { value: "completed_obsolete", label: "Cerrada por obsolescencia" },
+  { value: "completed_return_to_stock", label: "Cerrada" },
+  { value: "completed_obsolete", label: "Cerrada con normalizacion" },
   { value: "cancelled", label: "Anulada" },
 ];
 
@@ -33,33 +40,30 @@ export const LAB_STATUS_UI_MAP = {
   "Lista para cierre": { tone: "default", db: "ready_for_closure" },
   "Pendiente firma administrador": { tone: "danger", db: "pending_admin_signature" },
   "Pendiente registro iTop": { tone: "warning", db: "pending_itop_sync" },
-  "Cerrada a stock": { tone: "success", db: "completed_return_to_stock" },
-  "Cerrada por obsolescencia": { tone: "danger", db: "completed_obsolete" },
+  "Cerrada": { tone: "success", db: "completed_return_to_stock" },
+  "Cerrada con normalizacion": { tone: "success", db: "completed_obsolete" },
   "Anulada": { tone: "danger", db: "cancelled" },
 };
 
-export const LAB_EXIT_FINAL_STATE_OPTIONS = [
-  { value: "production", label: "En produccion" },
-  { value: "stock", label: "A stock" },
-  { value: "implementation", label: "En implementacion" },
-  { value: "repair", label: "En reparacion" },
-  { value: "test", label: "En prueba" },
-  { value: "inactive", label: "Inactivo" },
-  { value: "obsolete", label: "Derivado a obsoleto" },
-  { value: "disposed", label: "Dado de baja" },
-];
-
-export const LAB_OBSOLETE_EXIT_STATES = new Set(["obsolete", "disposed"]);
+export const LAB_OBSOLETE_EXIT_STATES = new Set(["obsolete"]);
 
 export function getReasonLabel(reasonValue) {
   return LAB_REASON_OPTIONS.find((opt) => opt.value === reasonValue)?.label || reasonValue || "—";
 }
 
+function normalizeRequestedActions(actions = []) {
+  const validValues = new Set(LAB_REQUESTED_ACTION_OPTIONS.map((option) => option.value));
+  return [...new Set(
+    (Array.isArray(actions) ? actions : [])
+      .filter((value) => validValues.has(value))
+  )];
+}
+
 export function createEmptyLabForm(bootstrap = {}) {
   const today = bootstrap?.currentDate || new Date().toISOString().slice(0, 10);
   return {
-    reason: "maintenance",
-    requestedActions: ["maintenance"],
+    reason: "incident",
+    requestedActions: ["diagnose"],
     asset: null,
     requesterAdmin: null,
     entryDate: today,
@@ -86,9 +90,10 @@ export function createEmptyLabForm(bootstrap = {}) {
 }
 
 export function createFormFromDetail(detail) {
+  const requestedActions = normalizeRequestedActions(detail.requestedActions);
   return {
-    reason: detail.reason || "maintenance",
-    requestedActions: detail.requestedActions || (detail.reason ? [detail.reason] : ["maintenance"]),
+    reason: detail.reason || "incident",
+    requestedActions: requestedActions.length ? requestedActions : ["diagnose"],
     asset: detail.assetItopId ? {
       id: String(detail.assetItopId),
       code: detail.assetCode || "",

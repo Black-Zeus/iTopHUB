@@ -217,9 +217,10 @@ export async function getLabSignatureSession(recordId, { phase = "", workflowKin
 }
 
 
-export async function finalizeLabClosure(recordId) {
+export async function finalizeLabClosure(recordId, ticketPayload = null) {
   const response = await apiRequest(`/v1/lab/records/${recordId}/finalize-closure`, {
     method: "POST",
+    body: JSON.stringify({ ticketPayload }),
     fallbackMessage: "No fue posible registrar el cierre del acta en iTop.",
     retryOnRevalidate: true,
   });
