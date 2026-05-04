@@ -41,6 +41,7 @@ class LabRecordCreateRequest(BaseModel):
     exitObservations: str = ""
     workPerformed: str = ""
     exitEvidences: list[dict[str, Any]] = Field(default_factory=list)
+    exitFinalState: str = ""
     markedObsolete: bool = False
     obsoleteNotes: str = ""
     normalizationActCode: str = ""
@@ -94,3 +95,7 @@ class LabSignatureSubmitRequest(BaseModel):
     signerRole: str = ""
     observation: str = ""
     claimToken: str = ""
+
+
+class LabClosureFinalizeRequest(BaseModel):
+    ticketPayload: dict[str, Any] | None = None

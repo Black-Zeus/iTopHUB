@@ -7,7 +7,11 @@ import mimetypes
 from typing import Any
 
 from modules.handover.document_templates import _build_base_html, _build_owner_signature_box
-from modules.lab.shared import REASON_DB_TO_UI, coerce_str
+from modules.lab.shared import (
+    REASON_DB_TO_UI,
+    REQUESTED_ACTION_DB_TO_UI,
+    coerce_str,
+)
 from modules.lab.storage_paths import resolve_existing_lab_evidence
 
 
@@ -70,11 +74,16 @@ def _build_asset_section(record: dict[str, Any]) -> str:
 
 
 def _build_identification_section(record: dict[str, Any], phase_label: str, extra_rows: list[tuple[str, Any]] | None = None) -> str:
-    reason_db = coerce_str(record.get("reason", "maintenance"))
+    reason_db = coerce_str(record.get("reason", "incident"))
     reason_label = REASON_DB_TO_UI.get(reason_db, reason_db)
+    action_labels = []
+    for action in record.get("requested_actions") or []:
+        action_key = coerce_str(action)
+        action_labels.append(REQUESTED_ACTION_DB_TO_UI.get(action_key, action_key))
     rows = [
         ("Folio", record.get("document_number")),
         ("Motivo", reason_label),
+        ("Acciones solicitadas", ", ".join(label for label in action_labels if label) or "Sin acciones registradas"),
         ("Fase", phase_label),
         ("Especialista", record.get("owner_name") or "Sin registrar"),
     ]
@@ -193,7 +202,8 @@ def _build_agent_signature_section(record: dict[str, Any]) -> str:
 
 
 def _build_exit_obsolete_notice(record: dict[str, Any]) -> str:
-    if not bool(record.get("marked_obsolete")):
+    target_state = coerce_str(record.get("exit_final_state")).lower()
+    if target_state in {"", "no_change", "sin_cambio", "none"}:
         return ""
     notes = coerce_str(record.get("obsolete_notes")) or "Sin observaciones adicionales."
     normalization_code = coerce_str(record.get("normalization_act_code"))
@@ -201,7 +211,7 @@ def _build_exit_obsolete_notice(record: dict[str, Any]) -> str:
     return f"""
     <div style="margin-top:12px;border:1px solid #f0c36b;background:#fff8e6;border-radius:10px;padding:12px;">
         <div style="color:#9a6700;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px;">
-            Equipo derivado a obsoleto
+            Derivacion a normalizacion CMDB
         </div>
         <div style="white-space:pre-wrap;line-height:1.55;">{_escape(notes)}</div>
         <div class="muted" style="margin-top:8px;">{_escape(reference_line)}</div>
@@ -230,10 +240,10 @@ def _build_lab_document_html(
 
 def build_lab_entry_html(record: dict[str, Any]) -> tuple[str, str | None]:
     body = f"""
-    {_build_identification_section(record, "Entrada", [("Fecha de ingreso", _format_date(record.get("entry_date")))])}
+    {_build_identification_section(record, "Recepcion", [("Fecha de ingreso", _format_date(record.get("entry_date")))])}
     {_build_asset_section(record)}
     <section class="section">
-        <h2 class="section-title">Registro de entrada</h2>
+        <h2 class="section-title">Registro de recepcion</h2>
         <div class="section-body">
             <div class="block-space">
                 <h3 class="subsection-title">Analisis previo y observaciones</h3>
@@ -242,16 +252,16 @@ def build_lab_entry_html(record: dict[str, Any]) -> tuple[str, str | None]:
         </div>
     </section>
     <section class="section">
-        <h2 class="section-title">Adjuntos de entrada</h2>
+        <h2 class="section-title">Adjuntos de recepcion</h2>
         <div class="section-body">
-            {_build_evidence_gallery(record, record.get("entry_evidences") or [], "Sin evidencias de entrada adjuntas.")}
+            {_build_evidence_gallery(record, record.get("entry_evidences") or [], "Sin evidencias de recepcion adjuntas.")}
         </div>
     </section>
     {_build_agent_signature_section(record)}
     """
     return _build_lab_document_html(
         record=record,
-        subtitle="Fase de entrada",
+        subtitle="Fase de recepcion",
         body=body,
     )
 
@@ -260,18 +270,18 @@ def build_lab_processing_html(record: dict[str, Any]) -> tuple[str, str | None]:
     body = f"""
     {_build_identification_section(
         record,
-        "Procesamiento",
+        "Analisis / procesamiento",
         [
             ("Fecha de ingreso", _format_date(record.get("entry_date"))),
-            ("Fecha de procesamiento", _format_date(record.get("processing_date"))),
+            ("Fecha de analisis/procesamiento", _format_date(record.get("processing_date"))),
         ],
     )}
     {_build_asset_section(record)}
     <section class="section">
-        <h2 class="section-title">Registro de procesamiento</h2>
+        <h2 class="section-title">Registro de analisis/procesamiento</h2>
         <div class="section-body">
             <div class="block-space">
-                <h3 class="subsection-title">Observaciones de procesamiento</h3>
+                <h3 class="subsection-title">Observaciones de analisis/procesamiento</h3>
                 {_build_text_block(record.get("processing_observations"), "Sin observaciones registradas.")}
             </div>
             <div class="block-space" style="margin-bottom:0;">
@@ -281,16 +291,16 @@ def build_lab_processing_html(record: dict[str, Any]) -> tuple[str, str | None]:
         </div>
     </section>
     <section class="section">
-        <h2 class="section-title">Adjuntos de procesamiento</h2>
+        <h2 class="section-title">Adjuntos de analisis/procesamiento</h2>
         <div class="section-body">
-            {_build_evidence_gallery(record, record.get("processing_evidences") or [], "Sin evidencias de procesamiento adjuntas.")}
+            {_build_evidence_gallery(record, record.get("processing_evidences") or [], "Sin evidencias de analisis/procesamiento adjuntas.")}
         </div>
     </section>
     {_build_agent_signature_section(record)}
     """
     return _build_lab_document_html(
         record=record,
-        subtitle="Fase de procesamiento",
+        subtitle="Fase de analisis/procesamiento",
         body=body,
     )
 
@@ -299,10 +309,10 @@ def build_lab_exit_html(record: dict[str, Any]) -> tuple[str, str | None]:
     body = f"""
     {_build_identification_section(
         record,
-        "Salida",
+        "Cierre",
         [
             ("Fecha de ingreso", _format_date(record.get("entry_date"))),
-            ("Fecha de salida", _format_date(record.get("exit_date"))),
+            ("Fecha de cierre", _format_date(record.get("exit_date"))),
         ],
     )}
     {_build_asset_section(record)}
@@ -314,22 +324,22 @@ def build_lab_exit_html(record: dict[str, Any]) -> tuple[str, str | None]:
                 {_build_text_block(record.get("work_performed"), "Sin descripcion del trabajo realizado.")}
             </div>
             <div class="block-space" style="margin-bottom:0;">
-                <h3 class="subsection-title">Observaciones de salida</h3>
+                <h3 class="subsection-title">Observaciones de cierre</h3>
                 {_build_text_block(record.get("exit_observations"), "Sin observaciones registradas.")}
                 {_build_exit_obsolete_notice(record)}
             </div>
         </div>
     </section>
     <section class="section">
-        <h2 class="section-title">Adjuntos de salida</h2>
+        <h2 class="section-title">Adjuntos de cierre</h2>
         <div class="section-body">
-            {_build_evidence_gallery(record, record.get("exit_evidences") or [], "Sin evidencias de salida adjuntas.")}
+            {_build_evidence_gallery(record, record.get("exit_evidences") or [], "Sin evidencias de cierre adjuntas.")}
         </div>
     </section>
     {_build_agent_signature_section(record)}
     """
     return _build_lab_document_html(
         record=record,
-        subtitle="Fase de salida",
+        subtitle="Fase de cierre",
         body=body,
     )

@@ -31,6 +31,8 @@ from modules.lab.shared import (
     LAB_PHASE_SEQUENCE,
     OBSOLETE_EXIT_STATES,
     PHASE_LABELS,
+    REQUESTED_ACTION_DB_TO_UI,
+    REQUESTED_ACTION_OPTIONS,
     REASON_DB_TO_UI,
     REASON_OPTIONS,
     STATUS_DB_TO_UI,
@@ -48,6 +50,7 @@ from modules.lab.shared import (
     resolve_phase_signature_status,
     resolve_signature_workflow_status,
     should_require_signature,
+    NO_CHANGE_EXIT_STATES,
 )
 from modules.lab.storage_paths import (
     build_lab_document_directory,
@@ -56,13 +59,13 @@ from modules.lab.storage_paths import (
     resolve_existing_lab_evidence,
 )
 from modules.settings.service import get_settings_panel
+from modules.settings.itop_catalog_service import list_itop_asset_status_options
 from modules.users.service import list_users
 from modules.handover.service import (
     _build_itop_connector,
     _create_itop_attachment,
     _create_itop_handover_ticket,
     _ensure_ci_ticket_link,
-    _resolve_asset_itop_class,
 )
 
 
@@ -80,6 +83,13 @@ def _coerce_str(value: Any, default: str = "") -> str:
 def _generate_document_number(year: int) -> str:
     seq = get_next_lab_sequence(year)
     return f"LAB-{year}-{seq:04d}"
+
+
+def _build_phase_document_number(document_number: str, suffix: str) -> str:
+    normalized = _coerce_str(document_number)
+    if normalized.startswith("LAB-"):
+        return normalized.replace("LAB-", f"LAB{suffix}-", 1)
+    return f"{normalized}-{suffix}" if normalized else f"LAB{suffix}"
 
 
 def _render_lab_pdf_bytes(
@@ -207,11 +217,22 @@ def _normalize_requested_actions(payload: dict[str, Any], existing: dict[str, An
     elif raw_value:
         values = [normalize_comparison_text(raw_value)]
 
-    cleaned = [item for item in values if item in REASON_DB_TO_UI]
-    fallback_reason = normalize_comparison_text(payload.get("reason") if "reason" in payload else (existing or {}).get("reason"))
-    if fallback_reason in REASON_DB_TO_UI and fallback_reason not in cleaned:
-        cleaned.insert(0, fallback_reason)
+    cleaned: list[str] = []
+    for item in values:
+        if item in REQUESTED_ACTION_DB_TO_UI:
+            cleaned.append(item)
     return list(dict.fromkeys(cleaned))
+
+
+def _serialize_requested_actions(values: Any) -> list[str]:
+    if not isinstance(values, list):
+        return []
+    normalized: list[str] = []
+    for item in values:
+        value = _coerce_str(item)
+        if value in REQUESTED_ACTION_DB_TO_UI:
+            normalized.append(value)
+    return list(dict.fromkeys(normalized))
 
 
 def _normalize_requester_admin(payload: dict[str, Any], existing: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -361,11 +382,11 @@ def _serialize_record_for_response(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": row.get("id"),
         "code": _coerce_str(row.get("document_number")),
-        "reason": _coerce_str(row.get("reason"), "maintenance"),
-        "reasonLabel": REASON_DB_TO_UI.get(_coerce_str(row.get("reason"), "maintenance"), _coerce_str(row.get("reason"), "maintenance")),
-        "requestedActions": row.get("requested_actions") or [],
+        "reason": _coerce_str(row.get("reason"), "incident"),
+        "reasonLabel": REASON_DB_TO_UI.get(_coerce_str(row.get("reason"), "incident"), _coerce_str(row.get("reason"), "incident")),
+        "requestedActions": _serialize_requested_actions(row.get("requested_actions") or []),
         "requestedActionLabels": [
-            REASON_DB_TO_UI.get(_coerce_str(item), _coerce_str(item))
+            REQUESTED_ACTION_DB_TO_UI.get(_coerce_str(item), _coerce_str(item))
             for item in (row.get("requested_actions") or [])
         ],
         "status": state["statusUi"],
@@ -434,19 +455,25 @@ def _build_record_haystack(item: dict[str, Any]) -> str:
     return normalize_comparison_text(" ".join(str(part or "") for part in parts))
 
 
-EXIT_FINAL_STATE_OPTIONS = [
-    {"value": "production", "label": "En produccion"},
-    {"value": "stock", "label": "A stock"},
-    {"value": "implementation", "label": "En implementacion"},
-    {"value": "repair", "label": "En reparacion"},
-    {"value": "test", "label": "En prueba"},
-    {"value": "inactive", "label": "Inactivo"},
-    {"value": "obsolete", "label": "Derivado a obsoleto"},
-    {"value": "disposed", "label": "Dado de baja"},
-]
+NO_CHANGE_EXIT_FINAL_STATE_OPTION = {"value": "no_change", "label": "Sin modificar CMDB"}
 
 
-def get_lab_bootstrap(session_user: dict[str, Any]) -> dict[str, Any]:
+def _get_exit_final_state_options(runtime_token: str) -> list[dict[str, str]]:
+    options = [NO_CHANGE_EXIT_FINAL_STATE_OPTION]
+    seen = {NO_CHANGE_EXIT_FINAL_STATE_OPTION["value"]}
+
+    for item in list_itop_asset_status_options(runtime_token):
+        value = _coerce_str(item.get("value")).lower()
+        label = _coerce_str(item.get("label")) or value
+        if not value or value in seen:
+            continue
+        options.append({"value": value, "label": label})
+        seen.add(value)
+
+    return options
+
+
+def get_lab_bootstrap(session_user: dict[str, Any], runtime_token: str) -> dict[str, Any]:
     checklists_data = list_checklists_payload()
     lab_checklist_templates = checklists_data["itemsByModule"].get("lab", [])
     qr_settings = _get_qr_settings()
@@ -466,14 +493,16 @@ def get_lab_bootstrap(session_user: dict[str, Any]) -> dict[str, Any]:
         "currentUser": {
             "id": session_user.get("id"),
             "name": _coerce_str(session_user.get("name") or session_user.get("username")),
+            "itopPersonKey": _coerce_str(session_user.get("itopPersonKey")),
         },
         "currentDate": datetime.now().strftime("%Y-%m-%d"),
         "reasonOptions": REASON_OPTIONS,
+        "requestedActionOptions": REQUESTED_ACTION_OPTIONS,
         "statusOptions": [
             {"value": db_key, "label": ui_label}
             for db_key, ui_label in STATUS_DB_TO_UI.items()
         ],
-        "exitFinalStateOptions": EXIT_FINAL_STATE_OPTIONS,
+        "exitFinalStateOptions": _get_exit_final_state_options(runtime_token),
         "adminOptions": admin_options,
         "checklistTemplates": lab_checklist_templates,
         "searchHints": {
@@ -521,7 +550,7 @@ def create_lab_record(payload: dict[str, Any], session_user: dict[str, Any]) -> 
     requester_admin = _normalize_requester_admin(payload)
     record = {
         "document_number": document_number,
-        "reason": _coerce_str(payload.get("reason"), "maintenance"),
+        "reason": _coerce_str(payload.get("reason"), "incident"),
         "requested_actions": _normalize_requested_actions(payload),
         "status": "draft",
         "asset_itop_id": _coerce_str(asset.get("id") or asset.get("itopId")),
@@ -588,7 +617,7 @@ def update_lab_record(record_id: int, payload: dict[str, Any]) -> dict[str, Any]
 
     record = {
         "document_number": _coerce_str(existing.get("document_number")),
-        "reason": _coerce_str(payload.get("reason") or existing.get("reason"), "maintenance"),
+        "reason": _coerce_str(payload.get("reason") or existing.get("reason"), "incident"),
         "requested_actions": _normalize_requested_actions(payload, existing),
         "status": _coerce_str(existing.get("status"), "draft"),
         "asset_itop_id": _coerce_str(asset.get("id") or asset.get("itopId")) or _coerce_str(existing.get("asset_itop_id")),
@@ -672,7 +701,7 @@ PHASE_ROLLBACK_FIELDS: dict[str, list[str]] = {
     "exit": [
         "exit_generated_document", "exit_evidences",
         "exit_observations", "work_performed", "exit_date", "exit_final_state",
-        "marked_obsolete", "obsolete_notes",
+        "marked_obsolete", "obsolete_notes", "normalization_act_code",
     ],
 }
 
@@ -740,12 +769,12 @@ def _validate_exit_document_generation(row: dict[str, Any]) -> None:
         raise HTTPException(status_code=422, detail="Debes completar el trabajo realizado antes de generar el acta de cierre.")
     exit_final_state = _coerce_str(row.get("exit_final_state")).lower()
     if not exit_final_state:
-        raise HTTPException(status_code=422, detail="Debes seleccionar el estado final del activo antes de generar el acta de cierre.")
+        raise HTTPException(status_code=422, detail="Debes seleccionar si el cierre modifica o no el estado CMDB del activo.")
     if exit_final_state in OBSOLETE_EXIT_STATES and not _normalize_requester_admin({}, existing=row).get("userId"):
         raise HTTPException(status_code=422, detail="Debes seleccionar un administrador responsable antes de cerrar un acta derivada a obsoleto.")
 
 
-def generate_lab_document(record_id: int, phase: str) -> dict[str, Any]:
+def generate_lab_document(record_id: int, phase: str, session_user: dict[str, Any] | None = None) -> dict[str, Any]:
     if phase not in ("entrada", "procesamiento", "salida"):
         raise HTTPException(status_code=422, detail=f"Fase '{phase}' no válida. Usa 'entrada', 'procesamiento' o 'salida'.")
 
@@ -753,30 +782,36 @@ def generate_lab_document(record_id: int, phase: str) -> dict[str, Any]:
     if not row:
         raise HTTPException(status_code=404, detail=f"Acta de laboratorio #{record_id} no encontrada.")
 
-    document_number = _coerce_str(row.get("document_number"))
-    safe_code = document_number.replace("/", "_").replace(" ", "_")
-
     if phase == "entrada":
         _validate_entry_document_generation(row)
-        html, footer_html = build_lab_entry_html(row)
         suffix = "E"
+        phase_row = {**row, "document_number": _build_phase_document_number(row.get("document_number"), suffix)}
+        html, footer_html = build_lab_entry_html(phase_row)
         phase_label = PHASE_LABELS["entry"]
         phase_key = "entry"
     elif phase == "procesamiento":
         _validate_processing_document_generation(row)
-        html, footer_html = build_lab_processing_html(row)
         suffix = "P"
+        phase_row = {**row, "document_number": _build_phase_document_number(row.get("document_number"), suffix)}
+        html, footer_html = build_lab_processing_html(phase_row)
         phase_label = PHASE_LABELS["processing"]
         phase_key = "processing"
     else:
         _validate_exit_document_generation(row)
-        html, footer_html = build_lab_exit_html(row)
+        if session_user is not None:
+            normalization_detail = _ensure_lab_normalization_act(record_id, row, session_user)
+            if normalization_detail:
+                row = fetch_lab_record_row(record_id) or row
         suffix = "S"
+        phase_row = {**row, "document_number": _build_phase_document_number(row.get("document_number"), suffix)}
+        html, footer_html = build_lab_exit_html(phase_row)
         phase_label = PHASE_LABELS["exit"]
         phase_key = "exit"
 
-    filename = f"{safe_code}-{suffix}.pdf"
-    stored_name = f"{safe_code}-{suffix}-{uuid4().hex[:8]}.pdf"
+    phase_document_number = _build_phase_document_number(row.get("document_number"), suffix)
+    safe_code = phase_document_number.replace("/", "_").replace(" ", "_")
+    filename = f"{safe_code}.pdf"
+    stored_name = f"{safe_code}-{uuid4().hex[:8]}.pdf"
     pdf_bytes = _render_lab_pdf_bytes(html, footer_html, filename=filename)
 
     doc_dir = build_lab_document_directory(record_id)
@@ -1361,7 +1396,11 @@ def get_public_lab_signature_document(
 
 def _build_lab_ticket_description(record: dict[str, Any]) -> str:
     actions = record.get("requested_actions") or []
-    action_labels = ", ".join(REASON_DB_TO_UI.get(_coerce_str(item), _coerce_str(item)) for item in actions if _coerce_str(item))
+    action_labels = ", ".join(
+        REQUESTED_ACTION_DB_TO_UI.get(_coerce_str(item), _coerce_str(item))
+        for item in actions
+        if _coerce_str(item)
+    )
     reason_label = REASON_DB_TO_UI.get(_coerce_str(record.get("reason")), _coerce_str(record.get("reason")))
     sections = [
         f"Acta: {_coerce_str(record.get('document_number'))}",
@@ -1375,8 +1414,13 @@ def _build_lab_ticket_description(record: dict[str, Any]) -> str:
         f"Trabajo realizado: {_coerce_str(record.get('work_performed')) or 'Sin detalle'}",
         f"Observaciones de cierre: {_coerce_str(record.get('exit_observations')) or 'Sin observaciones'}",
     ]
-    if record.get("marked_obsolete"):
-        sections.append(f"Derivacion a obsoleto: {_coerce_str(record.get('obsolete_notes')) or 'Solicitada sin comentario adicional'}")
+    exit_final_state = _coerce_str(record.get("exit_final_state")).lower()
+    if exit_final_state and exit_final_state not in NO_CHANGE_EXIT_STATES:
+        sections.append(f"Derivacion a normalizacion: cambio de estado CMDB a {exit_final_state}.")
+        if _coerce_str(record.get("normalization_act_code")):
+            sections.append(f"Acta de normalizacion asociada: {_coerce_str(record.get('normalization_act_code'))}.")
+        if record.get("marked_obsolete"):
+            sections.append(f"Justificacion de baja: {_coerce_str(record.get('obsolete_notes')) or 'Solicitada sin comentario adicional'}")
     return "\n".join(sections)
 
 
@@ -1407,7 +1451,14 @@ def _resolve_lab_ticket_requester(record: dict[str, Any], session_user: dict[str
     raise HTTPException(status_code=422, detail="No fue posible determinar el solicitante iTop para cerrar esta acta de laboratorio.")
 
 
-def _build_lab_ticket_payload(record: dict[str, Any], session_user: dict[str, Any]) -> dict[str, Any]:
+def _build_lab_ticket_payload(record: dict[str, Any], session_user: dict[str, Any], ticket_payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    if isinstance(ticket_payload, dict) and ticket_payload:
+        return {
+            **ticket_payload,
+            "subject": _coerce_str(ticket_payload.get("subject")) or f"Acta laboratorio {_coerce_str(record.get('document_number'))}".strip(),
+            "description": _coerce_str(ticket_payload.get("description")) or _build_lab_ticket_description(record),
+        }
+
     requester = _resolve_lab_ticket_requester(record, session_user)
     return {
         "requesterId": requester["requesterId"],
@@ -1438,7 +1489,113 @@ def _build_lab_itop_documents(record: dict[str, Any]) -> list[dict[str, Any]]:
     return documents
 
 
-def finalize_lab_closure(record_id: int, session_user: dict[str, Any], runtime_token: str) -> dict[str, Any]:
+def _should_create_normalization_act(record: dict[str, Any]) -> bool:
+    exit_final_state = _coerce_str(record.get("exit_final_state")).lower()
+    if exit_final_state in NO_CHANGE_EXIT_STATES:
+        return False
+    return bool(exit_final_state)
+
+
+def _build_lab_normalization_requester(record: dict[str, Any], session_user: dict[str, Any]) -> dict[str, Any] | None:
+    requester_admin = _normalize_requester_admin({}, existing=record)
+    if requester_admin.get("userId"):
+        return {
+            "userId": requester_admin.get("userId"),
+            "name": requester_admin.get("name"),
+            "itopPersonKey": requester_admin.get("itopPersonKey"),
+        }
+
+    if session_user.get("isAdmin") and _coerce_str(session_user.get("itopPersonKey")).isdigit():
+        return {
+            "userId": session_user.get("id"),
+            "name": _coerce_str(session_user.get("name") or session_user.get("username")),
+            "itopPersonKey": _coerce_str(session_user.get("itopPersonKey")),
+        }
+
+    return None
+
+
+def _ensure_lab_normalization_act(record_id: int, record: dict[str, Any], session_user: dict[str, Any]) -> dict[str, Any] | None:
+    if not _should_create_normalization_act(record):
+        return None
+
+    existing_code = _coerce_str(record.get("normalization_act_code"))
+    if existing_code:
+        return {"documentNumber": existing_code}
+
+    exit_final_state = _coerce_str(record.get("exit_final_state")).lower()
+    requester_admin = _build_lab_normalization_requester(record, session_user)
+    document_number = _coerce_str(record.get("document_number"))
+    asset_code = _coerce_str(record.get("asset_code"))
+    asset_name = _coerce_str(record.get("asset_name"))
+    reason_label = REASON_DB_TO_UI.get(_coerce_str(record.get("reason")), _coerce_str(record.get("reason")))
+    obsolete_notes = _coerce_str(record.get("obsolete_notes"))
+
+    payload: dict[str, Any] = {
+        "handoverTypeCode": "normalization",
+        "handoverType": "Normalizacion",
+        "status": "En creacion",
+        "creationDate": datetime.now().strftime("%Y-%m-%dT%H:%M"),
+        "generatedAt": datetime.now().strftime("%Y-%m-%dT%H:%M"),
+        "normalizationMode": "change_status",
+        "normalizationParams": {
+            "targetStatus": exit_final_state,
+            "sourceModule": "laboratory",
+            "sourceLabRecordId": record_id,
+            "sourceLabDocumentNumber": document_number,
+        },
+        "reason": f"Derivacion desde acta de laboratorio {document_number}".strip(),
+        "notes": "\n".join(
+            item
+            for item in [
+                f"Acta de laboratorio origen: {document_number}",
+                f"Activo: {asset_code} / {asset_name}".strip(),
+                f"Motivo de laboratorio: {reason_label}",
+                f"Trabajo realizado: {_coerce_str(record.get('work_performed')) or 'Sin detalle'}",
+                f"Justificacion: {obsolete_notes}" if obsolete_notes else "",
+            ]
+            if item
+        ),
+        "receiver": {},
+        "additionalReceivers": [],
+        "items": [
+            {
+                "asset": {
+                    "id": _coerce_str(record.get("asset_itop_id")),
+                    "code": asset_code,
+                    "name": asset_name,
+                    "className": _coerce_str(record.get("asset_class")),
+                    "brand": "",
+                    "model": "",
+                    "serial": _coerce_str(record.get("asset_serial")),
+                    "status": _coerce_str(record.get("asset_status")),
+                    "assignedUser": _coerce_str(record.get("asset_assigned_user")),
+                },
+                "notes": f"Derivado desde laboratorio {document_number}".strip(),
+                "evidences": [],
+                "checklists": [],
+            }
+        ],
+    }
+    if requester_admin:
+        payload["requesterAdmin"] = requester_admin
+
+    from modules.handover.service import create_handover_document
+
+    normalization_detail = create_handover_document(payload, session_user, runtime_token=None)
+    normalization_code = _coerce_str(normalization_detail.get("documentNumber") or normalization_detail.get("code"))
+    if normalization_code:
+        update_lab_record(record_id, {"normalizationActCode": normalization_code})
+    return normalization_detail
+
+
+def finalize_lab_closure(
+    record_id: int,
+    session_user: dict[str, Any],
+    runtime_token: str,
+    *,
+    ticket_payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     current_row = fetch_lab_record_row(record_id)
     if not current_row:
         raise HTTPException(status_code=404, detail="Acta no encontrada.")
@@ -1449,11 +1606,15 @@ def finalize_lab_closure(record_id: int, session_user: dict[str, Any], runtime_t
     if state["statusDb"] != "pending_itop_sync":
         raise HTTPException(status_code=422, detail="El acta aún no está lista para registrar el ticket iTop.")
 
+    normalization_detail = _ensure_lab_normalization_act(record_id, current_row, session_user)
+    if normalization_detail:
+        current_row = fetch_lab_record_row(record_id) or current_row
+
     ticket_summary = get_itop_ticket_summary(current_row)
     if not _coerce_str(ticket_summary.get("id")):
         ticket_summary = _create_itop_handover_ticket(
             {"documentNumber": _coerce_str(current_row.get("document_number"))},
-            _build_lab_ticket_payload(current_row, session_user),
+            _build_lab_ticket_payload(current_row, session_user, ticket_payload),
             runtime_token,
             contact_ids=[],
         )
@@ -1488,15 +1649,6 @@ def finalize_lab_closure(record_id: int, session_user: dict[str, Any], runtime_t
                 document_number=_coerce_str(current_row.get("document_number")),
             )
 
-            exit_final_state = _coerce_str(current_row.get("exit_final_state")).lower()
-            if exit_final_state:
-                asset_class = _resolve_asset_itop_class(connector, asset_id)
-                connector.update_ci_status(
-                    asset_class,
-                    asset_id,
-                    exit_final_state,
-                    comment=f"Estado actualizado desde acta de laboratorio {_coerce_str(current_row.get('document_number'))}".strip(),
-                )
     finally:
         connector.close()
 

@@ -29,6 +29,7 @@ from modules.lab.service import (
 from modules.handover.service import get_public_signature_branding
 from schemas.lab import (
     LabEvidenceUploadRequest,
+    LabClosureFinalizeRequest,
     LabRecordCreateRequest,
     LabRecordUpdateRequest,
     LabSignatureSubmitRequest,
@@ -47,7 +48,8 @@ def lab_bootstrap(hub_session_id: str | None = Cookie(default=None)) -> dict[str
     session_id = ensure_session(hub_session_id)
     try:
         session_user = _ensure_lab_access(session_id)
-        return get_lab_bootstrap(session_user)
+        runtime_token = get_runtime_token(session_id)
+        return get_lab_bootstrap(session_user, runtime_token)
     except AuthenticationError as exc:
         raise_auth_error(exc)
     except HTTPException:
@@ -154,8 +156,8 @@ def lab_generate_document(
 ) -> dict[str, Any]:
     session_id = ensure_session(hub_session_id)
     try:
-        _ensure_lab_access(session_id, write=True)
-        return generate_lab_document(record_id, phase)
+        session_user = _ensure_lab_access(session_id, write=True)
+        return generate_lab_document(record_id, phase, session_user=session_user)
     except AuthenticationError as exc:
         raise_auth_error(exc)
     except HTTPException:
@@ -273,13 +275,15 @@ def lab_signature_session_detail(
 @router.post("/records/{record_id}/finalize-closure")
 def lab_finalize_closure(
     record_id: int,
+    payload: LabClosureFinalizeRequest | None = None,
     hub_session_id: str | None = Cookie(default=None),
 ) -> dict[str, Any]:
     session_id = ensure_session(hub_session_id)
     try:
         session_user = _ensure_lab_access(session_id, write=True)
         runtime_token = get_runtime_token(session_id)
-        return {"item": finalize_lab_closure(record_id, session_user, runtime_token)}
+        ticket_payload = model_to_dict(payload).get("ticketPayload") if payload else None
+        return {"item": finalize_lab_closure(record_id, session_user, runtime_token, ticket_payload=ticket_payload)}
     except AuthenticationError as exc:
         raise_auth_error(exc)
     except HTTPException:

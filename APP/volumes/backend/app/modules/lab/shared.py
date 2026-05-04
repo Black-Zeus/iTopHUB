@@ -11,28 +11,20 @@ STATUS_DB_TO_UI = {
     "ready_for_closure": "Lista para cierre",
     "pending_admin_signature": "Pendiente firma administrador",
     "pending_itop_sync": "Pendiente registro iTop",
-    "completed_return_to_stock": "Cerrada a stock",
-    "completed_obsolete": "Cerrada por obsolescencia",
+    "completed_return_to_stock": "Cerrada",
+    "completed_obsolete": "Cerrada con normalizacion",
     "cancelled": "Anulada",
 }
 
 STATUS_UI_TO_DB = {value: key for key, value in STATUS_DB_TO_UI.items()}
 
 REASON_DB_TO_UI = {
-    "maintenance": "Mantenimiento",
-    "cleaning": "Limpieza",
-    "backup": "Respaldo",
-    "virus_analysis": "Analisis de virus",
-    "full_reset": "Reinicio completo",
-    "warranty_referral": "Derivado a garantia",
-    "donation_format": "Formateo para donacion",
-    "retirement_format": "Formateo para baja",
-    "hardware_analysis": "Analisis de hardware",
-    "hardware_repair": "Reparacion de hardware",
-    "software_update": "Actualizacion de software",
-    "functional_verification": "Verificacion funcional",
-    "reinstallation": "Reinstalacion",
-    "diagnosis": "Diagnostico",
+    "incident": "Incidente o falla reportada",
+    "preventive": "Mantencion preventiva",
+    "corrective": "Mantencion correctiva",
+    "warranty": "Revision por garantia",
+    "preparation": "Preparacion operacional",
+    "decommission": "Preparacion para baja",
     "other": "Otro procedimiento",
 }
 
@@ -43,14 +35,34 @@ REASON_OPTIONS = [
     for key, label in REASON_DB_TO_UI.items()
 ]
 
+REQUESTED_ACTION_DB_TO_UI = {
+    "diagnose": "Diagnosticar falla",
+    "inspect_hardware": "Revisar hardware",
+    "repair_hardware": "Reparar hardware",
+    "clean_equipment": "Limpiar equipo",
+    "backup_data": "Respaldar informacion",
+    "scan_malware": "Analizar malware",
+    "reset_os": "Reinstalar o restaurar sistema",
+    "update_software": "Actualizar software",
+    "functional_test": "Verificar funcionamiento",
+    "prepare_warranty": "Preparar derivacion a garantia",
+    "prepare_decommission": "Preparar para baja",
+    "other": "Otra accion tecnica",
+}
+
+REQUESTED_ACTION_OPTIONS = [
+    {"value": key, "label": label}
+    for key, label in REQUESTED_ACTION_DB_TO_UI.items()
+]
+
 LAB_DOCUMENT_ROOT_ENV_NAME = "lab"
 ALLOWED_EVIDENCE_EXTENSIONS = {"jpg", "jpeg", "png"}
 EMPTY_ASSIGNED_USER_LABELS = {"", "sin asignar", "sin responsable"}
 LAB_PHASE_SEQUENCE = ("entry", "processing", "exit")
 
 PHASE_LABELS = {
-    "entry": "Ingreso",
-    "processing": "Ejecucion",
+    "entry": "Recepcion",
+    "processing": "Analisis / procesamiento",
     "exit": "Cierre",
 }
 
@@ -194,7 +206,8 @@ def should_require_signature(record: dict[str, Any], *, qr_enabled: bool) -> boo
     return bool(qr_enabled)
 
 
-OBSOLETE_EXIT_STATES = {"obsolete", "disposed"}
+OBSOLETE_EXIT_STATES = {"obsolete"}
+NO_CHANGE_EXIT_STATES = {"", "no_change", "sin_cambio", "none"}
 
 
 def derive_status_db(

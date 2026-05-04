@@ -42,7 +42,6 @@ ITOP_ASSET_STATUS_LABELS = {
     "repair": "En reparacion",
     "test": "En prueba",
     "inactive": "Inactivo",
-    "disposed": "Eliminado",
 }
 
 

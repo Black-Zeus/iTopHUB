@@ -223,6 +223,7 @@ def save_lab_record(
             exit_date,
             exit_observations,
             work_performed,
+            exit_final_state,
             exit_evidences,
             exit_generated_document,
             signature_workflow,
@@ -236,7 +237,7 @@ def save_lab_record(
             %s, %s, %s, %s, %s, %s, %s, %s,
             %s, %s, %s, %s, %s, %s, %s, %s,
             %s, %s, %s, %s, %s, %s, %s, %s,
-            %s, %s, %s, %s, %s, %s, %s
+            %s, %s, %s, %s, %s, %s, %s, %s
         )
     """
     update_sql = """
@@ -273,6 +274,7 @@ def save_lab_record(
             exit_date = %s,
             exit_observations = %s,
             work_performed = %s,
+            exit_final_state = %s,
             exit_evidences = %s,
             exit_generated_document = %s,
             signature_workflow = %s,
@@ -295,7 +297,7 @@ def save_lab_record(
                     insert_sql,
                     (
                         record.get("document_number", ""),
-                        record.get("reason", "maintenance"),
+                        record.get("reason", "incident"),
                         _json_str(record.get("requested_actions", [])),
                         record.get("status", "draft"),
                         record.get("asset_itop_id"),
@@ -326,6 +328,7 @@ def save_lab_record(
                         record.get("exit_date"),
                         record.get("exit_observations"),
                         record.get("work_performed"),
+                        record.get("exit_final_state"),
                         _json_str(record.get("exit_evidences", [])),
                         _json_str(record.get("exit_generated_document")),
                         _json_str(record.get("signature_workflow") or {}),
@@ -340,7 +343,7 @@ def save_lab_record(
                 cursor.execute(
                     update_sql,
                     (
-                        record.get("reason", "maintenance"),
+                        record.get("reason", "incident"),
                         _json_str(record.get("requested_actions", [])),
                         record.get("status", "draft"),
                         record.get("asset_itop_id"),
@@ -371,6 +374,7 @@ def save_lab_record(
                         record.get("exit_date"),
                         record.get("exit_observations"),
                         record.get("work_performed"),
+                        record.get("exit_final_state"),
                         _json_str(record.get("exit_evidences", [])),
                         _json_str(record.get("exit_generated_document")),
                         _json_str(record.get("signature_workflow") or {}),
