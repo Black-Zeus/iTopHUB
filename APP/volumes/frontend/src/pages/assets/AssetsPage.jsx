@@ -73,6 +73,9 @@ function getHistoryBadgeClassName(action) {
   if (action === "Creado") {
     return "bg-[rgba(81,152,194,0.14)] text-[var(--accent-strong)]";
   }
+  if (action === "Relacion actual") {
+    return "border border-[rgba(81,152,194,0.22)] bg-[rgba(81,152,194,0.1)] text-[var(--accent-strong)]";
+  }
   return "bg-[rgba(210,138,138,0.14)] text-[var(--danger)]";
 }
 
@@ -374,12 +377,18 @@ function AssetDetailModalContent({ row }) {
                         </p>
                       </div>
                       <div className="min-w-0">
-                        <p className="text-sm font-medium text-[var(--text-primary)]">
-                          {formatAssignmentDate(entry.changedAt)}
-                        </p>
-                        <p className="mt-1 truncate text-xs text-[var(--text-secondary)]">
-                          {entry.changedBy ? `Por ${entry.changedBy}` : "Usuario no disponible"}
-                        </p>
+                        {entry.changedAt ? (
+                          <p className="text-sm font-medium text-[var(--text-primary)]">
+                            {formatAssignmentDate(entry.changedAt)}
+                          </p>
+                        ) : null}
+                        {entry.changedBy ? (
+                          <p className="mt-1 truncate text-xs text-[var(--text-secondary)]">
+                            Por {entry.changedBy}
+                          </p>
+                        ) : (
+                          <p className="text-sm text-[var(--text-secondary)]">Vinculo vigente en iTop</p>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -432,7 +441,6 @@ export function AssetsPage() {
 
   const columns = useMemo(
     () => [
-      { key: "code", label: "Codigo", sortable: true },
       { key: "className", label: "Clase", sortable: true },
       { key: "name", label: "Nombre", sortable: true },
       { key: "brandModel", label: "Marca / Modelo", sortable: true },

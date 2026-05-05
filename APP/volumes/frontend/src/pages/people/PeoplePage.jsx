@@ -333,6 +333,8 @@ function PersonDetailModalContent({ row }) {
                           className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
                             entry.action === "Agregado"
                               ? "bg-[rgba(127,191,156,0.14)] text-[var(--success)]"
+                              : entry.action === "Relacion actual"
+                                ? "border border-[rgba(81,152,194,0.22)] bg-[rgba(81,152,194,0.1)] text-[var(--accent-strong)]"
                               : "bg-[rgba(210,138,138,0.14)] text-[var(--danger)]"
                           }`}
                         >
@@ -348,12 +350,18 @@ function PersonDetailModalContent({ row }) {
                         </p>
                       </div>
                       <div className="min-w-0">
-                        <p className="text-sm font-medium text-[var(--text-primary)]">
-                          {formatHistoryDate(entry.changedAt)}
-                        </p>
-                        <p className="mt-1 truncate text-xs text-[var(--text-secondary)]">
-                          {entry.changedBy ? `Por ${entry.changedBy}` : "Usuario no disponible"}
-                        </p>
+                        {entry.changedAt ? (
+                          <p className="text-sm font-medium text-[var(--text-primary)]">
+                            {formatHistoryDate(entry.changedAt)}
+                          </p>
+                        ) : null}
+                        {entry.changedBy ? (
+                          <p className="mt-1 truncate text-xs text-[var(--text-secondary)]">
+                            Por {entry.changedBy}
+                          </p>
+                        ) : (
+                          <p className="text-sm text-[var(--text-secondary)]">Vinculo vigente en iTop</p>
+                        )}
                       </div>
                     </div>
                   </div>

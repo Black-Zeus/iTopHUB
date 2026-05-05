@@ -101,6 +101,24 @@ def _build_ci_summary(ci) -> dict[str, object]:
     }
 
 
+def _build_current_ci_history(related_cis: list[dict[str, object]]) -> list[dict[str, str | int]]:
+    return [
+        {
+            "id": int(ci_item.get("id") or 0),
+            "ciId": int(ci_item.get("id") or 0),
+            "ciName": str(ci_item.get("name") or f"Objeto {ci_item.get('id')}").strip(),
+            "ciClass": str(ci_item.get("className") or "").strip(),
+            "action": "Relacion actual",
+            "changedAt": "",
+            "changedBy": "",
+            "origin": "",
+            "ciStatus": str(ci_item.get("status") or "").strip(),
+        }
+        for ci_item in related_cis
+        if int(ci_item.get("id") or 0) > 0
+    ]
+
+
 def _append_ci_field(fields: list[dict[str, str]], label: str, value: Any) -> None:
     text = str(value or "").strip()
     if not text:
@@ -380,6 +398,8 @@ def get_itop_person_detail(person_id: int, runtime_token: str) -> dict[str, obje
                 continue
             detailed_cis.append(_build_ci_detail(visible_ci, warranty_alert_days))
         history_items: list[dict[str, str | int]] = []
+        if detailed_cis:
+            history_items = _build_current_ci_history(detailed_cis)
     except ConnectionError as exc:
         raise AuthenticationError(
             f"No fue posible consultar el detalle de la persona en iTop: {exc}",

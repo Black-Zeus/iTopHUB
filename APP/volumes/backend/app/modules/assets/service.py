@@ -217,25 +217,190 @@ def _load_change_index(connector: iTopCMDBConnector, change_ids: list[int]) -> d
     return change_index
 
 
+def _extract_change_info(operation: Any, change_index: dict[int, dict[str, str]]) -> dict[str, str]:
+    change_id = _safe_int(operation.get("change") or operation.get("change_id"))
+    indexed_info = change_index.get(change_id, {})
+    return {
+        "changedAt": str(operation.get("date") or indexed_info.get("changedAt") or "").strip(),
+        "changedBy": _normalize_space(operation.get("userinfo") or indexed_info.get("changedBy")),
+        "origin": _normalize_space(operation.get("origin") or indexed_info.get("origin")),
+    }
+
+
+def _is_contact_link_change(operation: Any) -> bool:
+    item_class = _normalize_space(operation.get("item_class")).lower()
+    attribute_code = _normalize_space(
+        operation.get("attcode")
+        or operation.get("att_code")
+        or operation.get("attribute_code")
+        or operation.get("attribute")
+    ).lower()
+
+    return (
+        item_class in {"contact", "person", "lnkcontacttofunctionalci"}
+        or item_class.endswith("contacttofunctionalci")
+        or attribute_code in {"contacts_list", "contacts"}
+        or "contact" in attribute_code
+    )
+
+
+def _build_contact_history_fallback(operation: Any, contact_id: int) -> dict[str, str | int]:
+    fallback_name = _normalize_space(
+        operation.get("contact_id_friendlyname")
+        or operation.get("item_id_friendlyname")
+        or operation.get("item_friendlyname")
+        or operation.get("item_name")
+        or operation.get("friendlyname")
+        or operation.get("newvalue")
+        or operation.get("oldvalue")
+    )
+    return {
+        "id": contact_id,
+        "name": fallback_name or (f"Contacto {contact_id}" if contact_id > 0 else "Contacto no disponible"),
+        "email": "",
+        "role": "",
+        "status": "",
+        "className": "",
+    }
+
+
+def _resolve_contact_from_history_operation(connector: iTopCMDBConnector, operation: Any) -> dict[str, str | int]:
+    item_class = _normalize_space(operation.get("item_class")).lower()
+    item_id = _safe_int(operation.get("item_id"))
+    contact_id = _safe_int(operation.get("contact_id"))
+
+    if item_class not in {"contact", "person"} and item_id > 0:
+        link = connector.get(
+            "lnkContactToFunctionalCI",
+            item_id,
+            output_fields="id,contact_id,contact_id_friendlyname,functionalci_id",
+        ).first()
+        if link:
+            contact_id = _safe_int(link.get("contact_id")) or contact_id
+            if contact_id <= 0:
+                return {
+                    "id": 0,
+                    "name": _normalize_space(link.get("contact_id_friendlyname")) or "Contacto no disponible",
+                    "email": "",
+                    "role": "",
+                    "status": "",
+                    "className": "",
+                }
+
+    if contact_id <= 0 and item_class in {"contact", "person"}:
+        contact_id = item_id
+
+    if contact_id > 0:
+        contact = connector.get(
+            "Contact",
+            contact_id,
+            output_fields="id,name,friendlyname,email,function,status,finalclass",
+        ).first()
+        if contact:
+            return _build_contact_row(contact)
+
+    return _build_contact_history_fallback(operation, contact_id)
+
+
+def _format_history_action(operation: Any) -> str:
+    action_type = _normalize_space(
+        operation.get("type")
+        or operation.get("verb")
+        or operation.get("operation")
+        or operation.get("change_op")
+    ).lower()
+    if action_type in {"add", "added", "create", "created", "insert", "inserted"}:
+        return "Agregado"
+    if action_type in {"remove", "removed", "delete", "deleted"}:
+        return "Removido"
+    return "Actualizado" if action_type else "Actualizado"
+
+
+def _operation_finalclass(operation: Any) -> str:
+    return _normalize_space(operation.get("finalclass") or operation.itop_class)
+
+
+def _load_asset_change_operations(
+    connector: iTopCMDBConnector,
+    operation_class: str,
+    asset_class: str,
+    asset_id: int,
+) -> list[Any]:
+    candidate_classes: list[str] = []
+    for candidate in [asset_class, "PhysicalDevice", "FunctionalCI"]:
+        normalized = _normalize_space(candidate)
+        if normalized and normalized not in candidate_classes:
+            candidate_classes.append(normalized)
+
+    operations: list[Any] = []
+    seen_ids: set[int] = set()
+    for candidate in candidate_classes:
+        safe_candidate = _escape_oql(candidate)
+        try:
+            response_items = connector.oql(
+                f"SELECT {operation_class} WHERE objclass = '{safe_candidate}' AND objkey = {asset_id}",
+                output_fields="*",
+            )
+        except Exception:
+            logger.debug(
+                "_load_asset_change_operations: direct query failed for %s/%s/%s",
+                operation_class,
+                candidate,
+                asset_id,
+                exc_info=True,
+            )
+            response_items = []
+        for operation in response_items:
+            operation_id = int(operation.id)
+            if operation_id in seen_ids:
+                continue
+            seen_ids.add(operation_id)
+            operations.append(operation)
+
+        try:
+            base_items = connector.oql(
+                f"SELECT CMDBChangeOp WHERE objclass = '{safe_candidate}' AND objkey = {asset_id}",
+                output_fields="*",
+            )
+        except Exception:
+            logger.debug(
+                "_load_asset_change_operations: base query failed for %s/%s",
+                candidate,
+                asset_id,
+                exc_info=True,
+            )
+            base_items = []
+
+        for operation in base_items:
+            operation_id = int(operation.id)
+            if operation_id in seen_ids:
+                continue
+            if _operation_finalclass(operation) != operation_class:
+                continue
+            seen_ids.add(operation_id)
+            operations.append(operation)
+    return operations
+
+
 def _load_asset_contact_history(
     connector: iTopCMDBConnector,
     asset_class: str,
     asset_id: int,
 ) -> list[dict[str, str | int]]:
-    safe_asset_class = _escape_oql(asset_class)
     history_items: list[dict[str, str | int]] = []
 
-    create_ops = connector.oql(
-        f"SELECT CMDBChangeOpCreate WHERE objclass = '{safe_asset_class}' AND objkey = {asset_id}",
-        output_fields="*",
+    create_ops = _load_asset_change_operations(
+        connector,
+        "CMDBChangeOpCreate",
+        asset_class,
+        asset_id,
     )
     create_change_index = _load_change_index(
         connector,
         [_safe_int(item.get("change") or item.get("change_id")) for item in create_ops],
     )
     for operation in create_ops:
-        change_id = _safe_int(operation.get("change") or operation.get("change_id"))
-        change_info = create_change_index.get(change_id, {})
+        change_info = _extract_change_info(operation, create_change_index)
         history_items.append(
             {
                 "id": int(operation.id),
@@ -251,9 +416,11 @@ def _load_asset_contact_history(
             }
         )
 
-    link_ops = connector.oql(
-        f"SELECT CMDBChangeOpSetAttributeLinksAddRemove WHERE objclass = '{safe_asset_class}' AND objkey = {asset_id}",
-        output_fields="*",
+    link_ops = _load_asset_change_operations(
+        connector,
+        "CMDBChangeOpSetAttributeLinksAddRemove",
+        asset_class,
+        asset_id,
     )
     link_change_index = _load_change_index(
         connector,
@@ -261,35 +428,19 @@ def _load_asset_contact_history(
     )
 
     for operation in link_ops:
-        item_class = _normalize_space(operation.get("item_class"))
-        if item_class.lower() not in {"contact", "person"}:
+        if not _is_contact_link_change(operation):
             continue
 
-        contact_id = _safe_int(operation.get("item_id") or operation.get("contact_id"))
-        contact = connector.get(
-            "Contact",
-            contact_id,
-            output_fields="id,name,friendlyname,email,function,status,finalclass",
-        ).first()
-        contact_row = _build_contact_row(contact) if contact else {
-            "id": contact_id,
-            "name": f"Contacto {contact_id}",
-            "email": "",
-            "role": "",
-            "status": "",
-            "className": "",
-        }
-        change_id = _safe_int(operation.get("change") or operation.get("change_id"))
-        change_info = link_change_index.get(change_id, {})
-        action_type = _normalize_space(operation.get("type")).lower()
+        contact_row = _resolve_contact_from_history_operation(connector, operation)
+        change_info = _extract_change_info(operation, link_change_index)
         history_items.append(
             {
                 "id": int(operation.id),
                 "contactId": int(contact_row.get("id") or 0),
-                "contactName": str(contact_row.get("name") or f"Contacto {contact_id}"),
+                "contactName": str(contact_row.get("name") or "Contacto no disponible"),
                 "contactEmail": str(contact_row.get("email") or ""),
                 "contactRole": str(contact_row.get("role") or ""),
-                "action": "Agregado" if action_type == "added" else "Removido",
+                "action": _format_history_action(operation),
                 "changedAt": str(change_info.get("changedAt") or "").strip(),
                 "changedBy": str(change_info.get("changedBy") or "").strip(),
                 "origin": str(change_info.get("origin") or "").strip(),
@@ -305,6 +456,24 @@ def _load_asset_contact_history(
         reverse=True,
     )
     return history_items
+
+
+def _build_current_contact_history(contacts: list[Any]) -> list[dict[str, str | int]]:
+    return [
+        {
+            "id": int(contact.id),
+            "contactId": int(contact.id),
+            "contactName": _normalize_space(contact.get("friendlyname") or contact.get("name") or f"Contacto {contact.id}"),
+            "contactEmail": _normalize_space(contact.get("email")),
+            "contactRole": _normalize_space(contact.get("function")),
+            "action": "Relacion actual",
+            "changedAt": "",
+            "changedBy": "",
+            "origin": "",
+            "contactStatus": _normalize_space(contact.get("status")).capitalize(),
+        }
+        for contact in contacts
+    ]
 
 
 _USERS_BATCH_SIZE = 50
@@ -513,14 +682,39 @@ def _iter_query_classes(enabled_labels: list[str]) -> list[str]:
     return classes
 
 
-def _iter_all_query_classes() -> list[str]:
-    """Return all known CMDB query classes, regardless of enabledAssetTypes config."""
-    classes: list[str] = []
-    for query_class_list in CMDB_QUERY_MAP.values():
-        for query_class in query_class_list:
-            if query_class not in classes:
-                classes.append(query_class)
-    return classes
+def _load_person_asset_ids(connector: iTopCMDBConnector, person_id: int) -> list[int]:
+    links = connector.oql(
+        f"SELECT lnkContactToFunctionalCI WHERE contact_id = {person_id}",
+        output_fields="functionalci_id",
+    )
+    asset_ids: list[int] = []
+    seen: set[int] = set()
+    for link in links:
+        asset_id = _safe_int(link.get("functionalci_id"))
+        if asset_id <= 0 or asset_id in seen:
+            continue
+        seen.add(asset_id)
+        asset_ids.append(asset_id)
+    return asset_ids
+
+
+def _load_assets_by_ids(connector: iTopCMDBConnector, asset_ids: list[int]) -> list:
+    items = []
+    for asset_id in asset_ids:
+        try:
+            base_item = connector.get_ci("FunctionalCI", asset_id, output_fields="id,finalclass")
+            if not base_item:
+                continue
+            ci_class = _normalize_space(base_item.get("finalclass") or base_item.itop_class) or "FunctionalCI"
+            item = connector.get_ci(ci_class, asset_id, output_fields=ASSET_SEARCH_OUTPUT_FIELDS)
+            items.append(item or base_item)
+        except Exception:
+            logger.warning(
+                "_load_assets_by_ids: unable to load FunctionalCI %s for assigned-person search",
+                asset_id,
+                exc_info=True,
+            )
+    return items
 
 
 def _search_assets_by_person(
@@ -532,26 +726,13 @@ def _search_assets_by_person(
     enabled_labels: list[str],
 ) -> list:
     """
-    Fetch assets assigned to a specific person using an OQL JOIN query.
+    Fetch assets assigned to a specific person from the canonical iTop relation.
 
-    Queries ALL known asset classes (not filtered by enabledAssetTypes) so that
-    peripherals, docking stations, monitors, etc. are always included regardless
-    of hub catalog configuration.  The JOIN filters at the iTop level, avoiding
-    the N+1 pattern of fetching the full inventory and post-filtering.
+    The return flow validates ownership through lnkContactToFunctionalCI, so the
+    selection modal must use that same relation instead of class-specific joins.
     """
-    enriched_items = []
-    for query_class in _iter_all_query_classes():
-        oql = (
-            f"SELECT {query_class} AS ci "
-            f"JOIN lnkContactToFunctionalCI AS lnk ON lnk.functionalci_id = ci.id "
-            f"WHERE lnk.contact_id = {person_id}"
-        )
-        try:
-            items = connector.oql(oql, output_fields=ASSET_SEARCH_OUTPUT_FIELDS)
-            enriched_items.extend(items)
-        except Exception:
-            # Some iTop classes may not support this JOIN; skip gracefully.
-            pass
+    asset_ids = _load_person_asset_ids(connector, person_id)
+    enriched_items = _load_assets_by_ids(connector, asset_ids)
 
     return [
         item
@@ -698,6 +879,8 @@ def get_itop_asset_detail(asset_id: int, runtime_token: str) -> dict[str, object
         )
         asset_class = str(item.itop_class or item.get("finalclass") or "FunctionalCI").strip() or "FunctionalCI"
         history_items = _load_asset_contact_history(connector, asset_class, asset_id)
+        if not history_items and contacts:
+            history_items = _build_current_contact_history(contacts)
     except ConnectionError as exc:
         raise AuthenticationError(
             f"No fue posible consultar el detalle del activo en iTop: {exc}",
