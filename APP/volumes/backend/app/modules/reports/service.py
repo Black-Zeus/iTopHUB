@@ -253,11 +253,25 @@ def export_report_csv(
         key=lambda c: c.get("order", 0),
     )
 
+    def is_responsible_column(column: dict[str, Any]) -> bool:
+        field = str(column.get("field") or "").strip().lower()
+        label = str(column.get("label") or "").strip().lower()
+        return field == "responsable" or label == "responsable"
+
+    def format_cell_value(column: dict[str, Any], value: Any) -> Any:
+        if not is_responsible_column(column):
+            return value
+        if isinstance(value, list):
+            items = [str(item or "").strip() for item in value if str(item or "").strip()]
+        else:
+            items = [item.strip() for item in str(value or "").split(",") if item.strip()]
+        return "\n".join(items) if len(items) > 1 else value
+
     output = io.StringIO()
     writer = csv.writer(output, delimiter=";", quoting=csv.QUOTE_MINIMAL)
     writer.writerow([c["label"] for c in columns])
     for row in rows:
-        writer.writerow([row.get(c["field"], "") for c in columns])
+        writer.writerow([format_cell_value(c, row.get(c["field"], "")) for c in columns])
 
     csv_content = output.getvalue()
 

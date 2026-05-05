@@ -83,9 +83,8 @@ function buildDefaultParams(normalizedFilters) {
 }
 
 function getFormColumnClass(parameterCount) {
-  if (parameterCount === 3) return "grid-cols-1 md:grid-cols-3";
-  if (parameterCount % 2 === 0) return "grid-cols-1 md:grid-cols-2";
-  return "grid-cols-1";
+  if (parameterCount <= 1) return "grid-cols-1";
+  return "grid-cols-1 md:grid-cols-2 xl:grid-cols-3";
 }
 
 function getVisibleParameters(normalizedFilters) {
@@ -135,13 +134,36 @@ function buildApiFilters(params, normalizedFilters) {
   return result;
 }
 
+function isResponsibleColumn(col) {
+  const field = String(col?.field || "").trim().toLowerCase();
+  const label = String(col?.label || "").trim().toLowerCase();
+  return field === "responsable" || label === "responsable";
+}
+
+function splitResponsibleValue(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item || "").trim()).filter(Boolean);
+  }
+  const normalizedValue = String(value ?? "").trim();
+  if (!normalizedValue) return [];
+  return normalizedValue.split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+function formatExportCellValue(col, value) {
+  if (isResponsibleColumn(col)) {
+    const items = splitResponsibleValue(value);
+    if (items.length > 1) return items.join("\n");
+  }
+  return String(value ?? "");
+}
+
 function generateClientSideCsv(columns, rows, filename) {
   const exportCols = columns.filter((c) => c.export !== false);
   const header = exportCols.map((c) => c.label).join(";");
   const csvRows = rows.map((row) =>
     exportCols
       .map((c) => {
-        const val = String(row[c.field] ?? "");
+        const val = formatExportCellValue(c, row[c.field]);
         return val.includes(";") || val.includes("\n") || val.includes('"')
           ? `"${val.replace(/"/g, '""')}"`
           : val;
@@ -391,6 +413,20 @@ function ReportParameterField({ parameter, value, onChange }) {
 
 function renderCellValue(col, row) {
   const rawValue = row[col.field] ?? "";
+  if (isResponsibleColumn(col)) {
+    const items = splitResponsibleValue(rawValue);
+    if (items.length > 1) {
+      return (
+        <ul className="grid gap-1.5">
+          {items.map((item) => (
+            <li key={item} className="text-sm font-semibold leading-5 text-[var(--text-secondary)]">
+              {item}
+            </li>
+          ))}
+        </ul>
+      );
+    }
+  }
   if (col.format === "badge") {
     return <StatusChip status={rawValue || "-"} />;
   }
