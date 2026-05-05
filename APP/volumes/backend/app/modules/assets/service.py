@@ -167,7 +167,7 @@ def _build_asset_row(item, enabled_labels: list[str], assigned_contacts: list[di
     return {
         "id": item.id,
         "code": asset_number or f"CI-{int(item.id):05d}",
-        "name": _normalize_space(item.get("friendlyname") or item.get("name") or f"Objeto {item.id}"),
+        "name": _normalize_space(item.get("name") or item.get("friendlyname") or f"Objeto {item.id}"),
         "className": label,
         "brand": _normalize_space(item.get("brand_id_friendlyname") or item.get("brand_name")),
         "model": _normalize_space(item.get("model_id_friendlyname") or item.get("model_name")),
@@ -711,6 +711,7 @@ def get_itop_asset_detail(asset_id: int, runtime_token: str) -> dict[str, object
     return {
         **detail,
         "code": _normalize_space(item.get("asset_number")) or detail["code"],
+        "name": _normalize_space(item.get("name") or item.get("friendlyname")) or detail["name"],
         "className": _resolve_asset_type_label(item, enabled_labels),
         "status": _format_ci_status(item.get("status")),
         "contacts": [

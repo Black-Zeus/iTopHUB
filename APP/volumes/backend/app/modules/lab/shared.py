@@ -9,7 +9,6 @@ STATUS_DB_TO_UI = {
     "draft": "Borrador de ingreso",
     "in_execution": "En ejecucion",
     "ready_for_closure": "Lista para cierre",
-    "pending_admin_signature": "Pendiente firma administrador",
     "pending_itop_sync": "Pendiente registro iTop",
     "completed_return_to_stock": "Cerrada",
     "completed_obsolete": "Cerrada con normalizacion",
@@ -234,9 +233,6 @@ def derive_status_db(
 
     exit_final_state = coerce_str(record.get("exit_final_state")).lower()
     is_obsolete = exit_final_state in OBSOLETE_EXIT_STATES or bool(record.get("marked_obsolete"))
-
-    if is_obsolete and should_require_signature(record, qr_enabled=qr_enabled) and resolve_admin_signature_status(record) not in {"signed", "published"}:
-        return "pending_admin_signature"
 
     if not is_itop_ticket_registered(record):
         return "pending_itop_sync"

@@ -70,7 +70,7 @@ def itop_assets_search(
 ) -> dict[str, Any]:
     session_id = ensure_session(hub_session_id)
     try:
-        session_user = ensure_any_module_access(session_id, ("assets", "handover", "reassignment"))
+        session_user = ensure_any_module_access(session_id, ("assets", "handover", "reassignment", "lab"))
         runtime_token = get_runtime_token(session_id)
         return {
             "items": search_itop_assets(q, runtime_token, assigned_person_id=assigned_person_id),
@@ -92,7 +92,7 @@ def itop_assets_catalog(
 ) -> dict[str, Any]:
     session_id = ensure_session(hub_session_id)
     try:
-        ensure_any_module_access(session_id, ("assets",))
+        ensure_any_module_access(session_id, ("assets", "lab"))
         runtime_token = get_runtime_token(session_id)
         return list_itop_asset_catalog(runtime_token)
     except AuthenticationError as exc:
@@ -107,7 +107,7 @@ def itop_assets_catalog(
 def itop_asset_detail(asset_id: int, hub_session_id: str | None = Cookie(default=None)) -> dict[str, Any]:
     session_id = ensure_session(hub_session_id)
     try:
-        ensure_any_module_access(session_id, ("assets",))
+        ensure_any_module_access(session_id, ("assets", "lab"))
         runtime_token = get_runtime_token(session_id)
         return {"item": get_itop_asset_detail(asset_id, runtime_token)}
     except AuthenticationError as exc:
@@ -139,7 +139,7 @@ def itop_users_search(q: str = "", hub_session_id: str | None = Cookie(default=N
 def itop_requirement_catalog(hub_session_id: str | None = Cookie(default=None)) -> dict[str, Any]:
     session_id = ensure_session(hub_session_id)
     try:
-        ensure_any_module_access(session_id, ("settings", "handover", "reassignment"))
+        ensure_any_module_access(session_id, ("settings", "handover", "reassignment", "lab"))
         runtime_token = get_runtime_token(session_id)
         return get_requirement_itop_catalog(runtime_token)
     except AuthenticationError as exc:
@@ -156,7 +156,7 @@ def itop_requirement_catalog(hub_session_id: str | None = Cookie(default=None)) 
 def itop_ticket_defaults(hub_session_id: str | None = Cookie(default=None)) -> dict[str, Any]:
     session_id = ensure_session(hub_session_id)
     try:
-        ensure_any_module_access(session_id, ("settings", "handover", "reassignment"))
+        ensure_any_module_access(session_id, ("settings", "handover", "reassignment", "lab"))
         return {"item": get_settings_panel("docs")}
     except AuthenticationError as exc:
         raise_auth_error(exc)
@@ -170,7 +170,7 @@ def itop_ticket_defaults(hub_session_id: str | None = Cookie(default=None)) -> d
 def itop_current_user_teams(hub_session_id: str | None = Cookie(default=None)) -> dict[str, Any]:
     session_id = ensure_session(hub_session_id)
     try:
-        session_user = ensure_any_module_access(session_id, ("handover", "reassignment", "settings"))
+        session_user = ensure_any_module_access(session_id, ("handover", "reassignment", "settings", "lab"))
         runtime_token = get_runtime_token(session_id)
         current_person_id = resolve_itop_current_person_id(session_user, runtime_token)
         return {
@@ -199,7 +199,7 @@ def itop_teams_search(
 ) -> dict[str, Any]:
     session_id = ensure_session(hub_session_id)
     try:
-        ensure_any_module_access(session_id, ("settings", "handover", "reassignment"))
+        ensure_any_module_access(session_id, ("settings", "handover", "reassignment", "lab"))
         runtime_token = get_runtime_token(session_id)
         return {"items": search_itop_teams(q, runtime_token, org_id=org_id)}
     except AuthenticationError as exc:
@@ -220,7 +220,7 @@ def itop_team_people_search(
 ) -> dict[str, Any]:
     session_id = ensure_session(hub_session_id)
     try:
-        ensure_any_module_access(session_id, ("settings", "handover", "reassignment"))
+        ensure_any_module_access(session_id, ("settings", "handover", "reassignment", "lab"))
         runtime_token = get_runtime_token(session_id)
         return {"items": search_itop_team_people(team_id, q, runtime_token)}
     except AuthenticationError as exc:

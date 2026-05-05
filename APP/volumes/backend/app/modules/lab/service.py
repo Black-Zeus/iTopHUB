@@ -60,7 +60,6 @@ from modules.lab.storage_paths import (
 )
 from modules.settings.service import get_settings_panel
 from modules.settings.itop_catalog_service import list_itop_asset_status_options
-from modules.users.service import list_users
 from modules.handover.service import (
     _build_itop_connector,
     _create_itop_attachment,
@@ -78,6 +77,14 @@ ADMIN_SIGNATURE_TARGET_ROLE = "Administrador del Hub"
 
 def _coerce_str(value: Any, default: str = "") -> str:
     return coerce_str(value, default)
+
+
+def _resolve_asset_name_for_lab(asset: dict[str, Any]) -> str:
+    name = _coerce_str(asset.get("name"))
+    assigned_user = normalize_comparison_text(_coerce_str(asset.get("assignedUser")))
+    if name and normalize_comparison_text(name) not in {assigned_user, normalize_comparison_text("Sin asignar")}:
+        return name
+    return _coerce_str(asset.get("code")) or name
 
 
 def _generate_document_number(year: int) -> str:
@@ -162,12 +169,15 @@ def _is_qr_single_device_lock_enabled() -> bool:
 
 
 def _build_lab_public_signature_url(token: str) -> str:
+    safe_token = Path(_coerce_str(token)).name
+    if not safe_token:
+        return ""
+
     qr_settings = _get_qr_settings()
     base_url = _coerce_str(qr_settings.get("hubPublicBaseUrl")).rstrip("/")
-    route_path = _coerce_str(qr_settings.get("sessionRoutePath"), SIGNATURE_PUBLIC_ROUTE).strip("/") or SIGNATURE_PUBLIC_ROUTE
     if not base_url:
         return ""
-    return f"{base_url}/{route_path}/{token}"
+    return f"{base_url}/{SIGNATURE_PUBLIC_ROUTE}/{safe_token}"
 
 
 def _validate_signature_data_url(value: Any) -> dict[str, str]:
@@ -478,17 +488,6 @@ def get_lab_bootstrap(session_user: dict[str, Any], runtime_token: str) -> dict[
     lab_checklist_templates = checklists_data["itemsByModule"].get("lab", [])
     qr_settings = _get_qr_settings()
 
-    all_users = list_users()
-    admin_options = [
-        {
-            "userId": u.get("id"),
-            "name": _coerce_str(u.get("fullName") or u.get("username")),
-            "itopPersonKey": _coerce_str(u.get("itopPersonKey")),
-        }
-        for u in all_users
-        if u.get("status") == "active" and u.get("isAdmin")
-    ]
-
     return {
         "currentUser": {
             "id": session_user.get("id"),
@@ -503,7 +502,6 @@ def get_lab_bootstrap(session_user: dict[str, Any], runtime_token: str) -> dict[
             for db_key, ui_label in STATUS_DB_TO_UI.items()
         ],
         "exitFinalStateOptions": _get_exit_final_state_options(runtime_token),
-        "adminOptions": admin_options,
         "checklistTemplates": lab_checklist_templates,
         "searchHints": {
             "minCharsAssets": 2,
@@ -555,7 +553,7 @@ def create_lab_record(payload: dict[str, Any], session_user: dict[str, Any]) -> 
         "status": "draft",
         "asset_itop_id": _coerce_str(asset.get("id") or asset.get("itopId")),
         "asset_code": _coerce_str(asset.get("code")),
-        "asset_name": _coerce_str(asset.get("name")),
+        "asset_name": _resolve_asset_name_for_lab(asset),
         "asset_class": _coerce_str(asset.get("className")),
         "asset_serial": _coerce_str(asset.get("serial")),
         "asset_organization": _coerce_str(asset.get("organization")),
@@ -622,7 +620,7 @@ def update_lab_record(record_id: int, payload: dict[str, Any]) -> dict[str, Any]
         "status": _coerce_str(existing.get("status"), "draft"),
         "asset_itop_id": _coerce_str(asset.get("id") or asset.get("itopId")) or _coerce_str(existing.get("asset_itop_id")),
         "asset_code": _coerce_str(asset.get("code")) or _coerce_str(existing.get("asset_code")),
-        "asset_name": _coerce_str(asset.get("name")) or _coerce_str(existing.get("asset_name")),
+        "asset_name": _resolve_asset_name_for_lab(asset) or _coerce_str(existing.get("asset_name")),
         "asset_class": _coerce_str(asset.get("className")) or _coerce_str(existing.get("asset_class")),
         "asset_serial": _coerce_str(asset.get("serial")) or _coerce_str(existing.get("asset_serial")),
         "asset_organization": _coerce_str(asset.get("organization")) or _coerce_str(existing.get("asset_organization")),
@@ -770,8 +768,6 @@ def _validate_exit_document_generation(row: dict[str, Any]) -> None:
     exit_final_state = _coerce_str(row.get("exit_final_state")).lower()
     if not exit_final_state:
         raise HTTPException(status_code=422, detail="Debes seleccionar si el cierre modifica o no el estado CMDB del activo.")
-    if exit_final_state in OBSOLETE_EXIT_STATES and not _normalize_requester_admin({}, existing=row).get("userId"):
-        raise HTTPException(status_code=422, detail="Debes seleccionar un administrador responsable antes de cerrar un acta derivada a obsoleto.")
 
 
 def generate_lab_document(record_id: int, phase: str, session_user: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -798,10 +794,6 @@ def generate_lab_document(record_id: int, phase: str, session_user: dict[str, An
         phase_key = "processing"
     else:
         _validate_exit_document_generation(row)
-        if session_user is not None:
-            normalization_detail = _ensure_lab_normalization_act(record_id, row, session_user)
-            if normalization_detail:
-                row = fetch_lab_record_row(record_id) or row
         suffix = "S"
         phase_row = {**row, "document_number": _build_phase_document_number(row.get("document_number"), suffix)}
         html, footer_html = build_lab_exit_html(phase_row)
@@ -1402,9 +1394,10 @@ def _build_lab_ticket_description(record: dict[str, Any]) -> str:
         if _coerce_str(item)
     )
     reason_label = REASON_DB_TO_UI.get(_coerce_str(record.get("reason")), _coerce_str(record.get("reason")))
+    asset_label = _resolve_lab_ticket_asset_label(record)
     sections = [
         f"Acta: {_coerce_str(record.get('document_number'))}",
-        f"Activo: {_coerce_str(record.get('asset_code'))} / {_coerce_str(record.get('asset_name'))}",
+        f"Activo: {asset_label}",
         f"Motivo principal: {reason_label}",
         f"Acciones solicitadas: {action_labels or reason_label}",
         f"Estado base / condicion: {_coerce_str(record.get('entry_condition_notes')) or 'Sin detalle'}",
@@ -1424,16 +1417,33 @@ def _build_lab_ticket_description(record: dict[str, Any]) -> str:
     return "\n".join(sections)
 
 
-def _resolve_lab_ticket_requester(record: dict[str, Any], session_user: dict[str, Any]) -> dict[str, str]:
-    if record.get("marked_obsolete"):
-        requester_admin = _normalize_requester_admin({}, existing=record)
-        if not requester_admin.get("userId") or not requester_admin.get("itopPersonKey"):
-            raise HTTPException(status_code=422, detail="Debes seleccionar un administrador con persona iTop asociada para cerrar un acta derivada a obsoleto.")
-        return {
-            "requesterId": _coerce_str(requester_admin.get("itopPersonKey")),
-            "requesterName": _coerce_str(requester_admin.get("name")),
-        }
+def _resolve_lab_ticket_asset_name(record: dict[str, Any]) -> str:
+    asset_name = _coerce_str(record.get("asset_name"))
+    asset_code = _coerce_str(record.get("asset_code"))
+    invalid_names = {
+        normalize_comparison_text(value)
+        for value in [
+            _coerce_str(record.get("asset_assigned_user")),
+            _coerce_str(record.get("requester_admin_name")),
+            _coerce_str(record.get("owner_name")),
+            "Sin asignar",
+        ]
+        if _coerce_str(value)
+    }
+    if asset_name and normalize_comparison_text(asset_name) not in invalid_names:
+        return asset_name
+    return asset_code or asset_name or "Activo CMDB"
 
+
+def _resolve_lab_ticket_asset_label(record: dict[str, Any]) -> str:
+    asset_name = _resolve_lab_ticket_asset_name(record)
+    asset_code = _coerce_str(record.get("asset_code"))
+    if asset_code and normalize_comparison_text(asset_code) != normalize_comparison_text(asset_name):
+        return f"{asset_code} / {asset_name}"
+    return asset_name or "Sin activo"
+
+
+def _resolve_lab_ticket_requester(record: dict[str, Any], session_user: dict[str, Any]) -> dict[str, str]:
     requester_id = _coerce_str(session_user.get("itopPersonKey"))
     if requester_id.isdigit():
         return {
@@ -1452,10 +1462,29 @@ def _resolve_lab_ticket_requester(record: dict[str, Any], session_user: dict[str
 
 
 def _build_lab_ticket_payload(record: dict[str, Any], session_user: dict[str, Any], ticket_payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    subject_prefix = "Registro Movimiento de Inventario // Laboratorio de Activo // "
+    subject = (
+        subject_prefix +
+        f"{_resolve_lab_ticket_asset_name(record)}"
+    )
     if isinstance(ticket_payload, dict) and ticket_payload:
+        provided_subject = _coerce_str(ticket_payload.get("subject"))
+        provided_asset = provided_subject[len(subject_prefix):].strip() if provided_subject.startswith(subject_prefix) else ""
+        invalid_subject_assets = {
+            normalize_comparison_text(value)
+            for value in [
+                _coerce_str(record.get("asset_assigned_user")),
+                _coerce_str(record.get("requester_admin_name")),
+                _coerce_str(record.get("owner_name")),
+                "Sin asignar",
+            ]
+            if _coerce_str(value)
+        }
+        if provided_asset and normalize_comparison_text(provided_asset) in invalid_subject_assets:
+            provided_subject = subject
         return {
             **ticket_payload,
-            "subject": _coerce_str(ticket_payload.get("subject")) or f"Acta laboratorio {_coerce_str(record.get('document_number'))}".strip(),
+            "subject": provided_subject or subject,
             "description": _coerce_str(ticket_payload.get("description")) or _build_lab_ticket_description(record),
         }
 
@@ -1463,7 +1492,7 @@ def _build_lab_ticket_payload(record: dict[str, Any], session_user: dict[str, An
     return {
         "requesterId": requester["requesterId"],
         "requester": requester["requesterName"],
-        "subject": f"Acta laboratorio {_coerce_str(record.get('document_number'))} - {_coerce_str(record.get('asset_code') or record.get('asset_name'))}".strip(),
+        "subject": subject,
         "description": _build_lab_ticket_description(record),
     }
 
@@ -1515,7 +1544,12 @@ def _build_lab_normalization_requester(record: dict[str, Any], session_user: dic
     return None
 
 
-def _ensure_lab_normalization_act(record_id: int, record: dict[str, Any], session_user: dict[str, Any]) -> dict[str, Any] | None:
+def _ensure_lab_normalization_act(
+    record_id: int,
+    record: dict[str, Any],
+    session_user: dict[str, Any],
+    parent_ticket: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
     if not _should_create_normalization_act(record):
         return None
 
@@ -1527,9 +1561,12 @@ def _ensure_lab_normalization_act(record_id: int, record: dict[str, Any], sessio
     requester_admin = _build_lab_normalization_requester(record, session_user)
     document_number = _coerce_str(record.get("document_number"))
     asset_code = _coerce_str(record.get("asset_code"))
-    asset_name = _coerce_str(record.get("asset_name"))
+    asset_name = _resolve_lab_ticket_asset_name(record)
     reason_label = REASON_DB_TO_UI.get(_coerce_str(record.get("reason")), _coerce_str(record.get("reason")))
     obsolete_notes = _coerce_str(record.get("obsolete_notes"))
+    parent_ticket_number = _coerce_str((parent_ticket or {}).get("number") or (parent_ticket or {}).get("ref"))
+    parent_ticket_id = _coerce_str((parent_ticket or {}).get("id"))
+    parent_ticket_class = _coerce_str((parent_ticket or {}).get("className"), "UserRequest") or "UserRequest"
 
     payload: dict[str, Any] = {
         "handoverTypeCode": "normalization",
@@ -1543,6 +1580,9 @@ def _ensure_lab_normalization_act(record_id: int, record: dict[str, Any], sessio
             "sourceModule": "laboratory",
             "sourceLabRecordId": record_id,
             "sourceLabDocumentNumber": document_number,
+            "parentTicketId": parent_ticket_id,
+            "parentTicketNumber": parent_ticket_number,
+            "parentTicketClass": parent_ticket_class,
         },
         "reason": f"Derivacion desde acta de laboratorio {document_number}".strip(),
         "notes": "\n".join(
@@ -1552,6 +1592,7 @@ def _ensure_lab_normalization_act(record_id: int, record: dict[str, Any], sessio
                 f"Activo: {asset_code} / {asset_name}".strip(),
                 f"Motivo de laboratorio: {reason_label}",
                 f"Trabajo realizado: {_coerce_str(record.get('work_performed')) or 'Sin detalle'}",
+                f"Ticket padre laboratorio: {parent_ticket_number or parent_ticket_id}" if parent_ticket_number or parent_ticket_id else "",
                 f"Justificacion: {obsolete_notes}" if obsolete_notes else "",
             ]
             if item
@@ -1606,10 +1647,6 @@ def finalize_lab_closure(
     if state["statusDb"] != "pending_itop_sync":
         raise HTTPException(status_code=422, detail="El acta aún no está lista para registrar el ticket iTop.")
 
-    normalization_detail = _ensure_lab_normalization_act(record_id, current_row, session_user)
-    if normalization_detail:
-        current_row = fetch_lab_record_row(record_id) or current_row
-
     ticket_summary = get_itop_ticket_summary(current_row)
     if not _coerce_str(ticket_summary.get("id")):
         ticket_summary = _create_itop_handover_ticket(
@@ -1624,6 +1661,8 @@ def finalize_lab_closure(
         raise HTTPException(status_code=502, detail="No fue posible obtener el identificador del ticket iTop para esta acta.")
 
     documents = _build_lab_itop_documents(current_row)
+    if len(documents) < 3:
+        raise HTTPException(status_code=422, detail="Debes tener generadas las 3 actas de laboratorio antes de registrar el ticket iTop.")
     attachment_results: list[dict[str, Any]] = []
     connector = _build_itop_connector(runtime_token)
     try:
@@ -1658,4 +1697,8 @@ def finalize_lab_closure(
         "syncedAt": _serialize_signature_timestamp(),
     }
     updated = update_lab_record(record_id, {"itopTicket": saved_ticket})
+    current_row = fetch_lab_record_row(record_id) or current_row
+    normalization_detail = _ensure_lab_normalization_act(record_id, current_row, session_user, saved_ticket)
+    if normalization_detail:
+        updated = get_lab_record_detail(record_id)
     return updated
