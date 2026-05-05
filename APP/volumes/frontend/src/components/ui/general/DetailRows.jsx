@@ -17,12 +17,12 @@ export function DetailRows({ items = [], loading = false, columns = 2 }) {
               <span className="text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
                 {item.label}
               </span>
-              <span className="min-w-0">
-                <span className="break-words text-sm font-medium text-[var(--text-primary)]">
+              <span className="grid min-w-0 gap-1">
+                <span className="min-w-0 break-words text-sm font-medium text-[var(--text-primary)]">
                   {item.value}
                 </span>
                 {item.alert ? (
-                  <span className="mt-1 inline-flex items-center gap-2 text-xs font-semibold text-[var(--warning)]">
+                  <span className="flex min-w-0 items-start gap-2 text-xs font-semibold leading-5 text-[var(--warning)]">
                     <svg viewBox="0 0 24 24" className="h-3 w-3 shrink-0" aria-hidden="true">
                       <path
                         d="M12 9v4m0 4h.01M10.29 3.86 1.82 18A2 2 0 0 0 3.55 21h16.9a2 2 0 0 0 1.73-3l-8.47-14.14a2 2 0 0 0-3.42 0Z"

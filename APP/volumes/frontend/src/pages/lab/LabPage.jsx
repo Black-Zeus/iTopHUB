@@ -656,7 +656,10 @@ export function LabPage() {
 
   return (
     <div className="grid gap-5">
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+      <div
+        className="grid gap-4 md:grid-cols-2 xl:grid-cols-[repeat(var(--kpi-count),minmax(0,1fr))]"
+        style={{ "--kpi-count": Math.max(kpis.length, 1) }}
+      >
         {kpis.map((kpi) => (
           <KpiCard
             key={kpi.label}

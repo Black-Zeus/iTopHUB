@@ -143,6 +143,7 @@ function AssignedAssetSelectionModalContent({
   onSelectAsset,
   onCancel,
 }) {
+  const [filterDraft, setFilterDraft] = useState("");
   const [filter, setFilter] = useState("");
   const [allItems, setAllItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -199,17 +200,29 @@ function AssignedAssetSelectionModalContent({
       </div>
 
       {!loading && allItems.length > 0 ? (
-        <label className="grid gap-2">
-          <span className="text-sm font-semibold text-[var(--text-primary)]">Filtrar activos</span>
-          <input
-            type="search"
-            value={filter}
-            onChange={(event) => setFilter(event.target.value)}
-            className="h-[50px] rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 text-sm text-[var(--text-primary)] outline-none"
-            placeholder="Codigo, nombre, tipo o ubicacion..."
-            autoFocus
-          />
-        </label>
+        <form
+          className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end"
+          onSubmit={(event) => {
+            event.preventDefault();
+            setFilter(filterDraft.trim());
+          }}
+        >
+          <label className="grid gap-2">
+            <span className="text-sm font-semibold text-[var(--text-primary)]">Filtrar activos</span>
+            <input
+              type="search"
+              value={filterDraft}
+              onChange={(event) => setFilterDraft(event.target.value)}
+              className="h-[50px] rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 text-sm text-[var(--text-primary)] outline-none"
+              placeholder="Codigo, nombre, tipo o ubicacion..."
+              autoFocus
+            />
+          </label>
+          <Button type="submit" variant="secondary">
+            <Icon name="search" size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            Buscar
+          </Button>
+        </form>
       ) : null}
 
       {error ? <MessageBanner tone="danger">{error}</MessageBanner> : null}
@@ -227,6 +240,14 @@ function AssignedAssetSelectionModalContent({
       ) : null}
 
       <div className="grid gap-3 max-h-[min(420px,calc(100vh-20rem))] overflow-y-auto pr-1">
+        {!loading && !error && filteredItems.length > 0 ? (
+          <div className="hidden grid-cols-[minmax(0,1.25fr)_minmax(150px,0.7fr)_minmax(180px,0.85fr)_6.5rem] gap-3 px-4 text-[0.68rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)] md:grid">
+            <span>Activo</span>
+            <span>Tipo</span>
+            <span>Ubicacion</span>
+            <span className="text-right">Accion</span>
+          </div>
+        ) : null}
         {filteredItems.map((asset) => {
           const restrictionMessage = getAssetAssignmentRestriction(asset, {
             assetSelectionMode: "assigned_to_receiver",
@@ -236,18 +257,23 @@ function AssignedAssetSelectionModalContent({
           const alreadySelected = localSelectedAssetIds.has(Number(asset.id));
 
           return (
-            <div key={asset.id} className="flex flex-wrap items-start justify-between gap-3 rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-4">
-              <div className="min-w-0 flex-1">
+            <div key={asset.id} className="grid gap-3 rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-4 md:grid-cols-[minmax(0,1.25fr)_minmax(150px,0.7fr)_minmax(180px,0.85fr)_6.5rem] md:items-center">
+              <div className="min-w-0">
                 <p className="truncate text-sm font-semibold text-[var(--text-primary)]">{asset.code} / {asset.name}</p>
-                <p className="mt-1 text-sm text-[var(--text-secondary)]">{[asset.className, asset.serial].filter(Boolean).join(" / ")}</p>
-                {(asset.organization || asset.location) ? (
-                  <p className="mt-1 text-xs text-[var(--text-muted)]">{[asset.organization, asset.location].filter(Boolean).join(" / ")}</p>
-                ) : null}
                 <p className="mt-1 text-xs text-[var(--text-muted)]">{[asset.status, restrictionMessage].filter(Boolean).join(" — ")}</p>
+              </div>
+              <div className="min-w-0 text-sm text-[var(--text-secondary)]">
+                <p className="truncate">{asset.className || "Sin tipo"}</p>
+                <p className="mt-1 truncate text-xs text-[var(--text-muted)]">{asset.serial || "Sin serie"}</p>
+              </div>
+              <div className="min-w-0 text-sm text-[var(--text-secondary)]">
+                <p className="truncate">{asset.location || "Sin ubicacion"}</p>
+                <p className="mt-1 truncate text-xs text-[var(--text-muted)]">{asset.organization || "Sin organizacion"}</p>
               </div>
               <Button
                 size="sm"
                 variant="secondary"
+                className="w-full"
                 onClick={() => {
                   onSelectAsset(asset);
                   setLocalSelectedAssetIds((current) => new Set([...current, Number(asset.id)]));
@@ -420,7 +446,7 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
               triggerClassName="min-h-[66px]"
               buttonHeightClassName="min-h-[66px]"
               menuOffsetClassName="top-[calc(100%+0.55rem)]"
-              menuClassName="rounded-[18px]"
+              menuClassName="max-h-[min(420px,calc(100vh-12rem))] overflow-y-auto rounded-[18px]"
               renderSelection={({ label, selectedOptions }) => renderCatalogDropdownSelection({
                 label,
                 selectedOptions,
@@ -477,7 +503,7 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
               triggerClassName="min-h-[66px]"
               buttonHeightClassName="min-h-[66px]"
               menuOffsetClassName="top-[calc(100%+0.55rem)]"
-              menuClassName="rounded-[18px]"
+              menuClassName="max-h-[min(420px,calc(100vh-12rem))] overflow-y-auto rounded-[18px]"
               renderSelection={({ label, selectedOptions }) => renderCatalogDropdownSelection({
                 label,
                 selectedOptions,
@@ -1908,7 +1934,7 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
             assetAssignmentResponsible={isReassignmentFlow ? sourceResponsible : form.receiver}
             enforceSingleAssignment={isReturnFlow || normalizationEnforceSingleAssignment}
             onOpenAssetSelector={effectiveIsAssignedAssetFlow ? openAssignedAssetSelector : null}
-            assetLayoutMode={isNormalizationFlow ? "grouped" : "stacked"}
+            assetLayoutMode={isNormalizationFlow ? "grouped" : isReassignmentFlow ? "grid" : "stacked"}
             showReceiverSection={isNormalizationFlow ? Boolean(form.normalizationMode) : true}
             showReceiverSearch={isNormalizationFlow ? normalizationRequiresReceiver : true}
             showReceiverSummary={isNormalizationFlow ? normalizationRequiresReceiver : true}

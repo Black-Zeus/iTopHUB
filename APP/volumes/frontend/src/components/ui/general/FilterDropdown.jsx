@@ -126,12 +126,12 @@ export function FilterDropdown({
                       setOpen(false);
                     }
                   }}
-                  className={`flex items-center justify-between gap-3 rounded-[14px] border px-3 py-3 text-left text-sm transition ${optionClassName}`}
+                  className={`flex min-w-0 items-center justify-between gap-3 overflow-hidden rounded-[14px] border px-3 py-3 text-left text-sm transition ${optionClassName}`}
                   aria-pressed={isActive}
                 >
-                  <span className="flex min-w-0 items-center gap-3">
+                  <span className="flex min-w-0 flex-1 items-center gap-3">
                     {renderOptionLeading ? renderOptionLeading(option, isActive) : null}
-                    <span className="min-w-0">
+                    <span className="min-w-0 flex-1">
                       <span className="block truncate font-semibold">{option.label}</span>
                       {renderOptionDescription ? (
                         <span className="block text-xs opacity-75">

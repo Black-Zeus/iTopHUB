@@ -756,6 +756,7 @@ export function HandoverEditorSections({
     generatedFallbackUploadedAt: form.assignmentDate || "",
   });
   const useGroupedAssetLayout = assetLayoutMode === "grouped";
+  const useAssetGridLayout = assetLayoutMode === "grid";
   const groupedItems = useGroupedAssetLayout ? groupItemsByAssetClass(form.items) : [];
 
   const toggleChecklist = (assetId, templateId) => {
@@ -1526,6 +1527,12 @@ export function HandoverEditorSections({
                 </div>
               </section>
             ))}
+          </div>
+        ) : null
+      ) : useAssetGridLayout ? (
+        form.items?.length ? (
+          <div className="grid items-start gap-4 lg:grid-cols-2 xl:grid-cols-3">
+            {form.items.map((item) => renderAssetCard(item, { fullHeight: true }))}
           </div>
         ) : null
       ) : (
