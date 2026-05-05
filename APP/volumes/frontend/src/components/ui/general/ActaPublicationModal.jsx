@@ -58,6 +58,11 @@ function buildResponsibleLabel(requester, actaType) {
 }
 
 function ensureSubjectSuffix(subject, requester, actaType) {
+  const normalizedSubject = normalizeText(subject);
+  const actaSuffix = resolveActaSubjectSuffix(actaType);
+  if (normalizedSubject.includes(`// ${actaSuffix} //`)) {
+    return normalizedSubject;
+  }
   const baseSubject = removeResponsibleSuffix(subject);
   const responsibleLabel = buildResponsibleLabel(requester, actaType);
   if (!responsibleLabel) {

@@ -242,6 +242,10 @@ function buildTicketDescription(row, template, detail, moduleConfig) {
   if (normalizationModeLabel) {
     const normalizationDetail = buildNormalizationTicketDetail(detail, normalizationModeValue);
     lines.push(`* Modo de operacion: ${normalizationModeLabel}${normalizationDetail ? ` >> ${normalizationDetail}` : ""}.`);
+    const parentTicket = detail?.normalizationParams?.parentTicketNumber || detail?.normalizationParams?.parentTicketId || "";
+    if (parentTicket) {
+      lines.push(`* Ticket padre laboratorio: ${parentTicket}.`);
+    }
   }
   if (moduleConfig?.key === "return" && returnReason) {
     lines.push("");

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import ModalManager from "../../components/ui/modal";
-import { DataTable, FilterDropdown, KpiCard, Panel, PanelHeader } from "../../components/ui/general";
+import { ActaPublicationModalContent, DataTable, FilterDropdown, KpiCard, Panel, PanelHeader } from "../../components/ui/general";
 import { SearchFilterInput } from "../../components/ui/general/SearchFilterInput";
 import { StatusChip } from "../../components/ui/general/StatusChip";
 import { Icon } from "../../components/ui/icon/Icon";
@@ -10,9 +10,18 @@ import { useToast } from "../../ui";
 import {
   cancelLabRecord,
   fetchLabDocumentBlob,
+  finalizeLabClosure,
+  getLabRecord,
   listLabRecords,
 } from "../../services/lab-service";
-import { openLabQrModal } from "./LabSignatureQrModal";
+import {
+  getItopAssetDetail,
+  getItopCurrentUserTeams,
+  getItopRequirementCatalog,
+  getItopTicketDefaults,
+  searchItopTeamPeople,
+  searchItopTeams,
+} from "../../services/itop-service";
 import { downloadRowsAsCsv } from "../../utils/export-csv";
 import { LAB_REASON_OPTIONS, LAB_STATUS_OPTIONS, getReasonLabel } from "./lab-module-config";
 
@@ -21,7 +30,7 @@ const FILTER_CONTROL_HEIGHT = "h-[66px]";
 const IN_LAB_CODES = ["in_execution", "ready_for_closure"];
 const CLOSED_CODES = ["completed_return_to_stock", "completed_obsolete"];
 const EDITABLE_CODES = ["draft", "in_execution", "ready_for_closure"];
-const CANCELLABLE_CODES = [...EDITABLE_CODES, "pending_admin_signature", "pending_itop_sync"];
+const CANCELLABLE_CODES = [...EDITABLE_CODES, "pending_itop_sync"];
 
 function buildKpis(rows) {
   return [
@@ -45,13 +54,6 @@ function buildKpis(rows) {
       helper: "Trabajo en curso",
       tone: "accent",
       filterValue: "in_execution",
-    },
-    {
-      label: "Firma admin",
-      value: String(rows.filter((r) => r.statusCode === "pending_admin_signature").length).padStart(2, "0"),
-      helper: "Esperando firma QR administrador",
-      tone: "danger",
-      filterValue: "pending_admin_signature",
     },
     {
       label: "Sync iTop",
@@ -204,6 +206,141 @@ function openDocsModal(row) {
   });
 }
 
+function normalizeTicketOptions(options = []) {
+  return options
+    .map((option) => ({
+      ...option,
+      value: String(option?.value ?? option?.id ?? "").trim(),
+      label: String(option?.label ?? option?.name ?? option?.person ?? "").trim(),
+    }))
+    .filter((option) => option.value && option.label);
+}
+
+function buildAnalystOption(sessionUser) {
+  const value = String(sessionUser?.itopPersonKey || sessionUser?.itopPersonId || "").trim();
+  const label = String(sessionUser?.name || sessionUser?.username || "").trim();
+  return value && label ? { value, label } : null;
+}
+
+function normalizeAnalystOptions(items = [], sessionUser = null, allowFallback = false) {
+  const fallback = buildAnalystOption(sessionUser);
+  const sessionKey = String(sessionUser?.itopPersonKey || sessionUser?.itopPersonId || "").trim();
+  const sessionName = String(sessionUser?.name || sessionUser?.username || "").trim().toLowerCase();
+  const options = normalizeTicketOptions(items.map((item) => ({
+    ...item,
+    value: item.id,
+    label: item.person || item.name,
+  }))).map((option) => ({
+    ...option,
+    isCurrent: Boolean(
+      (sessionKey && option.value === sessionKey)
+      || (sessionName && String(option.label || "").trim().toLowerCase() === sessionName)
+    ),
+  }));
+  return options.length ? options : (allowFallback && fallback ? [{ ...fallback, isCurrent: true }] : []);
+}
+
+function findCurrentAnalystOption(options = [], sessionUser = null) {
+  const normalizedOptions = normalizeTicketOptions(options);
+  const personKey = String(sessionUser?.itopPersonKey || sessionUser?.itopPersonId || "").trim();
+  if (personKey) {
+    const byKey = normalizedOptions.find((option) => option.value === personKey);
+    if (byKey) return byKey;
+  }
+  const sessionName = String(sessionUser?.name || sessionUser?.username || "").trim().toLowerCase();
+  return normalizedOptions.find((option) => String(option.label || "").trim().toLowerCase() === sessionName) || null;
+}
+
+function normalizeLabAssetText(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function resolveLabTicketAssetName(detail) {
+  const invalidNames = new Set([
+    detail?.assetAssignedUser,
+    detail?.requesterAdmin?.name,
+    detail?.ownerName,
+    "Sin asignar",
+  ].map(normalizeLabAssetText).filter(Boolean));
+  const assetName = String(detail?.assetName || "").trim();
+  if (assetName && !invalidNames.has(normalizeLabAssetText(assetName))) {
+    return assetName;
+  }
+  return String(detail?.assetCode || assetName || "Activo CMDB").trim();
+}
+
+function resolveLabTicketAssetLabel(detail) {
+  const assetName = resolveLabTicketAssetName(detail);
+  const assetCode = String(detail?.assetCode || "").trim();
+  if (assetCode && normalizeLabAssetText(assetCode) !== normalizeLabAssetText(assetName)) {
+    return `${assetCode} / ${assetName}`;
+  }
+  return assetName || "Sin activo";
+}
+
+async function enrichLabDetailWithItopAsset(detail) {
+  const assetId = String(detail?.assetItopId || "").trim();
+  if (!assetId) return detail;
+  try {
+    const asset = await getItopAssetDetail(assetId);
+    if (!asset) return detail;
+    return {
+      ...detail,
+      assetCode: asset.code || detail?.assetCode,
+      assetName: asset.name || detail?.assetName,
+      assetClass: asset.className || detail?.assetClass,
+      assetSerial: asset.serial || detail?.assetSerial,
+      assetStatus: asset.status || detail?.assetStatus,
+      assetAssignedUser: asset.assignedUser || detail?.assetAssignedUser,
+    };
+  } catch {
+    return detail;
+  }
+}
+
+function buildLabTicketDescription(detail) {
+  const requestedActions = (detail?.requestedActionLabels || []).join(", ");
+  const lines = [
+    `Acta: ${detail?.code || ""}`,
+    `Activo: ${resolveLabTicketAssetLabel(detail)}`,
+    `Motivo principal: ${detail?.reasonLabel || detail?.reason || "Sin detalle"}`,
+    `Acciones solicitadas: ${requestedActions || "Sin detalle"}`,
+    `Estado base / condicion: ${detail?.entryConditionNotes || "Sin detalle"}`,
+    `Observaciones de ingreso: ${detail?.entryObservations || "Sin observaciones"}`,
+    `Notas recibidas: ${detail?.entryReceivedNotes || "Sin notas"}`,
+    `Observaciones de ejecucion: ${detail?.processingObservations || "Sin observaciones"}`,
+    `Trabajo realizado: ${detail?.workPerformed || "Sin detalle"}`,
+    `Observaciones de cierre: ${detail?.exitObservations || "Sin observaciones"}`,
+  ];
+  if (detail?.exitFinalState && detail.exitFinalState !== "no_change") {
+    lines.push(`Derivacion a normalizacion: cambio de estado CMDB a ${detail.exitFinalState}.`);
+    if (detail?.obsoleteNotes) lines.push(`Justificacion: ${detail.obsoleteNotes}`);
+  }
+  return lines.join("\n");
+}
+
+function buildLabTicketSubject(detail) {
+  const assetName = resolveLabTicketAssetName(detail);
+  return `Registro Movimiento de Inventario // Laboratorio de Activo // ${assetName || "Activo CMDB"}`;
+}
+
+function buildLabPublicationDocuments(detail) {
+  return [
+    { documentType: "Recepcion", document: detail?.entryGeneratedDocument },
+    { documentType: "Procesamiento", document: detail?.processingGeneratedDocument },
+    { documentType: "Cierre", document: detail?.exitGeneratedDocument },
+  ].filter((item) => item.document?.storedName).map((item) => ({
+    id: item.document.storedName,
+    name: item.document.filename || item.document.storedName,
+    documentType: item.documentType,
+    uploadedAt: item.document.generatedAt || "",
+    origin: "generated",
+    iconName: "fileLines",
+    isAvailable: true,
+    payload: item.document,
+  }));
+}
+
 export function LabPage() {
   const navigate = useNavigate();
   const { add } = useToast();
@@ -242,20 +379,6 @@ export function LabPage() {
     await loadRecords(nextFilters);
   };
 
-  const handleOpenQr = (row) => {
-    openLabQrModal({
-      recordId: row.id,
-      code: row.code,
-      assetAssignedUser: row.assetAssignedUser,
-      currentStatus: row.statusCode,
-      phase: "",
-      workflowKind: "adminApproval",
-      isAdmin: true,
-      add,
-      onDone: () => loadRecords(filters),
-    });
-  };
-
   const handleCancelRecord = async (row) => {
     const confirmed = await ModalManager.confirm({
       title: "Anular acta",
@@ -285,8 +408,121 @@ export function LabPage() {
     }
   };
 
-  const handleFinalizeItop = (row) => {
-    navigate(`/lab/${row.id}?ticket=1`);
+  const openLabTicketPublicationFlow = async ({ row, detail, onSuccess }) => {
+    const loadingModalId = ModalManager.loading({
+      title: "Preparando ticket iTop",
+      message: "Cargando configuracion, catalogos y grupos del usuario conectado...",
+      showProgress: false,
+      showCancel: false,
+    });
+    try {
+      const [ticketConfig, catalogPayload, teamsPayload] = await Promise.all([
+        getItopTicketDefaults(),
+        getItopRequirementCatalog(),
+        getItopCurrentUserTeams(),
+      ]);
+      ModalManager.close(loadingModalId);
+
+      const requesterOption = buildAnalystOption(teamsPayload.sessionUser);
+      if (!requesterOption) {
+        throw new Error("No hay solicitante iTop disponible. Registra tu persona iTop antes de cerrar.");
+      }
+
+      const fallbackTeams = (teamsPayload.items || []).length ? [] : await searchItopTeams({ query: "" });
+      const groupOptions = normalizeTicketOptions((teamsPayload.items || []).length ? teamsPayload.items : fallbackTeams);
+      const initialGroupId = groupOptions.length === 1 ? groupOptions[0].value : "";
+      const initialGroupAnalysts = initialGroupId ? await searchItopTeamPeople({ teamId: initialGroupId }) : [];
+      const analystOptions = normalizeAnalystOptions(initialGroupAnalysts, teamsPayload.sessionUser, Boolean(initialGroupId));
+      const analystOption = findCurrentAnalystOption(analystOptions, teamsPayload.sessionUser) || (analystOptions.length === 1 ? analystOptions[0] : null);
+      const currentAnalystOption = buildAnalystOption(teamsPayload.sessionUser);
+      const documents = buildLabPublicationDocuments(detail);
+      let publicationModalId = null;
+
+      publicationModalId = ModalManager.custom({
+        title: `Registrar en iTop ${detail?.code || row.code}`.trim(),
+        size: "personDetail",
+        showFooter: false,
+        closeOnOverlayClick: false,
+        closeOnEscape: false,
+        content: (
+          <ActaPublicationModalContent
+            initialValues={{
+              actaType: "Laboratorio",
+              requesterId: requesterOption.value,
+              requester: requesterOption.label,
+              groupId: initialGroupId,
+              groupName: initialGroupId ? groupOptions[0].label : "",
+              analystId: analystOption?.value || "",
+              analystName: analystOption?.label || "",
+              subject: buildLabTicketSubject(detail),
+              description: buildLabTicketDescription(detail),
+              origin: ticketConfig.requirementOrigin || "",
+              impact: ticketConfig.requirementImpact || "",
+              urgency: ticketConfig.requirementUrgency || "",
+              priority: ticketConfig.requirementPriority || "",
+              category: ticketConfig.requirementServiceId || "",
+              subcategory: ticketConfig.requirementServiceSubcategoryId || "",
+            }}
+            options={{
+              requesterOptions: [requesterOption],
+              originOptions: catalogPayload.origins || [],
+              impactOptions: catalogPayload.impacts || [],
+              urgencyOptions: catalogPayload.urgencies || [],
+              priorityOptions: catalogPayload.priorities || [],
+              categoryOptions: catalogPayload.services || [],
+              subcategoryOptions: catalogPayload.serviceSubcategories || [],
+              groupOptions,
+              analystOptions,
+              currentAnalystOption,
+            }}
+            documents={documents}
+            onLoadAnalystOptions={async (teamId) => normalizeAnalystOptions(await searchItopTeamPeople({ teamId }), teamsPayload.sessionUser, Boolean(teamId))}
+            onPreviewDocument={() => openDocsModal(detail)}
+            submitLabel="Registrar en iTop"
+            submittingLabel="Registrando..."
+            onCancel={() => ModalManager.close(publicationModalId)}
+            onSubmit={async (ticketPayload) => {
+              ModalManager.close(publicationModalId);
+              await onSuccess(ticketPayload);
+            }}
+          />
+        ),
+      });
+    } catch (prepareError) {
+      ModalManager.close(loadingModalId);
+      throw prepareError;
+    }
+  };
+
+  const handleFinalizeItop = async (row) => {
+    try {
+      const detail = await getLabRecord(row.id)
+        .then((response) => enrichLabDetailWithItopAsset(response?.item || row));
+      await openLabTicketPublicationFlow({
+        row,
+        detail,
+        onSuccess: async (ticketPayload) => {
+          const loadingModalId = ModalManager.loading({
+            title: "Registrando ticket iTop",
+            message: "Creando ticket, adjuntando actas y preparando normalizacion si corresponde...",
+            showProgress: false,
+            showCancel: false,
+          });
+          try {
+            await finalizeLabClosure(row.id, ticketPayload);
+            add({ title: "Ticket registrado", description: `El acta ${row.code} fue registrada en iTop.`, tone: "success" });
+            await loadRecords(filters);
+          } finally {
+            ModalManager.close(loadingModalId);
+          }
+        },
+      });
+    } catch (publishError) {
+      ModalManager.error({
+        title: "No fue posible continuar con el ticket",
+        message: publishError.message || "No fue posible preparar el registro iTop.",
+      });
+    }
   };
 
   const actionButtonClassName =
@@ -348,7 +584,6 @@ export function LabPage() {
       render: (_, row) => {
         const isEditable = EDITABLE_CODES.includes(row.statusCode);
         const isCancellable = CANCELLABLE_CODES.includes(row.statusCode);
-        const isPendingAdminSig = row.statusCode === "pending_admin_signature";
         const isPendingItop = row.statusCode === "pending_itop_sync";
         const hasDocuments = Boolean(
           row.entryGeneratedDocument || row.processingGeneratedDocument || row.exitGeneratedDocument
@@ -371,20 +606,11 @@ export function LabPage() {
           });
         }
 
-        if (row.canOpenQr && isPendingAdminSig) {
-          actions.push({
-            key: "qr",
-            label: "QR Admin",
-            icon: "mobile",
-            onClick: () => handleOpenQr(row),
-          });
-        }
-
         if (isPendingItop) {
           actions.push({
             key: "itop",
-            label: "→ iTop",
-            icon: "arrowRight",
+            label: "Ticket",
+            icon: "paperPlane",
             onClick: () => handleFinalizeItop(row),
           });
         }
@@ -416,8 +642,8 @@ export function LabPage() {
                     className={`${actionButtonClassName}${action.danger ? " text-[var(--danger)] hover:border-[rgba(210,138,138,0.4)] hover:bg-[rgba(210,138,138,0.08)]" : ""}`}
                     onClick={action.onClick}
                   >
-                    <Icon name={action.key === "itop" ? "fileLines" : action.icon} size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                    {action.key === "itop" ? "Ticket" : action.label}
+                    <Icon name={action.icon} size={14} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    {action.label}
                   </Button>
                 ))}
               </div>

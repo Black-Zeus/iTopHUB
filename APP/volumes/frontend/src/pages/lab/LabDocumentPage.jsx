@@ -6,11 +6,12 @@ import { Icon } from "../../components/ui/icon/Icon";
 import ModalManager from "../../components/ui/modal";
 import { Button } from "../../ui/Button";
 import { useToast } from "../../ui";
-import { searchItopAssets } from "../../services/itop-service";
 import {
+  getItopAssetDetail,
   getItopCurrentUserTeams,
   getItopRequirementCatalog,
   getItopTicketDefaults,
+  searchItopAssets,
   searchItopTeamPeople,
   searchItopTeams,
 } from "../../services/itop-service";
@@ -36,14 +37,12 @@ import {
   createEmptyLabForm,
   createFormFromDetail,
 } from "./lab-module-config";
-import { openLabQrModal } from "./LabSignatureQrModal";
 
 const INPUT_CLASS = "h-[50px] w-full rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 text-sm text-[var(--text-primary)] outline-none";
 const TEXTAREA_CLASS = "w-full rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-3 text-sm text-[var(--text-primary)] outline-none";
 const SECTION_PANEL_CLASS = "rounded-[var(--radius-md)] border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-[var(--shadow-subtle)]";
 
 const CLOSED_STATUSES = [
-  "Pendiente firma administrador",
   "Pendiente registro iTop",
   "Cerrada",
   "Cerrada con normalizacion",
@@ -111,7 +110,7 @@ function buildLabTicketDescription(detail, form) {
   const requestedActions = (detail?.requestedActionLabels || []).join(", ");
   const lines = [
     `Acta: ${detail?.code || ""}`,
-    `Activo: ${[detail?.assetCode, detail?.assetName].filter(Boolean).join(" / ") || "Sin activo"}`,
+    `Activo: ${resolveLabTicketAssetLabel(detail, form)}`,
     `Motivo principal: ${detail?.reasonLabel || form.reason || "Sin detalle"}`,
     `Acciones solicitadas: ${requestedActions || "Sin detalle"}`,
     `Estado base / condicion: ${form.entryConditionNotes || "Sin detalle"}`,
@@ -131,6 +130,61 @@ function buildLabTicketDescription(detail, form) {
     }
   }
   return lines.join("\n");
+}
+
+function normalizeLabAssetText(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function resolveLabTicketAssetName(detail, form) {
+  const invalidNames = new Set([
+    detail?.assetAssignedUser,
+    form?.asset?.assignedUser,
+    detail?.requesterAdmin?.name,
+    detail?.ownerName,
+    "Sin asignar",
+  ].map(normalizeLabAssetText).filter(Boolean));
+  const candidateNames = [form?.asset?.name, detail?.assetName]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+
+  const assetName = candidateNames.find((value) => !invalidNames.has(normalizeLabAssetText(value)));
+  if (assetName) return assetName;
+  return String(detail?.assetCode || form?.asset?.code || candidateNames[0] || "Activo CMDB").trim();
+}
+
+function resolveLabTicketAssetLabel(detail, form) {
+  const assetName = resolveLabTicketAssetName(detail, form);
+  const assetCode = String(detail?.assetCode || form?.asset?.code || "").trim();
+  if (assetCode && normalizeLabAssetText(assetCode) !== normalizeLabAssetText(assetName)) {
+    return `${assetCode} / ${assetName}`;
+  }
+  return assetName || "Sin activo";
+}
+
+async function enrichLabDetailWithItopAsset(detail) {
+  const assetId = String(detail?.assetItopId || "").trim();
+  if (!assetId) return detail;
+  try {
+    const asset = await getItopAssetDetail(assetId);
+    if (!asset) return detail;
+    return {
+      ...detail,
+      assetCode: asset.code || detail?.assetCode,
+      assetName: asset.name || detail?.assetName,
+      assetClass: asset.className || detail?.assetClass,
+      assetSerial: asset.serial || detail?.assetSerial,
+      assetStatus: asset.status || detail?.assetStatus,
+      assetAssignedUser: asset.assignedUser || detail?.assetAssignedUser,
+    };
+  } catch {
+    return detail;
+  }
+}
+
+function buildLabTicketSubject(detail, form) {
+  const assetName = resolveLabTicketAssetName(detail, form);
+  return `Registro Movimiento de Inventario // Laboratorio de Activo // ${assetName || "Activo CMDB"}`;
 }
 
 function renderReasonDropdownSelection({ label, selectedOptions }) {
@@ -984,7 +1038,7 @@ export function LabDocumentPage() {
               groupName: initialGroupId ? groupOptions[0].label : "",
               analystId: analystOption?.value || "",
               analystName: analystOption?.label || "",
-              subject: ticketConfig.requirementSubject || `Acta laboratorio ${sourceDetail?.code || ""}`.trim(),
+              subject: buildLabTicketSubject(sourceDetail, form),
               description: buildLabTicketDescription(sourceDetail, form),
               origin: ticketConfig.requirementOrigin || "",
               impact: ticketConfig.requirementImpact || "",
@@ -1028,7 +1082,8 @@ export function LabDocumentPage() {
 
   async function handleFinalizeItop() {
     try {
-      const refreshed = await getLabRecord(slug).then((response) => response?.item || detail);
+      const refreshed = await getLabRecord(slug)
+        .then((response) => enrichLabDetailWithItopAsset(response?.item || detail));
       await openLabTicketPublicationFlow(refreshed, async (ticketPayload) => {
         setFinalizingItop(true);
         try {
@@ -1070,20 +1125,6 @@ export function LabDocumentPage() {
     } catch (err) {
       showToast({ title: err.message || `No fue posible revertir la fase de ${phaseLabel}.`, tone: "danger" });
     }
-  }
-
-  function handleOpenQr({ phase, workflowKind, isAdmin }) {
-    openLabQrModal({
-      recordId: Number(slug),
-      code: detail?.code || slug,
-      assetAssignedUser: detail?.assetAssignedUser || "",
-      currentStatus: detail?.statusCode || "",
-      phase,
-      workflowKind,
-      isAdmin,
-      add: showToast,
-      onDone: refreshDetail,
-    });
   }
 
   async function handlePhaseToggle(phase) {
@@ -1204,7 +1245,6 @@ export function LabDocumentPage() {
   const entrySignatureStatus = detail?.signatureStates?.entry?.status || "";
   const processingSignatureStatus = detail?.signatureStates?.processing?.status || "";
   const exitSignatureStatus = detail?.signatureStates?.exit?.status || "";
-  const adminSignatureStatus = detail?.signatureStates?.adminApproval?.status || "";
   const isObsoleteExit = LAB_OBSOLETE_EXIT_STATES.has(form.exitFinalState);
 
   const statusCode = detail?.statusCode || "";
@@ -1218,8 +1258,6 @@ export function LabDocumentPage() {
   const isPendingItop = statusCode === "pending_itop_sync";
   const isCompleted = ["completed_return_to_stock", "completed_obsolete"].includes(statusCode);
   const itopTicket = form.itopTicket || detail?.itopTicket || null;
-  const canOpenQr = detail?.canOpenQr !== false;
-  const adminOptions = bootstrap?.adminOptions || [];
 
   useEffect(() => {
     if (isNew || loading || autoTicketOpenedRef.current || searchParams.get("ticket") !== "1") {
@@ -1596,7 +1634,7 @@ export function LabDocumentPage() {
               <Button
                 variant="primary"
                 onClick={() => handleGenerateDocument("entrada", setGeneratingEntry, { alreadyHasDoc: hasEntryDoc })}
-                disabled={generatingEntry || isNew || !form.entryDate}
+                disabled={generatingEntry || !form.entryDate}
               >
                 {generatingEntry ? (
                   <>
@@ -1605,8 +1643,7 @@ export function LabDocumentPage() {
                   </>
                 ) : "Confirmar recepcion y generar acta"}
               </Button>
-              {isNew && <p className="text-xs text-[var(--text-muted)]">Guarda el acta primero para poder generar documentos.</p>}
-              {!isNew && !form.entryDate && <p className="text-xs text-[var(--text-muted)]">Ingresa la fecha de ingreso para habilitar este boton.</p>}
+              {!form.entryDate && <p className="text-xs text-[var(--text-muted)]">Ingresa la fecha de ingreso para habilitar este boton.</p>}
             </div>
           )}
         </div>
@@ -1881,41 +1918,8 @@ export function LabDocumentPage() {
               />
             </Field>
 
-            {/* Admin approval — solo cuando estado obsolete */}
             {isObsoleteExit && (
               <div className="rounded-[14px] border border-[rgba(210,138,138,0.3)] bg-[rgba(210,138,138,0.06)] p-4 grid gap-3">
-                <p className="text-sm font-semibold text-[var(--danger)]">
-                  Estado seleccionado requiere firma de administrador para proceder al cierre.
-                </p>
-
-                <Field label="Administrador responsable" helper="Debe tener perfil administrador activo y clave iTop configurada.">
-                  {isGlobalReadOnly ? (
-                    <div className={`${INPUT_CLASS} flex items-center`}>
-                      <span className="truncate text-sm font-semibold">{form.requesterAdmin?.name || "—"}</span>
-                    </div>
-                  ) : (
-                    <select
-                      value={form.requesterAdmin?.userId || ""}
-                      onChange={(e) => {
-                        const selectedUser = adminOptions.find((u) => String(u.userId) === String(e.target.value));
-                        setField("requesterAdmin", selectedUser
-                          ? { userId: selectedUser.userId, name: selectedUser.name, itopPersonKey: selectedUser.itopPersonKey || "" }
-                          : null
-                        );
-                      }}
-                      disabled={exitLocked && !isGlobalReadOnly ? false : isGlobalReadOnly}
-                      className={`${INPUT_CLASS} cursor-pointer`}
-                    >
-                      <option value="">Selecciona un administrador...</option>
-                      {adminOptions.map((u) => (
-                        <option key={u.userId} value={u.userId}>
-                          {u.name}{u.itopPersonKey ? "" : " (sin clave iTop)"}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                </Field>
-
                 <Field label="Justificacion de baja" helper="Motivo tecnico que justifica la derivacion.">
                   <textarea
                     rows={3}
@@ -1926,40 +1930,6 @@ export function LabDocumentPage() {
                     className={TEXTAREA_CLASS}
                   />
                 </Field>
-
-                {hasExitDoc && form.requesterAdmin?.userId && (
-                  <div className="flex flex-wrap items-center gap-3">
-                    <SignatureBadge status={adminSignatureStatus} />
-                    {canOpenQr && !["signed", "published"].includes(adminSignatureStatus) && !isNew && (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        className="border-[rgba(210,138,138,0.4)] text-[var(--danger)] hover:bg-[rgba(210,138,138,0.08)]"
-                        onClick={() => handleOpenQr({ phase: "", workflowKind: "adminApproval", isAdmin: true })}
-                      >
-                        <Icon name="mobile" size={12} className="mr-1" />
-                        Solicitar firma administrador
-                      </Button>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {statusCode === "pending_admin_signature" && !isObsoleteExit && canOpenQr && (
-              <div className="flex flex-wrap items-center gap-3">
-                <SignatureBadge status={adminSignatureStatus} />
-                {!["signed", "published"].includes(adminSignatureStatus) && !isNew && (
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    className="border-[rgba(210,138,138,0.4)] text-[var(--danger)] hover:bg-[rgba(210,138,138,0.08)]"
-                    onClick={() => handleOpenQr({ phase: "", workflowKind: "adminApproval", isAdmin: true })}
-                  >
-                    <Icon name="mobile" size={12} className="mr-1" />
-                    Solicitar firma administrador
-                  </Button>
-                )}
               </div>
             )}
 
