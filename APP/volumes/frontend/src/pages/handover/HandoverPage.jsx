@@ -331,6 +331,7 @@ function startTicketProgressPulse(modalId, fromStep = 1, toStep = TICKET_PROGRES
 
 function downloadListCsv(rows, moduleConfig) {
   const isReassignmentModule = moduleConfig?.key === "reassignment";
+  const isNormalizationModule = moduleConfig?.key === "normalization";
   downloadRowsAsCsv({
     filename: moduleConfig.csvFilename,
     header: isReassignmentModule
@@ -340,7 +341,7 @@ function downloadListCsv(rows, moduleConfig) {
       row.code || "",
       ...(isReassignmentModule
         ? [row.sourcePerson || "", row.destinationPerson || row.person || ""]
-        : [row.person || ""]),
+        : [isNormalizationModule ? row.requesterAdminName || row.person || "" : row.person || ""]),
       row.elaborador || "",
       row.itopTicketNumber || "",
       row.date || "",
@@ -2040,7 +2041,12 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
       ]
     : [
         { key: "code", label: "Acta", sortable: true, headerClassName: "w-[9rem] min-w-[9rem]", cellClassName: "w-[9rem] min-w-[9rem]" },
-        { key: "person", label: moduleConfig.listPersonColumnLabel || "Destinatario", sortable: true },
+        {
+          key: moduleConfig.key === "normalization" ? "requesterAdminName" : "person",
+          label: moduleConfig.listPersonColumnLabel || "Destinatario",
+          sortable: true,
+          render: (value, row) => value || (moduleConfig.key === "normalization" ? row.person : "") || "-",
+        },
         { key: "elaborador", label: "Elaborador", sortable: true },
       ];
 

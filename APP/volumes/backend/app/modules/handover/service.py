@@ -1141,6 +1141,8 @@ def list_handover_documents(
             "person": row["receiver_name"],
             "sourcePerson": source_person.get("name") or "",
             "destinationPerson": row["receiver_name"],
+            "requesterAdminName": row.get("requester_admin_name") or "",
+            "requesterAdminUserId": int(row["requester_admin_user_id"]) if row.get("requester_admin_user_id") else None,
             "email": row.get("receiver_email") or "",
             "role": row.get("receiver_role") or "",
             "elaborador": row.get("owner_name") or "",

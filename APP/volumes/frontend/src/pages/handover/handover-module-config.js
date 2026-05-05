@@ -52,7 +52,7 @@ const HANDOVER_MODULE_VARIANTS = {
     editTitle: "Edicion de acta de devolucion",
     filterTitle: "Filtros Actas de Devolucion",
     listTitle: "Listado de Actas de Devolucion",
-    listPersonColumnLabel: "Responsable",
+    listPersonColumnLabel: "Solicitante",
     emptyListMessage: "No hay actas de devolucion registradas con los filtros actuales.",
     searchPlaceholder: "Buscar por acta, colaborador o activo devuelto",
     csvFilename: "actas_devolucion.csv",
