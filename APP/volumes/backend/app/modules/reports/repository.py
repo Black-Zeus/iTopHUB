@@ -24,7 +24,7 @@ def fetch_report_catalog(include_inactive: bool = False) -> list[dict[str, Any]]
             rd.updated_at
         FROM hub_report_definitions rd
         LEFT JOIN hub_report_definition_versions rdv
-            ON rdv.report_definition_id = rd.id AND rdv.status = 'active'
+            ON rdv.report_definition_id = rd.id AND rdv.version = rd.current_version
         {status_filter}
         ORDER BY rd.category ASC, rd.name ASC
     """
@@ -60,9 +60,21 @@ def fetch_report_by_code(report_code: str) -> dict[str, Any] | None:
 
 def fetch_active_version(report_definition_id: int) -> dict[str, Any] | None:
     sql = """
-        SELECT id, report_definition_id, version, status, definition_json, change_reason, created_by, created_at, activated_at
-        FROM hub_report_definition_versions
-        WHERE report_definition_id = %s AND status = 'active'
+        SELECT
+            rdv.id,
+            rdv.report_definition_id,
+            rdv.version,
+            rdv.status,
+            rdv.definition_json,
+            rdv.change_reason,
+            rdv.created_by,
+            rdv.created_at,
+            rdv.activated_at
+        FROM hub_report_definition_versions rdv
+        INNER JOIN hub_report_definitions rd
+            ON rd.id = rdv.report_definition_id
+        WHERE rdv.report_definition_id = %s
+          AND rdv.version = rd.current_version
         LIMIT 1
     """
     with get_db_connection() as conn:

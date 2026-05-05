@@ -60,6 +60,8 @@ Hosts the custom application API and integration layer between the frontend, iTo
 - The administration checklist module now reads and writes checklist templates plus item definitions from MariaDB instead of frontend-only mock data.
 - The handover module now persists its own delivery-document records in MariaDB and reuses iTop searches only for selecting receiver and CMDB assets before emission.
 - Global search is served by the backend under `/v1/search` and must read only Hub-owned MariaDB tables; it must not call iTop runtime endpoints or the iTop connector.
+- Reports can use backend-owned `itop_service` sources for CMDB analytics that need optimized OQL plus backend post-processing, such as assigned-responsible listings, class/status groupings, location groupings, useful-life calculations, and warranty expiration windows.
+- Report catalog reads should use the definition row pointed to by `hub_report_definitions.current_version`; active historical versions are cleanup targets, not alternate UI entries.
 - The handover module also exposes a temporary `Actas de Devolucion` mirror through the same API/persistence flow, separated by `handover_type = return` until dedicated return rules replace the shared behavior.
 - The return handover flow now consumes `cmdb.handoverReturnAssetStatus` during confirmation, revalidates in backend that every returned asset is still assigned in iTop to the selected responsible, and blocks confirmation unless the emitted PDF set (`main` + `detail`) exists.
 - Handover PDF files are generated through the internal `pdf-worker` service, stored temporarily under `/app/data/handover_documents`, and associated to each acta through `generated_documents` metadata in MariaDB.

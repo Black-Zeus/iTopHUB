@@ -16,6 +16,7 @@ from modules.reports.errors import (
     ReportOQLError,
     ReportUnsupportedError,
 )
+from modules.reports.itop_queries import QUERY_REGISTRY as ITOP_QUERY_REGISTRY
 from modules.reports.local_queries import QUERY_REGISTRY
 
 _ALLOWED_OQL_OPERATORS = {"=", "!=", "contains", "starts_with", "<=", ">=", "<", ">"}
@@ -63,6 +64,11 @@ def _validate_definition(definition: dict[str, Any]) -> None:
     elif source_mode == "local":
         if not str(source.get("service_key") or "").strip():
             raise ReportDefinitionInvalidError("La seccion 'source.service_key' es obligatoria para reportes locales.")
+    elif source_mode == "itop_service":
+        if str(source.get("engine") or "").strip() != "itop":
+            raise ReportDefinitionInvalidError("Los reportes itop_service deben declarar source.engine='itop'.")
+        if not str(source.get("service_key") or "").strip():
+            raise ReportDefinitionInvalidError("La seccion 'source.service_key' es obligatoria para reportes itop_service.")
 
     if not isinstance(definition.get("filters"), list):
         raise ReportDefinitionInvalidError("La seccion 'filters' debe ser una lista.")
@@ -319,6 +325,28 @@ def execute_local_report(
         raise ReportLocalQueryError(str(exc)) from exc
 
 
+def execute_itop_service_report(
+    definition: dict,
+    active_filters: dict[str, Any],
+    pagination: dict,
+    runtime_token: str,
+) -> tuple[list[dict], int]:
+    source = definition["source"]
+    service_key = source.get("service_key", "")
+
+    query_fn = ITOP_QUERY_REGISTRY.get(service_key)
+    if query_fn is None:
+        raise ReportLocalQueryError(f"Clave de consulta iTop '{service_key}' no registrada.")
+
+    try:
+        return query_fn(active_filters, pagination, runtime_token)
+    except Exception as exc:
+        error_str = str(exc)
+        if "connect" in error_str.lower() or "timeout" in error_str.lower():
+            raise ReportITopConnectionError(error_str) from exc
+        raise ReportOQLError(error_str) from exc
+
+
 def validate_and_collect_filters(
     definition: dict,
     submitted_filters: dict[str, Any],
@@ -373,6 +401,8 @@ def execute_report(
         return execute_oql_report(definition, active_filters, pagination, runtime_token)
     if source_mode == "local":
         return execute_local_report(definition, active_filters, pagination)
+    if source_mode == "itop_service":
+        return execute_itop_service_report(definition, active_filters, pagination, runtime_token)
     if source_mode == "mixed":
         raise ReportUnsupportedError(definition.get("id", ""), "El modo 'mixed' no esta disponible en Fase 1.")
 

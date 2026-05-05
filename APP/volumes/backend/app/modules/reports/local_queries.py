@@ -308,6 +308,7 @@ def _fetch_lab_rows(
             r.id,
             r.document_number,
             r.reason,
+            r.requested_actions,
             r.status,
             r.asset_code,
             r.asset_name,
@@ -600,6 +601,35 @@ def lab_obsolete_derivations(filters: dict[str, Any], pagination: dict) -> tuple
     return paged_rows, total
 
 
+def lab_repairs(filters: dict[str, Any], pagination: dict) -> tuple[list[dict], int]:
+    rows_raw = _fetch_lab_rows(filters)
+    rows = []
+    for record in rows_raw:
+        action_text = json.dumps(record.get("requested_actions") or "", ensure_ascii=False).casefold()
+        haystack = " ".join([
+            str(record.get("reason") or ""),
+            action_text,
+            str(record.get("processing_observations") or ""),
+            str(record.get("work_performed") or ""),
+            str(record.get("exit_observations") or ""),
+        ]).casefold()
+        if not any(token in haystack for token in ("repair", "repar", "hardware", "corrective", "correctiva", "warranty", "garantia")):
+            continue
+        rows.append({
+            "numero_acta": record["document_number"],
+            "fecha_ingreso": _coerce_date_text(record["entry_date"] or record["created_at"]),
+            "activo": _resolve_lab_asset_label(record),
+            "motivo": _normalize_lab_reason(record["reason"]),
+            "fase_actual": _resolve_lab_phase(record),
+            "estado": _normalize_status_label(record["status"]),
+            "responsable": _coerce_text(record["owner_name"]),
+            "usuario_relacionado": _resolve_lab_related_person(record),
+            "diagnostico": _coerce_text(record.get("processing_observations") or record.get("work_performed") or record.get("exit_observations")),
+        })
+    paged_rows, total = _paginate_rows(_sort_rows_desc(rows, "fecha_ingreso", "numero_acta"), pagination)
+    return paged_rows, total
+
+
 QUERY_REGISTRY: dict[str, Any] = {
     "handover_documents_by_period": handover_documents_by_period,
     "pending_delivery_confirmations": pending_delivery_confirmations,
@@ -608,4 +638,5 @@ QUERY_REGISTRY: dict[str, Any] = {
     "incomplete_handover_documents": incomplete_handover_documents,
     "lab_records_by_period": lab_records_by_period,
     "lab_obsolete_derivations": lab_obsolete_derivations,
+    "lab_repairs": lab_repairs,
 }
