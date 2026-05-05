@@ -6,6 +6,7 @@ from copy import deepcopy
 from io import BytesIO
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from fastapi import HTTPException
 from PIL import Image
@@ -392,6 +393,12 @@ def normalize_panel_config(panel_code: str, config: dict[str, Any]) -> dict[str,
         route_path = _coerce_str(merged.get("sessionRoutePath"), "firma/h").strip("/")
         public_base_url = _coerce_str(merged.get("hubPublicBaseUrl")).rstrip("/")
         normalized_public_base_url = public_base_url.lower()
+        parsed_public_base_url = urlparse(public_base_url) if public_base_url else None
+        if public_base_url and (
+            parsed_public_base_url.scheme not in {"http", "https"} or not parsed_public_base_url.netloc
+        ):
+            public_base_url = ""
+            normalized_public_base_url = ""
         if normalized_public_base_url and ("localhost" in normalized_public_base_url or "127.0.0.1" in normalized_public_base_url):
             raise HTTPException(
                 status_code=422,
@@ -539,6 +546,16 @@ def update_settings_panel(panel_code: str, config: dict[str, Any]) -> dict[str, 
                 remove_organization_logo(old_path)
         normalized = normalize_panel_config(panel_code, next_config)
     else:
+        if panel_code == "qr":
+            public_base_url = _coerce_str(config.get("hubPublicBaseUrl")).rstrip("/")
+            parsed_public_base_url = urlparse(public_base_url) if public_base_url else None
+            if public_base_url and (
+                parsed_public_base_url.scheme not in {"http", "https"} or not parsed_public_base_url.netloc
+            ):
+                raise HTTPException(
+                    status_code=422,
+                    detail="La URL pÃºblica del Hub para firma QR debe incluir http:// o https:// y un servidor alcanzable desde el mÃ³vil.",
+                )
         normalized = normalize_panel_config(panel_code, config)
     upsert_settings_panel(panel_code, normalized)
     cache_settings_panel(panel_code, normalized)

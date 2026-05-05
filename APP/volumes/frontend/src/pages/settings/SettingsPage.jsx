@@ -102,6 +102,30 @@ const EMPTY_PROFILE = {
   modules: [],
 };
 
+const QR_HANDOVER_ROUTE = "firma/h";
+const QR_LAB_ROUTE = "firma/l";
+
+function buildSuggestedQrPublicBaseUrl() {
+  const hmrHost = String(import.meta.env.VITE_HMR_HOST || "").trim();
+  if (!hmrHost) return "";
+
+  const frontendBase = String(import.meta.env.BASE_URL || "/").trim();
+  const basePath = frontendBase && frontendBase !== "/" ? `/${frontendBase.replace(/^\/+|\/+$/g, "")}` : "";
+  const rawBase = /^https?:\/\//i.test(hmrHost)
+    ? hmrHost.replace(/\/+$/, "")
+    : `${window.location.protocol || "http:"}//${hmrHost.replace(/\/+$/, "")}`;
+
+  try {
+    const url = new URL(rawBase);
+    if (url.pathname && url.pathname !== "/") {
+      return url.toString().replace(/\/+$/, "");
+    }
+    return `${url.origin}${basePath}`.replace(/\/+$/, "");
+  } catch {
+    return `${rawBase}${basePath}`.replace(/\/+$/, "");
+  }
+}
+
 function buildItopApiPath(integrationUrl) {
   const base = String(integrationUrl || "").trim().replace(/\/+$/, "");
   return base ? `${base}/webservices/rest.php` : "";
@@ -566,8 +590,15 @@ export function SettingsPage() {
     setError("");
     try {
       const [settingsPayload, pdqPayload, profilesPayload] = await Promise.all([getSettings(), getPdqStatus(), getSettingsProfiles()]);
+      const qrPanel = settingsPayload?.panels?.qr || {};
+      const suggestedQrPublicBaseUrl = buildSuggestedQrPublicBaseUrl();
       const nextPanels = {
         ...(settingsPayload.panels || {}),
+        qr: {
+          ...qrPanel,
+          hubPublicBaseUrl: qrPanel.hubPublicBaseUrl || suggestedQrPublicBaseUrl,
+          sessionRoutePath: qrPanel.sessionRoutePath || QR_HANDOVER_ROUTE,
+        },
         pdq: {
           ...(settingsPayload?.panels?.pdq || {}),
           databaseFilePath: resolvePdqDatabasePath(settingsPayload?.panels?.pdq?.databaseFilePath, pdqPayload),
@@ -1481,12 +1512,21 @@ export function SettingsPage() {
                     </p>
                   </div>
                   <div className="rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-4">
-                    <p className="text-[0.68rem] font-extrabold uppercase tracking-[0.12em] text-[var(--text-muted)]">Ejemplo de ruta</p>
-                    <p className="mt-2 break-all text-sm font-bold text-[var(--text-primary)]">
-                      {drafts.qr?.hubPublicBaseUrl
-                        ? `${String(drafts.qr.hubPublicBaseUrl).replace(/\/+$/, "")}/${String(drafts.qr?.sessionRoutePath || "firma/h").replace(/^\/+|\/+$/g, "")}/TOKEN`
-                        : "Configura primero la URL pública del Hub"}
-                    </p>
+                    <p className="text-[0.68rem] font-extrabold uppercase tracking-[0.12em] text-[var(--text-muted)]">Ejemplos de ruta</p>
+                    {drafts.qr?.hubPublicBaseUrl ? (
+                      <div className="mt-2 grid gap-2 text-sm font-bold text-[var(--text-primary)]">
+                        <p className="break-all">
+                          Actas: {`${String(drafts.qr.hubPublicBaseUrl).replace(/\/+$/, "")}/${String(drafts.qr?.sessionRoutePath || QR_HANDOVER_ROUTE).replace(/^\/+|\/+$/g, "")}/TOKEN`}
+                        </p>
+                        <p className="break-all">
+                          Laboratorio: {`${String(drafts.qr.hubPublicBaseUrl).replace(/\/+$/, "")}/${QR_LAB_ROUTE}/TOKEN`}
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="mt-2 break-all text-sm font-bold text-[var(--text-primary)]">
+                        Configura primero la URL pública del Hub
+                      </p>
+                    )}
                   </div>
                   <div className="rounded-[16px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-4">
                     <p className="text-[0.68rem] font-extrabold uppercase tracking-[0.12em] text-[var(--text-muted)]">Uso recomendado</p>
@@ -1495,10 +1535,10 @@ export function SettingsPage() {
                       <code className="rounded bg-[var(--bg-app)] px-1 text-xs">localhost</code>
                       {" "}o rutas locales del navegador.
                     </p>
-                    <div className="mt-4">
+                    <div className="hidden">
                       <p className="mb-2 text-[0.68rem] font-extrabold uppercase tracking-[0.12em] text-[var(--text-muted)]">Ruta pública</p>
                       <div className="flex min-h-[44px] items-center rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 text-sm font-bold text-[var(--text-primary)]">
-                        {String(drafts.qr?.sessionRoutePath || "firma/h").replace(/^\/+|\/+$/g, "")}
+                        {String(drafts.qr?.sessionRoutePath || QR_HANDOVER_ROUTE).replace(/^\/+|\/+$/g, "")} | {QR_LAB_ROUTE}
                       </div>
                     </div>
                   </div>
