@@ -11,6 +11,16 @@ export function HeaderUserMenu() {
   const navigate = useNavigate();
   const displayName = user?.name ?? "Usuario";
   const displayMeta = user?.role ?? user?.email ?? "-";
+  const profileRows = [
+    { label: "Usuario", value: user?.username },
+    { label: "Correo", value: user?.email },
+    { label: "Perfil", value: user?.role },
+    { label: "Estado", value: user?.status === "active" ? "Activo" : user?.status },
+    { label: "Persona iTop", value: user?.itopPersonKey ? `ID ${user.itopPersonKey}` : "" },
+    { label: "Acceso", value: user?.accessMode === "admin_limited" ? "Administrador limitado" : "Completo" },
+  ].filter((item) => String(item.value || "").trim());
+  const visibleModuleCount = user?.permissions?.viewModules?.length ?? 0;
+  const writableModuleCount = user?.permissions?.writeModules?.length ?? 0;
 
   useEffect(() => {
     const handler = (event) => {
@@ -35,32 +45,65 @@ export function HeaderUserMenu() {
 
   const openProfileModal = () => {
     setOpen(false);
-    ModalManager.info({
-      title: "Perfil",
-      message: "Placeholder inicial para la vista de perfil.",
+    ModalManager.custom({
+      title: `Perfil de ${displayName}`,
+      size: "medium",
+      showFooter: false,
       content: (
-        <div className="space-y-3">
-          <p className="text-sm text-[var(--text-secondary)]">
-            Aqui mostraremos los datos del usuario autenticado.
-          </p>
-          <div className="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-app)] p-4 text-sm text-[var(--text-secondary)]">
-            <p><span className="font-semibold text-[var(--text-primary)]">Nombre:</span> {displayName}</p>
-            <p><span className="font-semibold text-[var(--text-primary)]">Referencia:</span> {displayMeta}</p>
+        <div className="space-y-4">
+          <div className="flex items-center gap-4 rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] p-4">
+            <span className="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-[var(--accent-soft)] text-lg font-bold text-[var(--accent-strong)]">
+              {initials}
+            </span>
+            <div className="min-w-0">
+              <p className="truncate text-base font-semibold text-[var(--text-primary)]">{displayName}</p>
+              <p className="mt-1 truncate text-sm text-[var(--text-secondary)]">{displayMeta}</p>
+            </div>
           </div>
-        </div>
-      ),
-    });
-  };
 
-  const openPasswordModal = () => {
-    setOpen(false);
-    ModalManager.info({
-      title: "Cambiar contrasena",
-      message: "Placeholder inicial para el cambio de contrasena.",
-      content: (
-        <p className="text-sm text-[var(--text-secondary)]">
-          Aqui conectaremos el formulario para actualizar la contrasena del usuario.
-        </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {profileRows.map((item) => (
+              <div
+                key={item.label}
+                className="min-w-0 rounded-[14px] border border-[var(--border-color)] bg-[rgba(255,255,255,0.02)] px-4 py-3"
+              >
+                <p className="text-[0.68rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+                  {item.label}
+                </p>
+                <p className="mt-1 truncate text-sm font-semibold text-[var(--text-primary)]">{item.value}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-3">
+              <p className="text-[0.68rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+                Token iTop
+              </p>
+              <p className="mt-1 text-sm font-semibold text-[var(--text-primary)]">
+                {user?.hasRuntimeToken ? "Activo" : user?.hasItopToken ? "Registrado" : "No registrado"}
+              </p>
+            </div>
+            <div className="rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-3">
+              <p className="text-[0.68rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+                Modulos
+              </p>
+              <p className="mt-1 text-sm font-semibold text-[var(--text-primary)]">{visibleModuleCount}</p>
+            </div>
+            <div className="rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-3">
+              <p className="text-[0.68rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+                Escritura
+              </p>
+              <p className="mt-1 text-sm font-semibold text-[var(--text-primary)]">{writableModuleCount}</p>
+            </div>
+          </div>
+
+          {user?.notice ? (
+            <div className="rounded-[14px] border border-[rgba(210,171,105,0.32)] bg-[rgba(210,171,105,0.1)] px-4 py-3 text-sm text-[var(--text-primary)]">
+              {user.notice}
+            </div>
+          ) : null}
+        </div>
       ),
     });
   };
@@ -145,16 +188,6 @@ export function HeaderUserMenu() {
                 <path d="M21 3v6h-6" />
               </svg>
               {refreshing ? "Recargando..." : "Recargar permisos"}
-            </button>
-            <button
-              onClick={openPasswordModal}
-              className="flex w-full items-center gap-2 rounded-[10px] bg-transparent px-3 py-3 text-left text-[var(--text-primary)] transition hover:bg-[var(--bg-hover)]"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <rect x="3" y="11" width="18" height="10" rx="2" />
-                <path d="M7 11V8a5 5 0 0 1 10 0v3" />
-              </svg>
-              Cambiar contrasena
             </button>
             <button
               onClick={() => {
