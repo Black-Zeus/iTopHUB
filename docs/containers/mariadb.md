@@ -21,7 +21,9 @@ Provides the relational database server shared by the custom backend and iTop, u
 ## Init Convention
 
 - Bootstrap files and SQL migrations are ordered lexicographically.
-- Current folder uses decadal blocks: `00`, `10`, `20`, `30`, `40`, `70`, `80`, `90`.
+- App init files use the format `yyyymmdd_xxx_glosa.sql`, similar to Laravel-style ordered migrations.
+- Use `001-099` for schema creation, `100-199` for seeds, and `200+` for later data/schema patches when needed.
+- Structural changes for a table should be folded into that table's `CREATE TABLE` definition during init refounds; keep standalone `ALTER TABLE` files only for future incremental patches against already-deployed databases.
 
 ## Notes
 

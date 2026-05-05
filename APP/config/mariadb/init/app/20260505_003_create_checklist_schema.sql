@@ -1,6 +1,7 @@
 CREATE TABLE IF NOT EXISTS hub_checklist_templates (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     module_code VARCHAR(50) NOT NULL,
+    usage_type VARCHAR(30) NULL,
     name VARCHAR(150) NOT NULL,
     description TEXT NOT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'active',

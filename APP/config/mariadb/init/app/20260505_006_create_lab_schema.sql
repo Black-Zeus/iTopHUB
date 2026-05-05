@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS hub_lab_records (
     work_performed          TEXT         DEFAULT NULL,
     exit_evidences          JSON         DEFAULT NULL,
     exit_generated_document JSON         DEFAULT NULL,
+    exit_final_state        VARCHAR(30)  DEFAULT NULL,
     signature_workflow      LONGTEXT     DEFAULT NULL,
     itop_ticket_summary     LONGTEXT     DEFAULT NULL,
 

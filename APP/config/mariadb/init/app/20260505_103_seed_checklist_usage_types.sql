@@ -1,6 +1,3 @@
-ALTER TABLE hub_checklist_templates
-    ADD COLUMN IF NOT EXISTS usage_type VARCHAR(30) NULL AFTER module_code;
-
 UPDATE hub_checklist_templates
 SET usage_type = CASE
     WHEN module_code = 'lab' THEN 'laboratory'

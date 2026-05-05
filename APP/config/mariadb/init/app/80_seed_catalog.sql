@@ -1,2 +1,0 @@
--- Catalog and support seed data block.
--- Add optional or extended bootstrap data here.

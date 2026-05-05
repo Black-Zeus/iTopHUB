@@ -1,2 +1,0 @@
--- Triggers and automation block.
--- Add CREATE TRIGGER statements here.
