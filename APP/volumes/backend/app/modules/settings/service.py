@@ -59,6 +59,7 @@ PROFILE_MODULE_OPTIONS = [
     {"moduleCode": "checklists", "label": "Checklists"},
     {"moduleCode": "users", "label": "Usuarios"},
     {"moduleCode": "reports", "label": "Informes"},
+    {"moduleCode": "email_reports", "label": "Reportes por correo"},
     {"moduleCode": "settings", "label": "Configuracion"},
 ]
 
