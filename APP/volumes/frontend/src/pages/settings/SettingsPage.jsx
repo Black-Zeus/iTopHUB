@@ -1,5 +1,25 @@
 import { useEffect, useMemo, useState } from "react";
-import { CircleAlert, FileText, FolderTree, Link as LinkIcon } from "lucide-react";
+import {
+  Archive,
+  CircleAlert,
+  ClipboardCheck,
+  ClipboardList,
+  Database,
+  Edit,
+  Eye,
+  FileText,
+  FolderTree,
+  Gauge,
+  Grid,
+  Link as LinkIcon,
+  Settings,
+  Shield,
+  SlidersHorizontal,
+  User,
+  Users,
+  Wrench,
+  X,
+} from "lucide-react";
 import ModalManager from "../../components/ui/modal";
 import { FilterDropdown } from "../../components/ui/general";
 import { Button } from "../../ui/Button";
@@ -101,6 +121,34 @@ const EMPTY_PROFILE = {
   status: "active",
   modules: [],
 };
+
+const PROFILE_PERMISSION_GROUPS = [
+  { id: "general", label: "General", Icon: Gauge, modules: ["dashboard"] },
+  { id: "records", label: "Gestion de Actas", Icon: ClipboardList, modules: ["handover", "reassignment", "lab", "checklists"] },
+  { id: "inventory", label: "Inventario y Operacion", Icon: FolderTree, modules: ["devices", "pdq", "assets", "people"] },
+  { id: "admin", label: "Administracion", Icon: SlidersHorizontal, modules: ["users", "reports", "settings"] },
+];
+
+const PROFILE_PERMISSION_MODULE_ICONS = {
+  dashboard: Gauge,
+  handover: ClipboardCheck,
+  reassignment: FileText,
+  lab: Wrench,
+  checklists: ClipboardList,
+  devices: Database,
+  pdq: Grid,
+  assets: Archive,
+  people: Users,
+  users: User,
+  reports: FileText,
+  settings: Settings,
+};
+
+const PROFILE_PERMISSION_ACCESS_OPTIONS = [
+  { value: "none", label: "Sin acceso", Icon: X },
+  { value: "read", label: "Lectura", Icon: Eye },
+  { value: "write", label: "Edicion", Icon: Edit },
+];
 
 const QR_HANDOVER_ROUTE = "firma/h";
 const QR_LAB_ROUTE = "firma/l";
@@ -399,6 +447,194 @@ function ProfileCard({ profile, active, onClick }) {
   );
 }
 
+function groupProfileModules(modules = []) {
+  const byCode = new Map(modules.map((module) => [module.moduleCode, module]));
+  const groupedCodes = new Set(PROFILE_PERMISSION_GROUPS.flatMap((group) => group.modules));
+  const groups = PROFILE_PERMISSION_GROUPS.map((group) => ({
+    ...group,
+    items: group.modules.map((moduleCode) => byCode.get(moduleCode)).filter(Boolean),
+  })).filter((group) => group.items.length > 0);
+
+  const extraItems = modules.filter((module) => !groupedCodes.has(module.moduleCode));
+  if (extraItems.length > 0) {
+    groups.push({ id: "other", label: "Otros modulos", Icon: FolderTree, items: extraItems });
+  }
+
+  return groups;
+}
+
+function PermissionAccessButton({ moduleCode, option, active, onChange }) {
+  const IconComponent = option.Icon;
+  const activeClass = {
+    none: "border-[rgba(127,151,171,0.42)] bg-[rgba(127,151,171,0.16)] text-[var(--text-primary)]",
+    read: "border-[rgba(81,152,194,0.46)] bg-[rgba(81,152,194,0.22)] text-[var(--accent-strong)]",
+    write: "border-[rgba(127,191,156,0.52)] bg-[rgba(127,191,156,0.2)] text-[var(--success)]",
+  }[option.value];
+
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(moduleCode, option.value)}
+      className={`inline-flex min-h-10 min-w-0 items-center justify-center gap-2 rounded-[12px] border px-3 py-2 text-xs font-semibold transition ${
+        active
+          ? activeClass
+          : "border-transparent bg-transparent text-[var(--text-secondary)] hover:border-[var(--border-color)] hover:bg-[var(--bg-panel)] hover:text-[var(--text-primary)]"
+      }`}
+      aria-pressed={active}
+    >
+      <IconComponent className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      <span className="min-w-0 truncate">{option.label}</span>
+    </button>
+  );
+}
+
+function PermissionModuleRow({ module, onAccessChange }) {
+  const accessLevel = getModuleAccessLevel(module);
+  const ModuleIcon = PROFILE_PERMISSION_MODULE_ICONS[module.moduleCode] || FolderTree;
+
+  return (
+    <div className="grid gap-3 rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-3 lg:grid-cols-[minmax(0,1fr)_minmax(270px,0.9fr)] lg:items-center">
+      <div className="flex min-w-0 items-center gap-3">
+        <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] border border-[var(--border-color)] bg-[var(--bg-hover)] text-[var(--text-secondary)]">
+          <ModuleIcon className="h-5 w-5" aria-hidden="true" />
+        </span>
+        <span className="min-w-0">
+          <span className="block truncate text-sm font-semibold text-[var(--text-primary)]">{module.label}</span>
+          <span className="mt-1 block truncate text-[0.68rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">{module.moduleCode}</span>
+        </span>
+      </div>
+      <div className="grid grid-cols-3 overflow-hidden rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-app)] p-1">
+        {PROFILE_PERMISSION_ACCESS_OPTIONS.map((option) => (
+          <PermissionAccessButton
+            key={option.value}
+            moduleCode={module.moduleCode}
+            option={option}
+            active={accessLevel === option.value}
+            onChange={onAccessChange}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PermissionSummaryItem({ option, count }) {
+  const IconComponent = option.Icon;
+  const toneClass = {
+    none: "border-[rgba(127,151,171,0.28)] bg-[rgba(127,151,171,0.1)] text-[var(--text-secondary)]",
+    read: "border-[rgba(81,152,194,0.32)] bg-[rgba(81,152,194,0.12)] text-[var(--accent-strong)]",
+    write: "border-[rgba(127,191,156,0.34)] bg-[rgba(127,191,156,0.12)] text-[var(--success)]",
+  }[option.value];
+
+  return (
+    <div className={`flex items-center justify-between gap-3 rounded-[14px] border px-3 py-3 ${toneClass}`}>
+      <span className="inline-flex items-center gap-2 text-sm font-semibold">
+        <IconComponent className="h-4 w-4" aria-hidden="true" />
+        {option.label}
+      </span>
+      <strong className="text-sm font-bold text-[var(--text-primary)]">{count} modulos</strong>
+    </div>
+  );
+}
+
+function ProfilePermissionsDesigner({ profile, modules, onAccessChange }) {
+  const groupedModules = groupProfileModules(modules);
+  const counts = PROFILE_PERMISSION_ACCESS_OPTIONS.reduce((acc, option) => {
+    acc[option.value] = modules.filter((module) => getModuleAccessLevel(module) === option.value).length;
+    return acc;
+  }, {});
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_270px]">
+      <div className="space-y-4">
+        <div className="grid gap-3 lg:grid-cols-2">
+          <div className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] p-4">
+            <div className="flex items-center gap-2 text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--accent-strong)]">
+              <Shield className="h-4 w-4" aria-hidden="true" />
+              Acciones rapidas
+            </div>
+            <div className="mt-3 grid gap-2 sm:grid-cols-3">
+              {PROFILE_PERMISSION_ACCESS_OPTIONS.map((option) => {
+                const IconComponent = option.Icon;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => modules.forEach((module) => onAccessChange(module.moduleCode, option.value))}
+                    className="inline-flex min-h-10 items-center justify-center gap-2 rounded-[12px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 py-2 text-xs font-semibold text-[var(--text-secondary)] transition hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                  >
+                    <IconComponent className="h-3.5 w-3.5" aria-hidden="true" />
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] p-4">
+            <div className="flex items-center gap-2 text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--accent-strong)]">
+              <FolderTree className="h-4 w-4" aria-hidden="true" />
+              Plantilla activa
+            </div>
+            <p className="mt-3 text-base font-semibold text-[var(--text-primary)]">{profile.name || "Perfil sin nombre"}</p>
+            <p className="mt-1 truncate text-xs uppercase tracking-[0.08em] text-[var(--text-muted)]">{profile.code || "nuevo-perfil"}</p>
+          </div>
+        </div>
+
+        {groupedModules.map((group) => {
+          const GroupIcon = group.Icon;
+          return (
+            <section key={group.id} className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] p-3">
+              <div className="mb-3 flex items-center gap-2 px-1 text-sm font-semibold text-[var(--text-primary)]">
+                <GroupIcon className="h-4 w-4 text-[var(--accent-strong)]" aria-hidden="true" />
+                {group.label}
+              </div>
+              <div className="space-y-2">
+                {group.items.map((module) => (
+                  <PermissionModuleRow key={module.moduleCode} module={module} onAccessChange={onAccessChange} />
+                ))}
+              </div>
+            </section>
+          );
+        })}
+      </div>
+
+      <aside className="space-y-4">
+        <div className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] p-4 shadow-[var(--shadow-subtle)]">
+          <div className="flex items-center gap-3">
+            <span className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-[rgba(81,152,194,0.24)] bg-[var(--accent-soft)] text-[var(--accent-strong)]">
+              <User className="h-5 w-5" aria-hidden="true" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-[var(--text-primary)]">Resumen del rol</p>
+              <p className="mt-1 truncate text-xs text-[var(--text-secondary)]">{profile.name || "Perfil en edicion"}</p>
+            </div>
+          </div>
+          <div className="mt-4 space-y-3">
+            {PROFILE_PERMISSION_ACCESS_OPTIONS.map((option) => (
+              <PermissionSummaryItem key={option.value} option={option} count={counts[option.value] || 0} />
+            ))}
+          </div>
+        </div>
+        <div className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] p-4">
+          <div className="flex items-center gap-2 text-sm font-semibold text-[var(--text-primary)]">
+            <CircleAlert className="h-4 w-4 text-[var(--warning)]" aria-hidden="true" />
+            Observaciones
+          </div>
+          <p className="mt-3 text-sm leading-6 text-[var(--text-secondary)]">
+            La edicion habilita tambien lectura. Los cambios se aplican al guardar el perfil.
+          </p>
+          {profile.isAdmin ? (
+            <span className="mt-4 inline-flex items-center gap-2 rounded-[10px] border border-[rgba(224,181,107,0.38)] bg-[rgba(224,181,107,0.14)] px-3 py-2 text-xs font-semibold text-[var(--warning)]">
+              <Shield className="h-3.5 w-3.5" aria-hidden="true" />
+              Perfil administrador
+            </span>
+          ) : null}
+        </div>
+      </aside>
+    </div>
+  );
+}
+
 function SectionToggleButton({ isCollapsed, onClick, collapsedLabel, expandedLabel }) {
   return (
     <button
@@ -454,7 +690,7 @@ export function SettingsPage() {
   const [savingProfile, setSavingProfile] = useState(false);
   const [collapsedProfileSections, setCollapsedProfileSections] = useState({
     details: false,
-    permissions: true,
+    permissions: false,
   });
   const [requirementCatalog, setRequirementCatalog] = useState({
     organizations: [],
@@ -985,6 +1221,17 @@ export function SettingsPage() {
   const editProfile = (profile) => {
     setSelectedProfileCode(profile.code);
     setProfileForm(profile);
+  };
+
+  const updateProfileModuleAccess = (moduleCode, accessLevel) => {
+    setProfileForm((current) => ({
+      ...current,
+      modules: (current.modules || []).map((item) =>
+        item.moduleCode === moduleCode
+          ? setModuleAccessLevel(item, accessLevel)
+          : item
+      ),
+    }));
   };
 
   const saveProfile = async () => {
@@ -2227,7 +2474,7 @@ export function SettingsPage() {
                       </p>
                       <h4 className="mt-1 text-lg font-semibold text-[var(--text-primary)]">Acceso por modulo</h4>
                       <p className="mt-2 text-sm text-[var(--text-secondary)]">
-                        Gestiona visibilidad y edicion en una tabla simple, separada de la identidad del perfil.
+                        Gestiona visibilidad y edicion por modulo con una vista compacta del rol seleccionado.
                       </p>
                     </div>
                     <SectionToggleButton
@@ -2239,79 +2486,12 @@ export function SettingsPage() {
                   </div>
 
                   {!collapsedProfileSections.permissions ? (
-                    <div className="mt-4 overflow-hidden rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)]">
-                      <div className="grid grid-cols-[minmax(0,1.8fr)_120px_120px_120px] bg-[var(--bg-hover)] px-4 py-3 text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
-                        <span>Modulo</span>
-                        <span className="text-center">Sin acceso</span>
-                        <span className="text-center">Lectura</span>
-                        <span className="text-center">Edicion</span>
-                      </div>
-                      <div className="divide-y divide-[var(--border-color)]">
-                        {(profileForm.modules || []).map((module, index) => (
-                          <div
-                            key={module.moduleCode}
-                            className={`grid grid-cols-[minmax(0,1.8fr)_120px_120px_120px] items-center px-4 py-3 ${
-                              index % 2 === 0 ? "bg-[var(--bg-app)]" : "bg-[var(--bg-hover)]"
-                            }`}
-                          >
-                            <div className="min-w-0">
-                              <p className="truncate text-sm font-semibold text-[var(--text-primary)]">{module.label}</p>
-                              <p className="mt-1 text-xs uppercase tracking-[0.08em] text-[var(--text-muted)]">{module.moduleCode}</p>
-                            </div>
-                            <div className="flex justify-center">
-                              <input
-                                type="radio"
-                                name={`module-access-${module.moduleCode}`}
-                                checked={getModuleAccessLevel(module) === "none"}
-                                onChange={(e) => setProfileForm((current) => ({
-                                  ...current,
-                                  modules: current.modules.map((item) =>
-                                    item.moduleCode === module.moduleCode
-                                      ? setModuleAccessLevel(item, e.target.value)
-                                      : item
-                                  ),
-                                }))}
-                                value="none"
-                                className="h-4 w-4 accent-[var(--accent-strong)]"
-                              />
-                            </div>
-                            <div className="flex justify-center">
-                              <input
-                                type="radio"
-                                name={`module-access-${module.moduleCode}`}
-                                checked={getModuleAccessLevel(module) === "read"}
-                                onChange={(e) => setProfileForm((current) => ({
-                                  ...current,
-                                  modules: current.modules.map((item) =>
-                                    item.moduleCode === module.moduleCode
-                                      ? setModuleAccessLevel(item, e.target.value)
-                                      : item
-                                  ),
-                                }))}
-                                value="read"
-                                className="h-4 w-4 accent-[var(--accent-strong)]"
-                              />
-                            </div>
-                            <div className="flex justify-center">
-                              <input
-                                type="radio"
-                                name={`module-access-${module.moduleCode}`}
-                                checked={getModuleAccessLevel(module) === "write"}
-                                onChange={(e) => setProfileForm((current) => ({
-                                  ...current,
-                                  modules: current.modules.map((item) =>
-                                    item.moduleCode === module.moduleCode
-                                      ? setModuleAccessLevel(item, e.target.value)
-                                      : item
-                                  ),
-                                }))}
-                                value="write"
-                                className="h-4 w-4 accent-[var(--accent-strong)]"
-                              />
-                            </div>
-                          </div>
-                        ))}
-                      </div>
+                    <div className="mt-4">
+                      <ProfilePermissionsDesigner
+                        profile={profileForm}
+                        modules={profileForm.modules || []}
+                        onAccessChange={updateProfileModuleAccess}
+                      />
                     </div>
                   ) : null}
                 </section>
