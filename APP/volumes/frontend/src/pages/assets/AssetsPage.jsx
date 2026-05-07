@@ -10,7 +10,6 @@ import { Icon } from "../../components/ui/icon/Icon";
 import ModalManager from "../../components/ui/modal";
 import { openPersonModal } from "../people/PeoplePage";
 import { getItopAssetCatalog, getItopAssetDetail, searchItopAssets } from "../../services/assets-service";
-import { getSettings } from "../../services/settings-service";
 import { downloadRowsAsCsv } from "../../utils/export-csv";
 
 const CMDB_FIELD_ORDER = [
@@ -633,15 +632,12 @@ export function AssetsPage() {
 
     const loadFilterCatalogs = async () => {
       try {
-        const [catalogPayload, settingsPayload] = await Promise.all([
-          getItopAssetCatalog(),
-          getSettings(),
-        ]);
+        const catalogPayload = await getItopAssetCatalog();
         if (!cancelled) {
           setBrandCatalog(catalogPayload?.brands || []);
           setModelCatalog(catalogPayload?.models || []);
           setAssignedUserCatalog(catalogPayload?.assignedUsers || []);
-          setEnabledClassOptions(settingsPayload?.panels?.cmdb?.enabledAssetTypes || []);
+          setEnabledClassOptions(catalogPayload?.classes || []);
         }
       } catch (loadError) {
         if (!cancelled) {

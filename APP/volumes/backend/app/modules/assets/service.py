@@ -634,6 +634,7 @@ def list_itop_asset_catalog(runtime_token: str) -> dict[str, list[dict[str, obje
         assigned_user_items: list[dict[str, str]] = []
 
         return {
+            "classes": enabled_labels,
             "brands": brand_items,
             "models": model_items,
             "assignedUsers": assigned_user_items,
