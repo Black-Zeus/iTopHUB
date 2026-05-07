@@ -7,4 +7,6 @@ ENV PYTHONUNBUFFERED=1
 
 COPY APP/volumes/backend/app/ /app/
 
-CMD ["python", "-m", "http.server", "8000"]
+RUN if [ -f requirements.txt ]; then pip install --no-cache-dir -r requirements.txt; fi
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

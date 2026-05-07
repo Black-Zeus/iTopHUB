@@ -1,100 +1,162 @@
-# PRD scaffold diferido.
-# Este archivo no es la referencia activa del proyecto en la fase actual.
-# Antes de usarlo como entorno productivo real debe alinearse con la arquitectura vigente de dev.
 name: ${PROJECT_NAME}
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+x-restart-policy: &restart-policy
+  restart: unless-stopped
+
+x-common-env: &common-env
+  TZ: ${TZ}
+  ENV_NAME: ${ENV_NAME}
 
 x-common-labels: &common-labels
   stack: ${PROJECT_NAME}
   env: ${ENV_NAME}
 
 services:
-  mariadb:
-    image: mariadb:11.4
-    container_name: ${PROJECT_NAME}-mariadb
-    restart: unless-stopped
+  mysql:
+    image: mariadb:10.6
+    container_name: ${PROJECT_NAME}-mysql
     labels:
       <<: *common-labels
       service.group: core
-      service.lifecycle: deferred-prd
+      service.lifecycle: active-prd
     environment:
+      <<: *common-env
+      MYSQL_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${APP_DB_NAME}
+      MYSQL_USER: ${MARIADB_USER}
+      MYSQL_PASSWORD: ${MARIADB_PASSWORD}
       MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
-      MARIADB_DATABASE: ${APP_DB_NAME}
       MARIADB_USER: ${MARIADB_USER}
       MARIADB_PASSWORD: ${MARIADB_PASSWORD}
+      APP_DB_NAME: ${APP_DB_NAME}
+      ITOP_DB_NAME: ${ITOP_DB_NAME}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
     volumes:
-      - ./APP/data/prd/mariadb_data:/var/lib/mysql
-      - ./APP/config/mariadb/init:/docker-entrypoint-initdb.d:ro
+      - ${DATA_ROOT}/mariadb_data:/var/lib/mysql
+      - ${SETTINGS_ROOT}/mariadb/init:/docker-entrypoint-initdb.d:ro
+      - ${SETTINGS_ROOT}/mariadb:/opt/mariadb-tools:ro
+      - ${LOGS_ROOT}/mariadb:/var/log/mysql
     healthcheck:
-      test: ["CMD", "mariadb-admin", "ping", "-h", "127.0.0.1", "-u${MARIADB_USER}", "-p${MARIADB_PASSWORD}"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u${MARIADB_USER}", "-p${MARIADB_PASSWORD}"]
       interval: 10s
       timeout: 5s
       retries: 20
+    networks:
+      - internal
+    logging: *default-logging
+    <<: *restart-policy
 
   redis:
     image: redis:7-alpine
     container_name: ${PROJECT_NAME}-redis
-    restart: unless-stopped
     labels:
       <<: *common-labels
       service.group: core
-      service.lifecycle: deferred-prd
+      service.lifecycle: active-prd
     command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    environment:
+      <<: *common-env
     volumes:
-      - ./APP/data/prd/redis_data:/data
-      - ./APP/config/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+      - ${DATA_ROOT}/redis_data:/data
+      - ${SETTINGS_ROOT}/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+      - ${LOGS_ROOT}/redis:/var/log/redis
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 3s
       retries: 30
+    networks:
+      - internal
+    logging: *default-logging
+    <<: *restart-policy
 
   backend:
     build:
       context: .
       dockerfile: ./docker/prod/Dockerfile.backend
+    image: ${PROJECT_NAME}/backend:prd
     container_name: ${PROJECT_NAME}-backend
-    restart: unless-stopped
     labels:
       <<: *common-labels
       service.group: core
-      service.lifecycle: deferred-prd
+      service.lifecycle: active-prd
+    working_dir: /app
     environment:
-      ENV_NAME: ${ENV_NAME}
-      APP_DB_HOST: mariadb
+      <<: *common-env
+      APP_HOST: 0.0.0.0
+      APP_PORT: 8000
+      APP_DB_HOST: mysql
       APP_DB_PORT: 3306
       APP_DB_NAME: ${APP_DB_NAME}
       APP_DB_USER: ${MARIADB_USER}
       APP_DB_PASSWORD: ${MARIADB_PASSWORD}
       ITOP_URL: ${ITOP_URL}
+      ITOP_VERIFY_SSL: ${ITOP_VERIFY_SSL}
+      ITOP_TIMEOUT_SECONDS: ${ITOP_TIMEOUT_SECONDS}
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_DB: ${REDIS_DB}
+      HUB_TOKEN_KEK: ${HUB_TOKEN_KEK}
+      HUB_TOKEN_KEK_VERSION: ${HUB_TOKEN_KEK_VERSION}
+      HUB_SESSION_TTL_SECONDS: ${HUB_SESSION_TTL_SECONDS}
+      HUB_RUNTIME_TOKEN_TTL_SECONDS: ${HUB_RUNTIME_TOKEN_TTL_SECONDS}
+      HUB_SESSION_WARNING_SECONDS: ${HUB_SESSION_WARNING_SECONDS}
+      HUB_NOTIFICATION_TTL_SECONDS: ${HUB_NOTIFICATION_TTL_SECONDS}
+      HUB_NOTIFICATION_HISTORY_LIMIT: ${HUB_NOTIFICATION_HISTORY_LIMIT}
+      HUB_SSE_HEARTBEAT_SECONDS: ${HUB_SSE_HEARTBEAT_SECONDS}
+      HUB_SSE_RETRY_MS: ${HUB_SSE_RETRY_MS}
       SMTP_HOST: ${SMTP_HOST}
       SMTP_PORT: ${SMTP_PORT}
       SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL}
       PDF_WORKER_QUEUE: ${PDF_WORKER_QUEUE}
+      PDF_WORKER_URL: ${PDF_WORKER_URL}
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
       JWT_SECRET: ${JWT_SECRET}
+      PDQ_ENABLED: ${PDQ_ENABLED}
+      PDQ_SQLITE_DIR: ${PDQ_SQLITE_DIR}
+      PDQ_SQLITE_FILE_NAME: ${PDQ_SQLITE_FILE_NAME}
+      PDQ_SQLITE_FILE_GLOB: ${PDQ_SQLITE_FILE_GLOB}
+      PDQ_SEARCH_MIN_CHARS: ${PDQ_SEARCH_MIN_CHARS}
     volumes:
-      - ./APP/data/prd/backend_data:/app/_data
+      - ${DATA_ROOT}/backend_data:/app/data
+      - ${PDQ_SHARED_ROOT}:${PDQ_SQLITE_DIR}:ro
+      - ${LOGS_ROOT}/backend:/var/log/app
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s = socket.create_connection(('127.0.0.1', 8000), 2); s.close()"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
     depends_on:
-      mariadb:
+      mysql:
         condition: service_healthy
       redis:
         condition: service_healthy
+    networks:
+      - internal
+    logging: *default-logging
+    <<: *restart-policy
 
   worker:
     build:
       context: .
       dockerfile: ./docker/prod/Dockerfile.worker
+    image: ${PROJECT_NAME}/worker:prd
     container_name: ${PROJECT_NAME}-worker
-    restart: unless-stopped
     labels:
       <<: *common-labels
       service.group: core
-      service.lifecycle: deferred-prd
+      service.lifecycle: active-prd
+    working_dir: /app
     environment:
-      ENV_NAME: ${ENV_NAME}
+      <<: *common-env
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_DB: ${REDIS_DB}
@@ -102,76 +164,126 @@ services:
       MAIL_HOST: ${SMTP_HOST}
       MAIL_PORT: ${SMTP_PORT}
       PDF_WORKER_QUEUE: ${PDF_WORKER_QUEUE}
+      WORKER_HEARTBEAT_SECONDS: ${WORKER_HEARTBEAT_SECONDS}
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
+    volumes:
+      - ${SETTINGS_ROOT}/worker/temp:/app/assets/temp
+      - ${LOGS_ROOT}/worker:/var/log/app
     depends_on:
       redis:
         condition: service_healthy
       backend:
-        condition: service_started
+        condition: service_healthy
+    networks:
+      - internal
+    logging: *default-logging
+    <<: *restart-policy
 
   pdf-worker:
     build:
       context: .
       dockerfile: ./docker/prod/Dockerfile.pdf-worker
+    image: ${PROJECT_NAME}/pdf-worker:prd
     container_name: ${PROJECT_NAME}-pdf-worker
-    restart: unless-stopped
     labels:
       <<: *common-labels
       service.group: core
-      service.lifecycle: deferred-prd
+      service.lifecycle: active-prd
+    working_dir: /app
     environment:
-      ENV_NAME: ${ENV_NAME}
+      <<: *common-env
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_DB: ${REDIS_DB}
       BACKEND_INTERNAL_URL: http://backend:8000
       GOTENBERG_URL: http://gotenberg:3000
       PDF_STORAGE_DIR: /app/output
+      PDF_WORKER_HEARTBEAT_SECONDS: ${PDF_WORKER_HEARTBEAT_SECONDS}
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
+      JOB_TYPES: ${PDF_WORKER_JOB_TYPES:-handover_emit}
+      POLL_INTERVAL: ${PDF_WORKER_POLL_INTERVAL:-2.0}
+      HUB_NOTIFICATION_TTL_SECONDS: ${HUB_NOTIFICATION_TTL_SECONDS}
+      HUB_NOTIFICATION_HISTORY_LIMIT: ${HUB_NOTIFICATION_HISTORY_LIMIT}
+      APP_DB_HOST: mysql
+      APP_DB_PORT: 3306
+      APP_DB_USER: ${MARIADB_USER}
+      APP_DB_PASSWORD: ${MARIADB_PASSWORD}
+      APP_DB_NAME: ${APP_DB_NAME}
+      HUB_TOKEN_KEK: ${HUB_TOKEN_KEK}
+      HUB_TOKEN_KEK_VERSION: ${HUB_TOKEN_KEK_VERSION}
+    volumes:
+      - ${DATA_ROOT}/backend_data:/app/data
+      - ${LOGS_ROOT}/pdf-worker:/var/log/app
     depends_on:
       redis:
         condition: service_healthy
       backend:
-        condition: service_started
+        condition: service_healthy
       gotenberg:
         condition: service_started
+    networks:
+      - internal
+    logging: *default-logging
+    <<: *restart-policy
 
   frontend:
     build:
       context: .
       dockerfile: ./docker/prod/Dockerfile.frontend
+      args:
+        VITE_APP_NAME: ${VITE_APP_NAME}
+        VITE_API_URL: ${VITE_API_URL}
+        VITE_BASE_URL: ${VITE_BASE_URL}
+        VITE_JOB_NOTIFICATION_TIMEOUT_MS: ${VITE_JOB_NOTIFICATION_TIMEOUT_MS}
+    image: ${PROJECT_NAME}/frontend:prd
     container_name: ${PROJECT_NAME}-frontend
-    restart: unless-stopped
     labels:
       <<: *common-labels
       service.group: core
-      service.lifecycle: deferred-prd
+      service.lifecycle: active-prd
+    networks:
+      - internal
+    logging: *default-logging
+    <<: *restart-policy
 
   gotenberg:
     image: gotenberg/gotenberg:8
     container_name: ${PROJECT_NAME}-gotenberg
-    restart: unless-stopped
     labels:
       <<: *common-labels
       service.group: core
-      service.lifecycle: deferred-prd
+      service.lifecycle: active-prd
     command:
       - gotenberg
       - --chromium-disable-javascript=true
+    networks:
+      - internal
+    logging: *default-logging
+    <<: *restart-policy
 
   nginx:
     image: nginx:1.25-alpine
     container_name: ${PROJECT_NAME}-nginx
-    restart: unless-stopped
+    entrypoint: ["nginx", "-g", "daemon off;"]
     labels:
       <<: *common-labels
       service.group: core
-      service.lifecycle: deferred-prd
+      service.lifecycle: active-prd
     depends_on:
       - frontend
       - backend
     ports:
       - "${NGINX_HTTP_PORT}:80"
     volumes:
-      - ./APP/config/nginx/conf.d:/etc/nginx/conf.d:ro
-      - ./APP/config/nginx/certs:/etc/nginx/certs:ro
+      - ${SETTINGS_ROOT}/nginx/prd/conf.d:/etc/nginx/conf.d:ro
+      - ${SETTINGS_ROOT}/nginx/certs:/etc/nginx/certs:ro
+      - ${LOGS_ROOT}/nginx:/var/log/nginx
+    networks:
+      - internal
+    logging: *default-logging
+    <<: *restart-policy
+
+networks:
+  internal:
+    driver: bridge
+    name: ${PROJECT_NAME}_internal
