@@ -12,6 +12,7 @@ import {
   Gauge,
   Grid,
   Link as LinkIcon,
+  Mail,
   Settings,
   Shield,
   SlidersHorizontal,
@@ -23,9 +24,17 @@ import {
 import ModalManager from "../../components/ui/modal";
 import { FilterDropdown } from "../../components/ui/general";
 import { Button } from "../../ui/Button";
+import { useToast } from "../../ui";
 import { setPdqModuleEnabled } from "../../services/module-visibility-service";
 import { getPdqStatus } from "../../services/pdq-service";
 import { getItopRequirementCatalog } from "../../services/itop-service";
+import { EmailReportForm, EMPTY_EMAIL_REPORT } from "../email-reports/EmailReportForm";
+import {
+  createEmailReport,
+  deleteEmailReport,
+  getEmailReports,
+  updateEmailReport,
+} from "../../services/email-reports-service";
 import {
   createItopDocumentTypes,
   createSettingsProfile,
@@ -52,8 +61,19 @@ const TABS = [
   { id: "docs", label: "Documentos" },
   { id: "requirement", label: "Ticket iTop" },
   { id: "cmdb", label: "CMDB" },
+  { id: "emailReports", label: "Reporte Correo" },
   { id: "profiles", label: "Perfiles" },
 ];
+
+const PUBLIC_BASE_URL = (import.meta.env.BASE_URL || "/").replace(/\/?$/, "/");
+const NO_IMAGE_URL = `${PUBLIC_BASE_URL}noimage.png`;
+
+function handleNoImageFallback(event) {
+  if (event.currentTarget.dataset.fallbackApplied === "true") return;
+  event.currentTarget.dataset.fallbackApplied = "true";
+  event.currentTarget.src = NO_IMAGE_URL;
+}
+
 
 const CMDB_OPTIONS = [
   "Desktop (PC)",
@@ -126,7 +146,7 @@ const PROFILE_PERMISSION_GROUPS = [
   { id: "general", label: "General", Icon: Gauge, modules: ["dashboard"] },
   { id: "records", label: "Gestion de Actas", Icon: ClipboardList, modules: ["handover", "reassignment", "lab", "checklists"] },
   { id: "inventory", label: "Inventario y Operacion", Icon: FolderTree, modules: ["devices", "pdq", "assets", "people"] },
-  { id: "admin", label: "Administracion", Icon: SlidersHorizontal, modules: ["users", "reports", "settings"] },
+  { id: "admin", label: "Administracion", Icon: SlidersHorizontal, modules: ["users", "reports", "email_reports", "settings"] },
 ];
 
 const PROFILE_PERMISSION_MODULE_ICONS = {
@@ -141,6 +161,7 @@ const PROFILE_PERMISSION_MODULE_ICONS = {
   people: Users,
   users: User,
   reports: FileText,
+  email_reports: Mail,
   settings: Settings,
 };
 
@@ -657,6 +678,155 @@ function SectionToggleButton({ isCollapsed, onClick, collapsedLabel, expandedLab
         />
       </svg>
     </button>
+  );
+}
+
+function EmailReportsSettingsPanel() {
+  const { add: showToast } = useToast();
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const loadItems = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      setItems(await getEmailReports(true));
+    } catch (loadError) {
+      setError(loadError?.message || "No fue posible cargar los reportes por correo.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadItems();
+  }, []);
+
+  const openEditor = (report = null) => {
+    let modalId = null;
+    const save = async (payload) => {
+      if (report?.id) {
+        await updateEmailReport(report.id, payload);
+      } else {
+        await createEmailReport(payload);
+      }
+      ModalManager.close(modalId);
+      showToast({
+        tone: "success",
+        title: "Reporte guardado",
+        description: "La definicion quedo disponible para el modulo operativo.",
+      });
+      await loadItems();
+    };
+
+    modalId = ModalManager.custom({
+      title: report ? "Editar reporte por correo" : "Nuevo reporte por correo",
+      size: "emailReportForm",
+      showFooter: false,
+      content: (
+        <EmailReportForm
+          initialReport={report || EMPTY_EMAIL_REPORT}
+          onCancel={() => ModalManager.close(modalId)}
+          onSubmit={save}
+        />
+      ),
+    });
+  };
+
+  const removeReport = async (report) => {
+    const confirmed = await ModalManager.confirm({
+      title: "Eliminar reporte por correo",
+      message: `Se eliminara "${report.name}" del catalogo.`,
+      buttons: { confirm: "Eliminar", cancel: "Cancelar" },
+    });
+    if (!confirmed) return;
+
+    await deleteEmailReport(report.id);
+    showToast({
+      tone: "success",
+      title: "Reporte eliminado",
+      description: "El registro fue removido del catalogo operativo.",
+    });
+    await loadItems();
+  };
+
+  return (
+    <div className="mt-6 space-y-5">
+      <section className="rounded-[20px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-5 shadow-[var(--shadow-subtle)]">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+              n8n
+            </p>
+            <h4 className="mt-1 text-lg font-semibold text-[var(--text-primary)]">
+              Reportes por correo
+            </h4>
+            <p className="mt-2 max-w-[780px] text-sm leading-6 text-[var(--text-secondary)]">
+              Define los webhooks, parametros, orden e identidad visual que vera el usuario en el modulo operativo.
+            </p>
+          </div>
+          <Button type="button" variant="primary" onClick={() => openEditor()}>
+            Nuevo reporte
+          </Button>
+        </div>
+
+        <div className="mt-5">
+          {loading ? (
+            <div className="rounded-[18px] border border-dashed border-[var(--border-color)] bg-[var(--bg-app)] px-5 py-8 text-sm text-[var(--text-secondary)]">
+              Cargando reportes por correo...
+            </div>
+          ) : error ? (
+            <div className="rounded-[18px] border border-dashed border-[var(--border-color)] bg-[var(--bg-app)] px-5 py-8 text-sm text-[var(--danger)]">
+              {error}
+            </div>
+          ) : items.length === 0 ? (
+            <div className="rounded-[18px] border border-dashed border-[var(--border-color)] bg-[var(--bg-app)] px-5 py-8 text-center text-sm text-[var(--text-muted)]">
+              No hay reportes por correo configurados.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {items.map((report) => (
+                <article key={report.id} className="flex min-h-[260px] flex-col rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] p-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="inline-flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-panel)] text-[var(--accent-strong)]">
+                      <img src={report.logoUrl || NO_IMAGE_URL} onError={handleNoImageFallback} alt="" className="h-full w-full object-contain p-2" />
+                    </span>
+                    <span className={`rounded-full px-2.5 py-1 text-[0.68rem] font-semibold uppercase tracking-[0.08em] ${
+                      report.status === "active"
+                        ? "bg-[rgba(127,191,156,0.16)] text-[var(--success)]"
+                        : "bg-[rgba(127,151,171,0.16)] text-[var(--text-muted)]"
+                    }`}>
+                      {report.status === "active" ? "Activo" : "Inactivo"}
+                    </span>
+                  </div>
+
+                  <div className="mt-4 min-w-0 flex-1">
+                    <p className="text-base font-semibold leading-6 text-[var(--text-primary)]">{report.name}</p>
+                    <p className="mt-2 line-clamp-3 text-sm leading-6 text-[var(--text-secondary)]">{report.description || "Sin descripcion"}</p>
+                    <div className="mt-4 rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 py-2">
+                      <p className="text-[0.68rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">{report.httpMethod}</p>
+                      <p className="mt-1 break-all text-xs leading-5 text-[var(--text-secondary)]">{report.webhookUrl}</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-5 grid grid-cols-2 gap-2">
+                    <Button type="button" size="sm" variant="secondary" className="w-full" onClick={() => openEditor(report)}>
+                      <Edit className="h-4 w-4" />
+                      Editar
+                    </Button>
+                    <Button type="button" size="sm" variant="danger" className="w-full" onClick={() => removeReport(report)}>
+                      <X className="h-4 w-4" />
+                      Eliminar
+                    </Button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -2408,6 +2578,10 @@ export function SettingsPage() {
             </div>
             <Actions dirty={dirtyMap.cmdb} saving={savingPanel === "cmdb"} onReset={() => resetPanel("cmdb")} onSave={() => savePanel("cmdb", "CMDB")} />
           </div>
+        ) : null}
+
+        {activeTab === "emailReports" ? (
+          <EmailReportsSettingsPanel />
         ) : null}
 
         {activeTab === "profiles" ? (

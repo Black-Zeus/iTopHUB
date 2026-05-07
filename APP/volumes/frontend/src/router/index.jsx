@@ -23,6 +23,7 @@ import { PeoplePage } from "@pages/people/PeoplePage";
 import { ChecklistsPage } from "@pages/checklists/ChecklistsPage";
 import { UsersPage } from "@pages/users/UsersPage";
 import { ReportsPage } from "@pages/reports/ReportsPage";
+import { EmailReportsPage } from "@pages/email-reports/EmailReportsPage";
 import { SearchPage } from "@pages/search/SearchPage";
 import { SettingsPage } from "@pages/settings/SettingsPage";
 import { isPdqModuleEnabled, subscribeToModuleVisibility } from "../services/module-visibility-service";
@@ -135,6 +136,7 @@ export const router = createBrowserRouter(
         { path: "checklists", element: <RequireModuleAccess moduleCode="checklists"><ChecklistsPage /></RequireModuleAccess> },
         { path: "users",      element: <RequireModuleAccess moduleCode="users"><UsersPage /></RequireModuleAccess> },
         { path: "reports",    element: <RequireModuleAccess moduleCode="reports"><ReportsPage /></RequireModuleAccess> },
+        { path: "email-reports", element: <RequireModuleAccess moduleCode="email_reports"><EmailReportsPage /></RequireModuleAccess> },
         { path: "search",     element: <SearchPage /> },
         { path: "settings",   element: <RequireModuleAccess moduleCode="settings"><SettingsPage /></RequireModuleAccess> },
         { path: "*",          element: <DefaultHomeRedirect /> },

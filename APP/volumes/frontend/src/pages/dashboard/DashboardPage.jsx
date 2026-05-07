@@ -23,6 +23,7 @@ const MODULE_SHORTCUTS = [
   { label: "Normalizacion", path: "/normalization", moduleCode: "handover", icon: "sliders" },
   { label: "Laboratorio", path: "/lab", moduleCode: "lab", icon: "flask" },
   { label: "Informes", path: "/reports", moduleCode: "reports", icon: "chartBar" },
+  { label: "Reportes por correo", path: "/email-reports", moduleCode: "email_reports", icon: "envelope" },
 ];
 
 function asArray(value) {

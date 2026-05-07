@@ -10,6 +10,7 @@ const MODULE_ROUTE_MAP = {
   checklists: "/checklists",
   users: "/users",
   reports: "/reports",
+  email_reports: "/email-reports",
   settings: "/settings",
 };
 
@@ -25,11 +26,16 @@ const DEFAULT_ROUTE_PRIORITY = [
   "checklists",
   "users",
   "reports",
+  "email_reports",
   "settings",
 ];
 
 export function canViewModule(user, moduleCode) {
   return !!user?.permissions?.viewModules?.includes(moduleCode);
+}
+
+export function canWriteModule(user, moduleCode) {
+  return !!user?.permissions?.writeModules?.includes(moduleCode);
 }
 
 export function getAllowedRoutes(user) {
