@@ -10,6 +10,7 @@ Runs the custom React/Vite interface for the Hub layer on top of iTop.
 - Main port in dev: `FRONTEND_PORT -> 5173`
 - Source mount: `APP/volumes/frontend`
 - Logs mount: `APP/logs/<env>/frontend`
+- In `prd`, the React/Vite app is built into the image from `APP/volumes/frontend` and served as static files; the source tree is not mounted at runtime.
 
 ## Current Intent
 
@@ -35,6 +36,7 @@ Runs the custom React/Vite interface for the Hub layer on top of iTop.
 
 - Runs as a non-root user.
 - Keep frontend-specific environment variables in the layered `.env` files.
+- Production builds receive Vite variables as Docker build args from `.env.prd`, including `VITE_API_URL`, `VITE_BASE_URL`, and `VITE_JOB_NOTIFICATION_TIMEOUT_MS`.
 - El timeout de espera para notificaciones SSE del frontend debe configurarse con `VITE_JOB_NOTIFICATION_TIMEOUT_MS` en los `.env` versionados, no como numero hardcodeado dentro de una pagina o servicio.
 - Las notificaciones UI deben pasar por el wrapper `useToast()` del proyecto; internamente puede usar `react-hot-toast`, pero los modulos deben enviar payloads claros con `title`, `description` y `tone` en vez de strings sueltos cuando el contexto lo amerite.
 - Any user-facing async action should wait on the shared SSE flow and report its terminal result with toast instead of page-level success banners or polling loops.
