@@ -41,7 +41,19 @@ function Field({ label, value, onChange, type = "text", rows = 0, options = null
 function isUserEmailParameter(parameter) {
   const name = parameter.name;
   const source = String(parameter.source || "").toLowerCase();
-  return source === "user.email" || ["email", "mail", "correo", "user_email"].includes(String(name || "").toLowerCase());
+  return source === "user.email" || ["email", "mail", "correo", "user_email", "email_to"].includes(String(name || "").toLowerCase());
+}
+
+function isEmailCcParameter(parameter) {
+  const name = String(parameter.name || "").toLowerCase();
+  const source = String(parameter.source || "").toLowerCase();
+  return source === "user.email_cc" || ["email_cc", "cc", "copy", "copia"].includes(name);
+}
+
+function isEmailBccParameter(parameter) {
+  const name = String(parameter.name || "").toLowerCase();
+  const source = String(parameter.source || "").toLowerCase();
+  return source === "user.email_bcc" || ["email_bcc", "bcc", "blind_copy", "copia_oculta"].includes(name);
 }
 
 function normalizeEmailList(value) {
@@ -58,24 +70,105 @@ function validateEmailList(value) {
   return { emails, invalid };
 }
 
+function coerceBoolean(value, defaultValue = false) {
+  if (typeof value === "boolean") return value;
+  if (value === undefined || value === null) return defaultValue;
+  const normalized = String(value).trim().toLowerCase();
+  if (["true", "1", "yes", "si", "s"].includes(normalized)) return true;
+  if (["false", "0", "no", "n", ""].includes(normalized)) return false;
+  return defaultValue;
+}
+
+function isDateLikeParameter(parameter) {
+  const name = String(parameter?.name || "").toLowerCase();
+  const label = String(parameter?.label || "").toLowerCase();
+  return parameter?.type === "date" || name.endsWith("_date") || name === "start_date" || name === "end_date" || label.includes("fecha");
+}
+
+function toDateTimeLocalValue(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  return raw.replace(" ", "T").slice(0, 16);
+}
+
+function fromDateTimeLocalValue(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const normalized = raw.replace("T", " ");
+  return normalized.length === 16 ? `${normalized}:00` : normalized;
+}
+
+function serializeSubmittedValues(values, parameters) {
+  return Object.entries(values || {}).reduce((result, [name, value]) => {
+    const parameter = parameters.find((item) => item.name === name);
+    result[name] = isDateLikeParameter(parameter) ? fromDateTimeLocalValue(value) : value;
+    return result;
+  }, {});
+}
+
+function getParameterGroup(parameter) {
+  if (isDateLikeParameter(parameter)) return "dates";
+  if (parameter?.type === "boolean") return "checks";
+  if (parameter?.type === "email") return "mail";
+  if (parameter?.type === "number" || parameter?.type === "select") return "filters";
+  return "fields";
+}
+
+function groupVisibleParameters(parameters) {
+  const groups = [
+    { id: "mail", label: "Correos", items: [] },
+    { id: "dates", label: "Fechas", items: [] },
+    { id: "filters", label: "Filtros", items: [] },
+    { id: "fields", label: "Parametros", items: [] },
+    { id: "checks", label: "Opciones", items: [] },
+  ];
+  const byId = new Map(groups.map((group) => [group.id, group]));
+  parameters.forEach((parameter) => {
+    const group = byId.get(getParameterGroup(parameter)) || byId.get("fields");
+    group.items.push(parameter);
+  });
+  return groups.filter((group) => group.items.length > 0);
+}
+
+function chunkParameters(items) {
+  const chunks = [];
+  for (let index = 0; index < items.length; index += 4) {
+    chunks.push(items.slice(index, index + 4));
+  }
+  return chunks;
+}
+
+function getParameterRowClassName(count) {
+  if (count === 1 || count === 2) return "grid gap-3 md:grid-cols-4";
+  if (count === 3) return "grid gap-3 md:grid-cols-3";
+  return "grid gap-3 md:grid-cols-2 2xl:grid-cols-4";
+}
+
+function getParameterCellClassName(count) {
+  if (count === 1) return "md:col-span-4";
+  if (count === 2) return "md:col-span-2";
+  return "";
+}
+
 function ParameterInput({ parameter, value, onChange }) {
   const name = parameter.name;
-  if (parameter.type === "date") {
-    return <Field label={parameter.label || name} type="date" value={value || ""} onChange={(e) => onChange(name, e.target.value)} />;
+  const requiredLabel = parameter.required === true ? " *" : "";
+  if (isDateLikeParameter(parameter)) {
+    return <Field label={`${parameter.label || name}${requiredLabel}`} type="datetime-local" value={toDateTimeLocalValue(value)} onChange={(e) => onChange(name, e.target.value)} />;
   }
   if (parameter.type === "number") {
-    return <Field label={parameter.label || name} type="number" value={value || ""} onChange={(e) => onChange(name, e.target.value)} />;
+    return <Field label={`${parameter.label || name}${requiredLabel}`} type="number" value={value ?? ""} onChange={(e) => onChange(name, e.target.value)} />;
   }
   if (parameter.type === "boolean") {
     return (
-      <label className="flex min-h-[78px] items-center gap-3 rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-3">
+      <label className="flex min-h-[50px] items-center gap-3 rounded-[12px] border border-[var(--border-color)] bg-[var(--bg-app)] px-3 py-2">
         <input
           type="checkbox"
-          checked={Boolean(value)}
+          checked={coerceBoolean(value)}
           onChange={(e) => onChange(name, e.target.checked)}
           className="h-4 w-4 accent-[var(--accent-strong)]"
         />
-        <span className="text-sm font-semibold text-[var(--text-secondary)]">{parameter.label || name}</span>
+        <span className="text-xs font-semibold leading-5 text-[var(--text-secondary)]">{parameter.label || name}</span>
       </label>
     );
   }
@@ -83,7 +176,7 @@ function ParameterInput({ parameter, value, onChange }) {
     const options = Array.isArray(parameter.options) ? parameter.options : [];
     return (
       <Field
-        label={parameter.label || name}
+        label={`${parameter.label || name}${requiredLabel}`}
         value={value || ""}
         onChange={(e) => onChange(name, e.target.value)}
         options={[{ value: "", label: "Selecciona" }, ...options.map((option) => (
@@ -92,16 +185,30 @@ function ParameterInput({ parameter, value, onChange }) {
       />
     );
   }
-  return <Field label={parameter.label || name} value={value || ""} onChange={(e) => onChange(name, e.target.value)} />;
+  return <Field label={`${parameter.label || name}${requiredLabel}`} value={value || ""} onChange={(e) => onChange(name, e.target.value)} />;
+}
+
+function buildInitialValues(parameters) {
+  return parameters.reduce((result, parameter) => {
+    if (!isUserEmailParameter(parameter) && !isEmailCcParameter(parameter) && !isEmailBccParameter(parameter)) {
+      const defaultValue = parameter.defaultValue ?? "";
+      if (defaultValue !== "") {
+        result[parameter.name] = parameter.type === "boolean" ? coerceBoolean(defaultValue) : defaultValue;
+      }
+    }
+    return result;
+  }, {});
 }
 
 function TriggerReportModal({ report, user, onCancel, onSubmitted }) {
-  const [values, setValues] = useState({});
+  const parameters = Array.isArray(report.parameters) ? report.parameters : [];
+  const emailCcParameter = parameters.find(isEmailCcParameter);
+  const [values, setValues] = useState(() => buildInitialValues(parameters));
   const [ccValue, setCcValue] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const parameters = Array.isArray(report.parameters) ? report.parameters : [];
-  const visibleParameters = parameters.filter((parameter) => !isUserEmailParameter(parameter));
+  const visibleParameters = parameters.filter((parameter) => !isUserEmailParameter(parameter) && !isEmailCcParameter(parameter) && !isEmailBccParameter(parameter));
+  const parameterGroups = groupVisibleParameters(visibleParameters);
   const isAdmin = Boolean(user?.isAdmin);
 
   const updateValue = (name, value) => {
@@ -117,8 +224,8 @@ function TriggerReportModal({ report, user, onCancel, onSubmitted }) {
         throw new Error(`Revisa los correos en copia: ${cc.invalid.join(", ")}`);
       }
       await onSubmitted({
-        ...values,
-        ...(isAdmin && cc.emails.length > 0 ? { cc: cc.emails.join(",") } : {}),
+        ...serializeSubmittedValues(values, visibleParameters),
+        ...(isAdmin && emailCcParameter && cc.emails.length > 0 ? { [emailCcParameter.name]: cc.emails.join(",") } : {}),
       });
     } catch (submitError) {
       setError(submitError?.message || "No fue posible solicitar el reporte.");
@@ -128,65 +235,88 @@ function TriggerReportModal({ report, user, onCancel, onSubmitted }) {
   };
 
   return (
-    <div className="flex min-h-[250px] flex-col">
-      <div className="grid flex-1 items-stretch gap-5 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-        <div className="flex h-full min-h-[190px] flex-col justify-center rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] p-5 text-center">
+    <div className="flex max-h-[calc(100vh-150px)] min-h-[250px] flex-col">
+      <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+        <div className="grid gap-4 xl:grid-cols-[minmax(240px,0.5fr)_minmax(0,1.5fr)]">
+        <div className="flex min-h-[190px] flex-col justify-center rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] p-4 text-center xl:sticky xl:top-0 xl:max-h-[520px]">
           <div className="flex flex-col items-center gap-4 sm:flex-row sm:text-left">
-            <span className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-panel)] text-[var(--accent-strong)]">
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-[12px] border border-[var(--border-color)] bg-[var(--bg-panel)] text-[var(--accent-strong)]">
               <img src={report.logoUrl || NO_IMAGE_URL} onError={handleNoImageFallback} alt="" className="h-full w-full object-contain p-2" />
             </span>
             <div>
               <p className="text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Reporte por correo</p>
-              <h3 className="mt-1 text-lg font-semibold text-[var(--text-primary)]">{report.name}</h3>
+              <h3 className="mt-1 text-base font-semibold leading-6 text-[var(--text-primary)]">{report.name}</h3>
             </div>
           </div>
-          <p className="mt-4 text-sm leading-7 text-[var(--text-secondary)]">{report.description || "Sin descripcion."}</p>
+          <p className="mt-4 max-h-[220px] overflow-y-auto text-sm leading-6 text-[var(--text-secondary)]">{report.description || "Sin descripcion."}</p>
         </div>
 
-        <div className="space-y-4">
+        <div className="space-y-3">
           {error ? (
-            <div className="rounded-[16px] border border-[rgba(210,138,138,0.35)] bg-[rgba(210,138,138,0.1)] px-4 py-3 text-sm text-[var(--danger)]">
+            <div className="rounded-[14px] border border-[rgba(210,138,138,0.35)] bg-[rgba(210,138,138,0.1)] px-4 py-3 text-sm text-[var(--danger)]">
               {error}
             </div>
           ) : null}
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="md:col-span-2">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className={isAdmin && emailCcParameter ? "md:col-span-1 xl:col-span-2" : "md:col-span-2 xl:col-span-4"}>
               <span className="mb-2 block text-sm font-semibold text-[var(--text-secondary)]">Correo destinatario</span>
-              <div className="rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-3 text-sm font-semibold text-[var(--text-primary)]">
+              <div className="rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-2.5 text-sm font-semibold text-[var(--text-primary)]">
                 {user?.email || "Sin correo en perfil"}
               </div>
             </div>
 
-            {isAdmin ? (
-              <label className="md:col-span-2">
-                <span className="mb-2 block text-sm font-semibold text-[var(--text-secondary)]">Copia (CC)</span>
+            {isAdmin && emailCcParameter ? (
+              <label className="md:col-span-1 xl:col-span-2">
+                <span className="mb-2 block text-sm font-semibold text-[var(--text-secondary)]">{emailCcParameter.label || "Copia (CC)"}</span>
                 <input
                   value={ccValue}
                   onChange={(event) => setCcValue(event.target.value)}
                   placeholder="correo1@dominio.cl, correo2@dominio.cl"
-                  className="w-full rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-3 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--accent-strong)]"
+                  className="w-full rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-2.5 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--accent-strong)]"
                 />
               </label>
             ) : null}
 
             {visibleParameters.length === 0 ? (
-              <div className="rounded-[16px] border border-dashed border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-6 text-sm text-[var(--text-secondary)] md:col-span-2">
+              <div className="rounded-[14px] border border-dashed border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-6 text-sm text-[var(--text-secondary)] md:col-span-2 xl:col-span-4">
                 Este reporte no requiere parametros adicionales.
               </div>
-            ) : visibleParameters.map((parameter) => (
-              <ParameterInput
-                key={parameter.name}
-                parameter={parameter}
-                value={values[parameter.name]}
-                onChange={updateValue}
-              />
-            ))}
+            ) : (
+              <div className="space-y-3 md:col-span-2 xl:col-span-4">
+                {parameterGroups.map((group) => (
+                  <section key={group.id} className="rounded-[14px] border border-[var(--border-color)] bg-[rgba(127,151,171,0.06)] p-3">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">{group.label}</p>
+                      <span className="rounded-full border border-[var(--border-color)] bg-[var(--bg-app)] px-2 py-0.5 text-[0.68rem] font-semibold text-[var(--text-muted)]">
+                        {group.items.length}
+                      </span>
+                    </div>
+                    <div className="space-y-3">
+                      {chunkParameters(group.items).map((rowItems, rowIndex) => (
+                        <div key={`${group.id}-${rowIndex}`} className={getParameterRowClassName(rowItems.length)}>
+                          {rowItems.map((parameter) => (
+                            <div key={parameter.name} className={getParameterCellClassName(rowItems.length)}>
+                              <ParameterInput
+                                parameter={parameter}
+                                value={values[parameter.name]}
+                                onChange={updateValue}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                ))}
+              </div>
+            )}
           </div>
+        </div>
         </div>
       </div>
 
-      <div className="mt-6 flex justify-end gap-3 border-t border-[var(--border-color)] pt-4">
+      <div className="mt-4 flex shrink-0 justify-end gap-3 border-t border-[var(--border-color)] pt-4">
         <Button variant="ghost" onClick={onCancel}>Cancelar</Button>
         <Button variant="primary" disabled={submitting || !user?.email} onClick={submit}>
           <Send className="h-4 w-4" />
@@ -265,7 +395,7 @@ export function EmailReportsPage() {
     };
     modalId = ModalManager.custom({
       title: "Solicitar reporte",
-      size: "xlarge",
+      size: "emailReportForm",
       showFooter: false,
       content: <TriggerReportModal report={report} user={user} onCancel={() => ModalManager.close(modalId)} onSubmitted={submit} />,
     });

@@ -20,4 +20,7 @@ Covers dashboards, KPIs, summaries, historical views, and export/report generati
 - The report catalog should resolve executable definitions by `current_version`. Historical active rows must not create duplicate cards or duplicate execution targets in the UI.
 - If one configured CMDB asset class is not available in the target iTop model, report services may skip that class and continue with the rest; connection, token, SSL, and timeout failures must still surface as real iTop errors.
 - `Reportes por correo` is a distinct catalog for n8n-triggered workflows. The user only starts a webhook request; n8n is responsible for the downstream email delivery and normally returns `{"message":"Workflow was started"}`.
-- Report parameters are declarative JSON. Parameters named `email`, `mail`, `correo`, `user_email`, or with `source: "user.email"` are resolved from the authenticated Hub user's profile instead of being typed manually.
+- Report parameters are declarative and edited through the `Configuracion > Reporte Correo` parameter designer. The designer must remain generic because new n8n workflows can add future fields without schema changes.
+- Parameters named `email`, `mail`, `correo`, `user_email`, `email_to`, or with `source: "user.email"` are resolved from the authenticated Hub user's profile instead of being typed manually.
+- Admin users may provide copy recipients when the contract includes an `email_cc`-style parameter. The backend validates comma-separated email lists before calling n8n.
+- The backend applies a short per-user/report cooldown so a user cannot request the same email report more than once within three minutes.

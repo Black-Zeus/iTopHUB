@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import os
 import re
 import time
 from io import BytesIO
@@ -15,8 +16,10 @@ from PIL import Image
 
 from modules.email_reports import repository
 
-EMAIL_PARAMETER_NAMES = {"email", "mail", "correo", "user_email", "recipient_email"}
-ALLOWED_PARAMETER_TYPES = {"text", "date", "number", "select", "boolean", "email"}
+EMAIL_TO_PARAMETER_NAMES = {"email", "mail", "correo", "user_email", "recipient_email", "email_to"}
+EMAIL_CC_PARAMETER_NAMES = {"email_cc", "cc", "copy", "copia"}
+EMAIL_BCC_PARAMETER_NAMES = {"email_bcc", "bcc", "blind_copy", "copia_oculta"}
+ALLOWED_PARAMETER_TYPES = {"text", "string", "date", "number", "select", "boolean", "email"}
 EMAIL_REPORT_ASSET_ROOT = Path("/app/data/email_report_assets")
 EMAIL_REPORT_LOGO_WIDTH_PX = 160
 EMAIL_REPORT_TRIGGER_COOLDOWN_SECONDS = 180
@@ -34,6 +37,21 @@ def _coerce_int(value: Any, default: int = 0) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _coerce_bool(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    if isinstance(value, (int, float)):
+        return bool(value)
+    normalized = _coerce_str(value).lower()
+    if normalized in {"true", "1", "yes", "si", "s"}:
+        return True
+    if normalized in {"false", "0", "no", "n", ""}:
+        return False
+    return default
 
 
 def _slugify(value: str) -> str:
@@ -106,7 +124,19 @@ def remove_logo(relative_path: str) -> None:
 def _is_user_email_parameter(parameter: dict[str, Any]) -> bool:
     name = _coerce_str(parameter.get("name")).lower()
     source = _coerce_str(parameter.get("source")).lower()
-    return name in EMAIL_PARAMETER_NAMES or source in {"user.email", "session.email", "user_email"}
+    return name in EMAIL_TO_PARAMETER_NAMES or source in {"user.email", "session.email", "user_email"}
+
+
+def _is_email_cc_parameter(parameter: dict[str, Any]) -> bool:
+    name = _coerce_str(parameter.get("name")).lower()
+    source = _coerce_str(parameter.get("source")).lower()
+    return name in EMAIL_CC_PARAMETER_NAMES or source in {"user.email_cc", "session.email_cc", "email_cc"}
+
+
+def _is_email_bcc_parameter(parameter: dict[str, Any]) -> bool:
+    name = _coerce_str(parameter.get("name")).lower()
+    source = _coerce_str(parameter.get("source")).lower()
+    return name in EMAIL_BCC_PARAMETER_NAMES or source in {"user.email_bcc", "session.email_bcc", "email_bcc"}
 
 
 def _normalize_email_list(value: Any) -> list[str]:
@@ -135,18 +165,24 @@ def _normalize_parameters(value: Any) -> list[dict[str, Any]]:
         param_type = _coerce_str(item.get("type"), "text").lower()
         if param_type not in ALLOWED_PARAMETER_TYPES:
             param_type = "text"
+        if param_type == "string":
+            param_type = "text"
         label = _coerce_str(item.get("label"), name.replace("_", " ").title())
         options = item.get("options") if isinstance(item.get("options"), list) else []
         email_parameter = _is_user_email_parameter({**item, "name": name})
+        default_value = item.get("defaultValue", item.get("default_value", ""))
+        required_value = item.get("required", False)
         normalized = {
             "name": name,
             "label": label,
             "type": "email" if email_parameter else param_type,
-            "required": bool(item.get("required", False)),
+            "required": required_value if required_value == "conditional" else _coerce_bool(required_value),
             "source": "user.email" if email_parameter else _coerce_str(item.get("source")),
             "placeholder": _coerce_str(item.get("placeholder")),
             "order": _coerce_int(item.get("order"), index + 1),
             "options": options,
+            "defaultValue": default_value,
+            "description": _coerce_str(item.get("description")),
         }
         result.append(normalized)
     return sorted(result, key=lambda current: current["order"])
@@ -166,6 +202,13 @@ def _normalize_payload(payload: dict[str, Any], existing: dict[str, Any] | None 
     parsed = urlparse(webhook_url)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise HTTPException(status_code=422, detail="La URL del webhook debe ser http:// o https://.")
+    if "://" in parsed.netloc or parsed.netloc.endswith(":") or parsed.path.startswith("/:"):
+        raise HTTPException(status_code=422, detail="La URL del webhook esta mal formada. Revisa protocolo, host y puerto.")
+    if (parsed.hostname or "").lower() in {"localhost", "127.0.0.1", "::1"}:
+        raise HTTPException(
+            status_code=422,
+            detail="La URL del webhook no debe usar localhost. Desde Docker usa host.docker.internal o el nombre DNS del contenedor n8n.",
+        )
     if method not in {"GET", "POST"}:
         raise HTTPException(status_code=422, detail="El metodo HTTP debe ser GET o POST.")
     if status not in {"active", "inactive"}:
@@ -259,15 +302,18 @@ def _resolve_webhook_payload(report: dict[str, Any], submitted: dict[str, Any], 
                 raise HTTPException(status_code=422, detail="Tu perfil no tiene correo configurado para solicitar este reporte.")
             result[name] = user_email
             continue
+        if _is_email_cc_parameter(parameter) or _is_email_bcc_parameter(parameter):
+            raw_value = submitted.get(name)
+            emails = _normalize_email_list(raw_value)
+            if emails:
+                result[name] = ",".join(emails)
+            continue
         raw_value = submitted.get(name)
         value = raw_value.strip() if isinstance(raw_value, str) else raw_value
-        if parameter.get("required") and value in (None, ""):
+        if parameter.get("required") is True and value in (None, ""):
             raise HTTPException(status_code=422, detail=f"El parametro {parameter['label']} es obligatorio.")
         if value not in (None, ""):
             result[name] = value
-    cc_value = _coerce_str(submitted.get("cc"))
-    if cc_value:
-        result["cc"] = ",".join(_normalize_email_list(cc_value))
     return result
 
 
@@ -314,11 +360,42 @@ def _release_trigger_cooldown(key: tuple[str, int] | None) -> None:
 
 def _translate_n8n_response_message(n8n_payload: dict[str, Any], report: dict[str, Any]) -> str:
     raw_message = _coerce_str(n8n_payload.get("message")).lower()
-    if raw_message == "workflow was started":
+    if raw_message in {"workflow was started", "workflow accepted"}:
         return "Reporte solicitado. Revisa tu bandeja de correo en unos minutos."
     if raw_message:
         return _coerce_str(n8n_payload.get("message"))
     return "Reporte solicitado. Revisa tu bandeja de correo en unos minutos."
+
+
+def _parse_n8n_payload(response: requests.Response) -> dict[str, Any]:
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = {"message": response.text.strip()}
+    if not isinstance(payload, dict):
+        return {"message": response.text.strip()}
+    return payload
+
+
+def _build_webhook_headers() -> dict[str, str]:
+    headers = {"Content-Type": "application/json"}
+    token = _coerce_str(os.getenv("WEBHOOK_TOKEN"))
+    header_name = _coerce_str(os.getenv("WEBHOOK_TOKEN_HEADER"), "X-Webhook-Token")
+    if token and header_name:
+        headers[header_name] = token
+    return headers
+
+
+def _raise_n8n_error(response: requests.Response) -> None:
+    n8n_payload = _parse_n8n_payload(response)
+    raw_message = _coerce_str(n8n_payload.get("message") or n8n_payload.get("error"))
+    if response.status_code in {401, 403}:
+        message = "n8n rechazo la solicitud por autenticacion. Revisa WEBHOOK_TOKEN y el header configurado."
+    elif response.status_code == 400:
+        message = raw_message or "n8n rechazo la solicitud por parametros invalidos."
+    else:
+        message = raw_message or "n8n no pudo procesar la solicitud del reporte."
+    raise HTTPException(status_code=502 if response.status_code >= 500 else response.status_code, detail=message)
 
 
 def trigger_email_report(report_id: int, submitted_parameters: dict[str, Any], session_user: dict[str, Any]) -> dict[str, Any]:
@@ -330,11 +407,14 @@ def trigger_email_report(report_id: int, submitted_parameters: dict[str, Any], s
     cooldown_key = _enforce_trigger_cooldown(report_id, session_user)
     method = _coerce_str(report.get("http_method"), "POST").upper()
     try:
+        headers = _build_webhook_headers()
         if method == "GET":
-            response = requests.get(report["webhook_url"], params=payload, timeout=15)
+            response = requests.get(report["webhook_url"], params=payload, headers=headers, timeout=15)
         else:
-            response = requests.post(report["webhook_url"], json=payload, timeout=15)
-        response.raise_for_status()
+            response = requests.post(report["webhook_url"], json=payload, headers=headers, timeout=15)
+        if response.status_code >= 400:
+            _release_trigger_cooldown(cooldown_key)
+            _raise_n8n_error(response)
     except requests.exceptions.Timeout as exc:
         _release_trigger_cooldown(cooldown_key)
         raise HTTPException(status_code=504, detail="n8n no respondio dentro del tiempo maximo. Intenta nuevamente en unos minutos.") from exc
@@ -342,12 +422,7 @@ def trigger_email_report(report_id: int, submitted_parameters: dict[str, Any], s
         _release_trigger_cooldown(cooldown_key)
         raise HTTPException(status_code=502, detail=f"No fue posible solicitar el reporte en n8n. Revisa la configuracion del webhook.") from exc
 
-    try:
-        n8n_payload = response.json()
-    except ValueError:
-        n8n_payload = {"message": response.text.strip()}
-    if not isinstance(n8n_payload, dict):
-        n8n_payload = {"message": response.text.strip()}
+    n8n_payload = _parse_n8n_payload(response)
 
     return {
         "ok": True,

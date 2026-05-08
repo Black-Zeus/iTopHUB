@@ -34,7 +34,7 @@ Hosts the custom application API and integration layer between the frontend, iTo
 - Normal Hub login is still password-based against iTop; the personal token is validated only after that credential check succeeds.
 - Test tokens kept as commented notes in `.env.dev` do not authenticate users by themselves and are not read by `/v1/auth/login`.
 - If the Hub has no local users, the auth module exposes an initial bootstrap flow that validates an iTop administrator, stores the iTop panel configuration, creates the first local admin user, and starts the session without manual SQL inserts.
-- In `dev`, the backend should reach iTop through the Docker service URL `http://itop`, and the REST endpoint used by the connector is `/webservices/rest.php`.
+- In `dev`, the backend reaches iTop through `ITOP_URL`; iTop is external to this stack and the REST endpoint used by the connector is `/webservices/rest.php`.
 - Business rules for login, limited admin access, token registration, and user linking are documented in `docs/domains/access-control.md`.
 - Runtime iTop requests should prefer the persisted `Settings -> Integracion iTop` panel values and fall back to environment variables only when no panel config exists yet.
 - Hub sessions are server-side:
@@ -63,6 +63,8 @@ Hosts the custom application API and integration layer between the frontend, iTo
 - Reports can use backend-owned `itop_service` sources for CMDB analytics that need optimized OQL plus backend post-processing, such as assigned-responsible listings, class/status groupings, location groupings, useful-life calculations, and warranty expiration windows.
 - Report catalog reads should use the definition row pointed to by `hub_report_definitions.current_version`; active historical versions are cleanup targets, not alternate UI entries.
 - Email-triggered reports are exposed under `/v1/email-reports`; the backend owns permission checks, user-email injection, and the outbound n8n webhook call so the browser does not call n8n directly. Execution requires access to `email_reports`, while definition CRUD is maintained from `Configuracion > Reporte Correo`.
+- Email report webhook authentication is backend-only. Configure `WEBHOOK_TOKEN` and, when needed, `WEBHOOK_TOKEN_HEADER` in the environment; the frontend must never receive or send these values.
+- n8n responses are normalized by the backend before reaching the UI. The usual `{"message":"Workflow was started"}` response is translated to a Spanish success message, while 400/401/403/5xx responses surface user-readable errors.
 - Email report logos are uploaded through the same module, normalized to PNG, stored under `/app/data/email_report_assets`, and served back through `/v1/email-reports/assets/*`.
 - The handover module also exposes a temporary `Actas de Devolucion` mirror through the same API/persistence flow, separated by `handover_type = return` until dedicated return rules replace the shared behavior.
 - The return handover flow now consumes `cmdb.handoverReturnAssetStatus` during confirmation, revalidates in backend that every returned asset is still assigned in iTop to the selected responsible, and blocks confirmation unless the emitted PDF set (`main` + `detail`) exists.
@@ -101,6 +103,9 @@ Hosts the custom application API and integration layer between the frontend, iTo
 - Expected backend runtime env vars for PDF orchestration:
   - `PDF_WORKER_URL`
   - `INTERNAL_API_SECRET`
+- Expected backend runtime env vars for email report webhooks:
+  - `WEBHOOK_TOKEN`
+  - `WEBHOOK_TOKEN_HEADER`
 - Optional backend runtime env vars for ephemeral SSE notifications:
   - `HUB_NOTIFICATION_TTL_SECONDS`
   - `HUB_NOTIFICATION_HISTORY_LIMIT`

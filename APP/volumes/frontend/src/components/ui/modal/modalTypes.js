@@ -108,7 +108,7 @@ export const MODAL_SIZES = {
     padding: 'p-8'
   },
   emailReportForm: {
-    width: '!w-[94vw] !max-w-[1320px]',
+    width: '!w-[80vw] !max-w-[1500px]',
     padding: 'p-6',
     maxHeight: 'max-h-[90vh]'
   },
