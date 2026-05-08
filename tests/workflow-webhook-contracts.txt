@@ -1,0 +1,912 @@
+{
+  "generated_at": "2026-05-08T17:23:00.892Z",
+  "scope": "Campos permitidos por webhook para WorkFlow_v2. No se aceptan aliases; usar exclusivamente los nombres indicados.",
+  "auth": {
+    "header": "HeaderAuth_GF_QA",
+    "required": true,
+    "note": "El token se envía en el header configurado en la credencial Header Auth de n8n."
+  },
+  "common_rule": "email_to es obligatorio en llamadas webhook. Cron y ejecución manual usan el default_value definido en el Set local.",
+  "workflows": {
+    "CMDB - Activos con garantía vencida - SMTP": {
+      "webhook_path": "cmdb-activos-garantia-vencida",
+      "method": "POST",
+      "validation_rules": [
+        "email_to obligatorio para todas las llamadas webhook.",
+        "No se aceptan aliases: usar exclusivamente los nombres indicados en allowed_body_json.",
+        "Si se envía start_date o end_date, ambos deben venir juntos y ser fechas válidas."
+      ],
+      "allowed_body_json": {
+        "email_to": {
+          "type": "string",
+          "required": true,
+          "default_value": "destinatario@dominio.cl",
+          "description": "Destinatario principal del correo. Obligatorio cuando el flujo se ejecuta por webhook."
+        },
+        "email_cc": {
+          "type": "string",
+          "required": false,
+          "default_value": "",
+          "description": "Destinatarios en copia separados por coma."
+        },
+        "email_bcc": {
+          "type": "string",
+          "required": false,
+          "default_value": "",
+          "description": "Destinatarios en copia oculta separados por coma."
+        },
+        "include_attachment": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el adjunto CSV."
+        },
+        "include_summary": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el bloque de resumen ejecutivo."
+        },
+        "include_detail": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el detalle/tablas del correo."
+        },
+        "include_operational_notes": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el bloque de observaciones operacionales."
+        },
+        "include_itop_button_footer": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el botón de acceso a iTop en el footer."
+        },
+        "start_date": {
+          "type": "string",
+          "required": false,
+          "default_value": "",
+          "description": "Fecha/hora inicial de la ventana de consulta. Formato recomendado: YYYY-MM-DD HH:mm:ss."
+        },
+        "end_date": {
+          "type": "string",
+          "required": false,
+          "default_value": "",
+          "description": "Fecha/hora final de la ventana de consulta. Formato recomendado: YYYY-MM-DD HH:mm:ss."
+        }
+      }
+    },
+    "CMDB - Activos con garantía vigente - SMTP": {
+      "webhook_path": "cmdb-activos-garantia-vigente",
+      "method": "POST",
+      "validation_rules": [
+        "email_to obligatorio para todas las llamadas webhook.",
+        "No se aceptan aliases: usar exclusivamente los nombres indicados en allowed_body_json.",
+        "Si se envía start_date o end_date, ambos deben venir juntos y ser fechas válidas."
+      ],
+      "allowed_body_json": {
+        "email_to": {
+          "type": "string",
+          "required": true,
+          "default_value": "destinatario@dominio.cl",
+          "description": "Destinatario principal del correo. Obligatorio cuando el flujo se ejecuta por webhook."
+        },
+        "email_cc": {
+          "type": "string",
+          "required": false,
+          "default_value": "",
+          "description": "Destinatarios en copia separados por coma."
+        },
+        "email_bcc": {
+          "type": "string",
+          "required": false,
+          "default_value": "",
+          "description": "Destinatarios en copia oculta separados por coma."
+        },
+        "include_attachment": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el adjunto CSV."
+        },
+        "include_summary": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el bloque de resumen ejecutivo."
+        },
+        "include_detail": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el detalle/tablas del correo."
+        },
+        "include_operational_notes": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el bloque de observaciones operacionales."
+        },
+        "include_itop_button_footer": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el botón de acceso a iTop en el footer."
+        },
+        "start_date": {
+          "type": "string",
+          "required": false,
+          "default_value": "",
+          "description": "Fecha/hora inicial de la ventana de consulta. Formato recomendado: YYYY-MM-DD HH:mm:ss."
+        },
+        "end_date": {
+          "type": "string",
+          "required": false,
+          "default_value": "",
+          "description": "Fecha/hora final de la ventana de consulta. Formato recomendado: YYYY-MM-DD HH:mm:ss."
+        },
+        "reference_date": {
+          "type": "string",
+          "required": false,
+          "default_value": "",
+          "description": "Fecha de referencia para calcular vigencia de garantía. Si no se informa, se usa la fecha de ejecución."
+        }
+      }
+    },
+    "CMDB - Activos disponibles por bodega - SMTP": {
+      "webhook_path": "cmdb-activos-disponibles-bodega",
+      "method": "POST",
+      "validation_rules": [
+        "email_to obligatorio para todas las llamadas webhook.",
+        "No se aceptan aliases: usar exclusivamente los nombres indicados en allowed_body_json.",
+        "Si se envía start_date o end_date, ambos deben venir juntos y ser fechas válidas."
+      ],
+      "allowed_body_json": {
+        "email_to": {
+          "type": "string",
+          "required": true,
+          "default_value": "destinatario@dominio.cl",
+          "description": "Destinatario principal del correo. Obligatorio cuando el flujo se ejecuta por webhook."
+        },
+        "email_cc": {
+          "type": "string",
+          "required": false,
+          "default_value": "",
+          "description": "Destinatarios en copia separados por coma."
+        },
+        "email_bcc": {
+          "type": "string",
+          "required": false,
+          "default_value": "",
+          "description": "Destinatarios en copia oculta separados por coma."
+        },
+        "include_attachment": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el adjunto CSV."
+        },
+        "include_summary": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el bloque de resumen ejecutivo."
+        },
+        "include_detail": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el detalle/tablas del correo."
+        },
+        "include_operational_notes": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el bloque de observaciones operacionales."
+        },
+        "include_itop_button_footer": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el botón de acceso a iTop en el footer."
+        },
+        "start_date": {
+          "type": "string",
+          "required": false,
+          "default_value": "",
+          "description": "Fecha/hora inicial de la ventana de consulta. Formato recomendado: YYYY-MM-DD HH:mm:ss."
+        },
+        "end_date": {
+          "type": "string",
+          "required": false,
+          "default_value": "",
+          "description": "Fecha/hora final de la ventana de consulta. Formato recomendado: YYYY-MM-DD HH:mm:ss."
+        }
+      }
+    },
+    "CMDB - Activos próximos a vencer garantía - SMTP": {
+      "webhook_path": "cmdb-activos-proximos-vencer-garantia",
+      "method": "POST",
+      "validation_rules": [
+        "email_to obligatorio para todas las llamadas webhook.",
+        "No se aceptan aliases: usar exclusivamente los nombres indicados en allowed_body_json.",
+        "Si se envía start_date o end_date, ambos deben venir juntos y ser fechas válidas.",
+        "warranty_warning_months obligatorio y mayor a 0."
+      ],
+      "allowed_body_json": {
+        "email_to": {
+          "type": "string",
+          "required": true,
+          "default_value": "destinatario@dominio.cl",
+          "description": "Destinatario principal del correo. Obligatorio cuando el flujo se ejecuta por webhook."
+        },
+        "email_cc": {
+          "type": "string",
+          "required": false,
+          "default_value": "",
+          "description": "Destinatarios en copia separados por coma."
+        },
+        "email_bcc": {
+          "type": "string",
+          "required": false,
+          "default_value": "",
+          "description": "Destinatarios en copia oculta separados por coma."
+        },
+        "include_attachment": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el adjunto CSV."
+        },
+        "include_summary": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el bloque de resumen ejecutivo."
+        },
+        "include_detail": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el detalle/tablas del correo."
+        },
+        "include_operational_notes": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el bloque de observaciones operacionales."
+        },
+        "include_itop_button_footer": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el botón de acceso a iTop en el footer."
+        },
+        "start_date": {
+          "type": "string",
+          "required": false,
+          "default_value": "",
+          "description": "Fecha/hora inicial de la ventana de consulta. Formato recomendado: YYYY-MM-DD HH:mm:ss."
+        },
+        "end_date": {
+          "type": "string",
+          "required": false,
+          "default_value": "",
+          "description": "Fecha/hora final de la ventana de consulta. Formato recomendado: YYYY-MM-DD HH:mm:ss."
+        },
+        "warranty_warning_months": {
+          "type": "number",
+          "required": true,
+          "default_value": 12,
+          "description": "Cantidad de meses para ventana de alerta de garantía. Obligatorio para este webhook."
+        }
+      }
+    },
+    "CMDB - Activos sin contacto asignado - SMTP": {
+      "webhook_path": "cmdb-activos-sin-contacto",
+      "method": "POST",
+      "validation_rules": [
+        "email_to obligatorio para todas las llamadas webhook.",
+        "No se aceptan aliases: usar exclusivamente los nombres indicados en allowed_body_json.",
+        "Si se envía start_date o end_date, ambos deben venir juntos y ser fechas válidas."
+      ],
+      "allowed_body_json": {
+        "email_to": {
+          "type": "string",
+          "required": true,
+          "default_value": "usuario1@company.com",
+          "description": "Destinatario principal del correo. Obligatorio cuando el flujo se ejecuta por webhook."
+        },
+        "email_cc": {
+          "type": "string",
+          "required": false,
+          "default_value": "",
+          "description": "Destinatarios en copia separados por coma."
+        },
+        "email_bcc": {
+          "type": "string",
+          "required": false,
+          "default_value": "",
+          "description": "Destinatarios en copia oculta separados por coma."
+        },
+        "include_attachment": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el adjunto CSV."
+        },
+        "include_summary": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el bloque de resumen ejecutivo."
+        },
+        "include_detail": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el detalle/tablas del correo."
+        },
+        "include_operational_notes": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el bloque de observaciones operacionales."
+        },
+        "include_itop_button_footer": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el botón de acceso a iTop en el footer."
+        }
+      }
+    },
+    "CMDB - Inventario de activos con contactos - SMTP": {
+      "webhook_path": "cmdb-inventario-activos-contactos",
+      "method": "POST",
+      "validation_rules": [
+        "email_to obligatorio para todas las llamadas webhook.",
+        "No se aceptan aliases: usar exclusivamente los nombres indicados en allowed_body_json.",
+        "Si se envía start_date o end_date, ambos deben venir juntos y ser fechas válidas."
+      ],
+      "allowed_body_json": {
+        "email_to": {
+          "type": "string",
+          "required": true,
+          "default_value": "destinatario@dominio.cl",
+          "description": "Destinatario principal del correo. Obligatorio cuando el flujo se ejecuta por webhook."
+        },
+        "email_cc": {
+          "type": "string",
+          "required": false,
+          "default_value": "",
+          "description": "Destinatarios en copia separados por coma."
+        },
+        "email_bcc": {
+          "type": "string",
+          "required": false,
+          "default_value": "",
+          "description": "Destinatarios en copia oculta separados por coma."
+        },
+        "include_attachment": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el adjunto CSV."
+        },
+        "include_summary": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el bloque de resumen ejecutivo."
+        },
+        "include_detail": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el detalle/tablas del correo."
+        },
+        "include_operational_notes": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el bloque de observaciones operacionales."
+        },
+        "include_itop_button_footer": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el botón de acceso a iTop en el footer."
+        },
+        "start_date": {
+          "type": "string",
+          "required": false,
+          "default_value": "",
+          "description": "Fecha/hora inicial de la ventana de consulta. Formato recomendado: YYYY-MM-DD HH:mm:ss."
+        },
+        "end_date": {
+          "type": "string",
+          "required": false,
+          "default_value": "",
+          "description": "Fecha/hora final de la ventana de consulta. Formato recomendado: YYYY-MM-DD HH:mm:ss."
+        }
+      }
+    },
+    "CMDB - Movimientos recientes de inventario - SMTP": {
+      "webhook_path": "cmdb-movimientos-recientes-inventario",
+      "method": "POST",
+      "validation_rules": [
+        "email_to obligatorio para todas las llamadas webhook.",
+        "No se aceptan aliases: usar exclusivamente los nombres indicados en allowed_body_json.",
+        "Si se envía start_date o end_date, ambos deben venir juntos y ser fechas válidas.",
+        "Debe enviar movement_days mayor a 0 o enviar start_date + end_date válidos. Si se envía una ventana de fechas, start_date no puede ser mayor que end_date."
+      ],
+      "allowed_body_json": {
+        "email_to": {
+          "type": "string",
+          "required": true,
+          "default_value": "destinatario@dominio.cl",
+          "description": "Destinatario principal del correo. Obligatorio cuando el flujo se ejecuta por webhook."
+        },
+        "email_cc": {
+          "type": "string",
+          "required": false,
+          "default_value": "",
+          "description": "Destinatarios en copia separados por coma."
+        },
+        "email_bcc": {
+          "type": "string",
+          "required": false,
+          "default_value": "",
+          "description": "Destinatarios en copia oculta separados por coma."
+        },
+        "include_attachment": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el adjunto CSV."
+        },
+        "include_summary": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el bloque de resumen ejecutivo."
+        },
+        "include_detail": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el detalle/tablas del correo."
+        },
+        "include_operational_notes": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el bloque de observaciones operacionales."
+        },
+        "include_itop_button_footer": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el botón de acceso a iTop en el footer."
+        },
+        "start_date": {
+          "type": "string",
+          "required": false,
+          "default_value": "",
+          "description": "Fecha/hora inicial de la ventana de consulta. Formato recomendado: YYYY-MM-DD HH:mm:ss."
+        },
+        "end_date": {
+          "type": "string",
+          "required": false,
+          "default_value": "",
+          "description": "Fecha/hora final de la ventana de consulta. Formato recomendado: YYYY-MM-DD HH:mm:ss."
+        },
+        "movement_days": {
+          "type": "number",
+          "required": "conditional",
+          "default_value": 7,
+          "description": "Días hacia atrás para movimientos. Obligatorio si no se envía start_date + end_date."
+        }
+      }
+    },
+    "CMDB - Resumen por clase, estado y bodega - SMTP": {
+      "webhook_path": "cmdb-resumen-clase-estado-bodega",
+      "method": "POST",
+      "validation_rules": [
+        "email_to obligatorio para todas las llamadas webhook.",
+        "No se aceptan aliases: usar exclusivamente los nombres indicados en allowed_body_json.",
+        "Si se envía start_date o end_date, ambos deben venir juntos y ser fechas válidas."
+      ],
+      "allowed_body_json": {
+        "email_to": {
+          "type": "string",
+          "required": true,
+          "default_value": "destinatario@dominio.cl",
+          "description": "Destinatario principal del correo. Obligatorio cuando el flujo se ejecuta por webhook."
+        },
+        "email_cc": {
+          "type": "string",
+          "required": false,
+          "default_value": "",
+          "description": "Destinatarios en copia separados por coma."
+        },
+        "email_bcc": {
+          "type": "string",
+          "required": false,
+          "default_value": "",
+          "description": "Destinatarios en copia oculta separados por coma."
+        },
+        "include_attachment": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el adjunto CSV."
+        },
+        "include_summary": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el bloque de resumen ejecutivo."
+        },
+        "include_detail": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el detalle/tablas del correo."
+        },
+        "include_operational_notes": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el bloque de observaciones operacionales."
+        },
+        "include_itop_button_footer": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el botón de acceso a iTop en el footer."
+        },
+        "start_date": {
+          "type": "string",
+          "required": false,
+          "default_value": "",
+          "description": "Fecha/hora inicial de la ventana de consulta. Formato recomendado: YYYY-MM-DD HH:mm:ss."
+        },
+        "end_date": {
+          "type": "string",
+          "required": false,
+          "default_value": "",
+          "description": "Fecha/hora final de la ventana de consulta. Formato recomendado: YYYY-MM-DD HH:mm:ss."
+        }
+      }
+    },
+    "ITSM - Tickets abiertos por agente - SMTP": {
+      "webhook_path": "itsm-tickets-abiertos-agente",
+      "method": "POST",
+      "validation_rules": [
+        "email_to obligatorio para todas las llamadas webhook.",
+        "No se aceptan aliases: usar exclusivamente los nombres indicados en allowed_body_json.",
+        "Si se envía start_date o end_date, ambos deben venir juntos y ser fechas válidas."
+      ],
+      "allowed_body_json": {
+        "email_to": {
+          "type": "string",
+          "required": true,
+          "default_value": "usuario1@company.com",
+          "description": "Destinatario principal del correo. Obligatorio cuando el flujo se ejecuta por webhook."
+        },
+        "email_cc": {
+          "type": "string",
+          "required": false,
+          "default_value": "",
+          "description": "Destinatarios en copia separados por coma."
+        },
+        "email_bcc": {
+          "type": "string",
+          "required": false,
+          "default_value": "",
+          "description": "Destinatarios en copia oculta separados por coma."
+        },
+        "include_attachment": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el adjunto CSV."
+        },
+        "include_summary": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el bloque de resumen ejecutivo."
+        },
+        "include_detail": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el detalle/tablas del correo."
+        },
+        "include_operational_notes": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el bloque de observaciones operacionales."
+        },
+        "include_itop_button_footer": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el botón de acceso a iTop en el footer."
+        },
+        "start_date": {
+          "type": "string",
+          "required": false,
+          "default_value": "",
+          "description": "Fecha/hora inicial de la ventana de consulta. Formato recomendado: YYYY-MM-DD HH:mm:ss."
+        },
+        "end_date": {
+          "type": "string",
+          "required": false,
+          "default_value": "",
+          "description": "Fecha/hora final de la ventana de consulta. Formato recomendado: YYYY-MM-DD HH:mm:ss."
+        },
+        "fallback_agent_email": {
+          "type": "string",
+          "required": false,
+          "default_value": "",
+          "description": "Email de respaldo para agentes sin correo detectado, si la política de envío lo permite."
+        },
+        "include_changes": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Incluye cambios en reportes ITSM."
+        },
+        "include_incidents": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Incluye tickets de tipo incidente en reportes ITSM."
+        },
+        "include_problems": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Incluye problemas en reportes ITSM."
+        },
+        "include_requirements": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Incluye tickets de tipo requerimiento en reportes ITSM."
+        },
+        "send_only_with_agent_email": {
+          "type": "boolean",
+          "required": false,
+          "default_value": "true",
+          "description": "Si está activo, solo envía correos a agentes con email detectado."
+        }
+      }
+    },
+    "ITSM - Tickets abiertos por antigüedad - SMTP": {
+      "webhook_path": "itsm-tickets-abiertos-antiguedad",
+      "method": "POST",
+      "validation_rules": [
+        "email_to obligatorio para todas las llamadas webhook.",
+        "No se aceptan aliases: usar exclusivamente los nombres indicados en allowed_body_json.",
+        "Si se envía start_date o end_date, ambos deben venir juntos y ser fechas válidas."
+      ],
+      "allowed_body_json": {
+        "email_to": {
+          "type": "string",
+          "required": true,
+          "default_value": "destinatario@dominio.cl",
+          "description": "Destinatario principal del correo. Obligatorio cuando el flujo se ejecuta por webhook."
+        },
+        "email_cc": {
+          "type": "string",
+          "required": false,
+          "default_value": "",
+          "description": "Destinatarios en copia separados por coma."
+        },
+        "email_bcc": {
+          "type": "string",
+          "required": false,
+          "default_value": "",
+          "description": "Destinatarios en copia oculta separados por coma."
+        },
+        "include_attachment": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el adjunto CSV."
+        },
+        "include_summary": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el bloque de resumen ejecutivo."
+        },
+        "include_detail": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el detalle/tablas del correo."
+        },
+        "include_operational_notes": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el bloque de observaciones operacionales."
+        },
+        "include_itop_button_footer": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el botón de acceso a iTop en el footer."
+        },
+        "start_date": {
+          "type": "string",
+          "required": false,
+          "default_value": "",
+          "description": "Fecha/hora inicial de la ventana de consulta. Formato recomendado: YYYY-MM-DD HH:mm:ss."
+        },
+        "end_date": {
+          "type": "string",
+          "required": false,
+          "default_value": "",
+          "description": "Fecha/hora final de la ventana de consulta. Formato recomendado: YYYY-MM-DD HH:mm:ss."
+        },
+        "include_changes": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Incluye cambios en reportes ITSM."
+        },
+        "include_incidents": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Incluye tickets de tipo incidente en reportes ITSM."
+        },
+        "include_problems": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Incluye problemas en reportes ITSM."
+        },
+        "include_requirements": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Incluye tickets de tipo requerimiento en reportes ITSM."
+        }
+      }
+    },
+    "ITSM - Tickets sin actualización mayor a 24h - SMTP": {
+      "webhook_path": "itsm-tickets-sin-actualizacion-24h",
+      "method": "POST",
+      "validation_rules": [
+        "email_to obligatorio para todas las llamadas webhook.",
+        "No se aceptan aliases: usar exclusivamente los nombres indicados en allowed_body_json.",
+        "Si se envía start_date o end_date, ambos deben venir juntos y ser fechas válidas.",
+        "stale_threshold_hours obligatorio y mayor a 0."
+      ],
+      "allowed_body_json": {
+        "email_to": {
+          "type": "string",
+          "required": true,
+          "default_value": "destinatario@dominio.cl",
+          "description": "Destinatario principal del correo. Obligatorio cuando el flujo se ejecuta por webhook."
+        },
+        "email_cc": {
+          "type": "string",
+          "required": false,
+          "default_value": "",
+          "description": "Destinatarios en copia separados por coma."
+        },
+        "email_bcc": {
+          "type": "string",
+          "required": false,
+          "default_value": "",
+          "description": "Destinatarios en copia oculta separados por coma."
+        },
+        "include_attachment": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el adjunto CSV."
+        },
+        "include_summary": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el bloque de resumen ejecutivo."
+        },
+        "include_detail": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el detalle/tablas del correo."
+        },
+        "include_operational_notes": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el bloque de observaciones operacionales."
+        },
+        "include_itop_button_footer": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Activa o desactiva el botón de acceso a iTop en el footer."
+        },
+        "start_date": {
+          "type": "string",
+          "required": false,
+          "default_value": "",
+          "description": "Fecha/hora inicial de la ventana de consulta. Formato recomendado: YYYY-MM-DD HH:mm:ss."
+        },
+        "end_date": {
+          "type": "string",
+          "required": false,
+          "default_value": "",
+          "description": "Fecha/hora final de la ventana de consulta. Formato recomendado: YYYY-MM-DD HH:mm:ss."
+        },
+        "include_changes": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Incluye cambios en reportes ITSM."
+        },
+        "include_incidents": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Incluye tickets de tipo incidente en reportes ITSM."
+        },
+        "include_problems": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Incluye problemas en reportes ITSM."
+        },
+        "include_requirements": {
+          "type": "boolean",
+          "required": false,
+          "default_value": true,
+          "description": "Incluye tickets de tipo requerimiento en reportes ITSM."
+        },
+        "stale_threshold_hours": {
+          "type": "number",
+          "required": true,
+          "default_value": "24",
+          "description": "Horas sin actualización para considerar tickets vencidos en seguimiento. Obligatorio para este webhook."
+        }
+      }
+    }
+  },
+  "webhook_response": {
+    "accepted": {
+      "status_code": 202,
+      "body": {
+        "message": "Workflow accepted",
+        "accepted": true
+      }
+    },
+    "rejected": {
+      "status_code": 400,
+      "body": {
+        "message": "Motivo de rechazo del contrato",
+        "accepted": false
+      }
+    },
+    "unauthorized": {
+      "status_code": 403,
+      "note": "Respuesta gestionada por la credencial HeaderAuth_GF_QA si el token no coincide."
+    }
+  }
+}

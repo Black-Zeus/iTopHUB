@@ -1,0 +1,252 @@
+# Git Bash curl tests - bateria completa WorkFlow_v2
+# Ejecutar desde la raiz del proyecto o cualquier consola Git Bash.
+# Respuestas esperadas: positivos HTTP 202, validaciones HTTP 400, seguridad HTTP 403.
+
+export N8N_BASE="http://localhost:8089/n8n"
+export WEBHOOK_TOKEN="120cce89d60ecb6e13dbee08bbde8d3db193c29edb17e4cf08fc6f4eb7eba0a7"
+
+call_ok() {
+  local path="$1"
+  local body="$2"
+  curl -i -X POST "$N8N_BASE/webhook/$path" \
+    -H "Content-Type: application/json" \
+    -H "X-Webhook-Token: $WEBHOOK_TOKEN" \
+    --data-raw "$body"
+}
+
+call_no_token() {
+  local path="$1"
+  local body="$2"
+  curl -i -X POST "$N8N_BASE/webhook/$path" \
+    -H "Content-Type: application/json" \
+    --data-raw "$body"
+}
+
+call_bad_token() {
+  local path="$1"
+  local body="$2"
+  curl -i -X POST "$N8N_BASE/webhook/$path" \
+    -H "Content-Type: application/json" \
+    -H "X-Webhook-Token: token_incorrecto" \
+    --data-raw "$body"
+}
+
+echo "## Seguridad global"
+call_no_token "cmdb-activos-sin-contacto" '{"email_to":"usuario1@company.com"}'
+call_bad_token "cmdb-activos-sin-contacto" '{"email_to":"usuario1@company.com"}'
+
+echo "## cmdb-activos-garantia-vencida - minimo valido"
+call_ok "cmdb-activos-garantia-vencida" '{"email_to":"usuario1@company.com"}'
+
+echo "## cmdb-activos-garantia-vencida - sin adjunto"
+call_ok "cmdb-activos-garantia-vencida" '{"email_to":"noattach@company.com","include_attachment":false}'
+
+echo "## cmdb-activos-garantia-vencida - sin resumen, detalle, notas ni boton iTop"
+call_ok "cmdb-activos-garantia-vencida" '{"email_to":"usuario1@company.com","include_summary":false,"include_detail":false,"include_operational_notes":false,"include_itop_button_footer":false}'
+
+echo "## cmdb-activos-garantia-vencida - destinatarios cc/bcc"
+call_ok "cmdb-activos-garantia-vencida" '{"email_to":"usuario1@company.com","email_cc":"supervisor@company.com","email_bcc":"auditoria@company.com"}'
+
+echo "## cmdb-activos-garantia-vencida - ventana start_date/end_date"
+call_ok "cmdb-activos-garantia-vencida" '{"email_to":"usuario1@company.com","start_date":"2026-05-01 00:00:00","end_date":"2026-05-08 23:59:59"}'
+
+echo "## cmdb-activos-garantia-vencida - error falta email_to"
+call_ok "cmdb-activos-garantia-vencida" '{}'
+
+echo "## cmdb-activos-garantia-vigente - minimo valido"
+call_ok "cmdb-activos-garantia-vigente" '{"email_to":"usuario1@company.com","reference_date":"2026-05-08"}'
+
+echo "## cmdb-activos-garantia-vigente - sin adjunto"
+call_ok "cmdb-activos-garantia-vigente" '{"email_to":"noattach@company.com","include_attachment":false,"reference_date":"2026-05-08"}'
+
+echo "## cmdb-activos-garantia-vigente - sin resumen, detalle, notas ni boton iTop"
+call_ok "cmdb-activos-garantia-vigente" '{"email_to":"usuario1@company.com","reference_date":"2026-05-08","include_summary":false,"include_detail":false,"include_operational_notes":false,"include_itop_button_footer":false}'
+
+echo "## cmdb-activos-garantia-vigente - destinatarios cc/bcc"
+call_ok "cmdb-activos-garantia-vigente" '{"email_to":"usuario1@company.com","reference_date":"2026-05-08","email_cc":"supervisor@company.com","email_bcc":"auditoria@company.com"}'
+
+echo "## cmdb-activos-garantia-vigente - ventana start_date/end_date"
+call_ok "cmdb-activos-garantia-vigente" '{"email_to":"usuario1@company.com","reference_date":"2026-05-08","start_date":"2026-05-01 00:00:00","end_date":"2026-05-08 23:59:59"}'
+
+echo "## cmdb-activos-garantia-vigente - error falta email_to"
+call_ok "cmdb-activos-garantia-vigente" '{"reference_date":"2026-05-08"}'
+
+echo "## cmdb-activos-disponibles-bodega - minimo valido"
+call_ok "cmdb-activos-disponibles-bodega" '{"email_to":"usuario1@company.com"}'
+
+echo "## cmdb-activos-disponibles-bodega - sin adjunto"
+call_ok "cmdb-activos-disponibles-bodega" '{"email_to":"noattach@company.com","include_attachment":false}'
+
+echo "## cmdb-activos-disponibles-bodega - sin resumen, detalle, notas ni boton iTop"
+call_ok "cmdb-activos-disponibles-bodega" '{"email_to":"usuario1@company.com","include_summary":false,"include_detail":false,"include_operational_notes":false,"include_itop_button_footer":false}'
+
+echo "## cmdb-activos-disponibles-bodega - destinatarios cc/bcc"
+call_ok "cmdb-activos-disponibles-bodega" '{"email_to":"usuario1@company.com","email_cc":"supervisor@company.com","email_bcc":"auditoria@company.com"}'
+
+echo "## cmdb-activos-disponibles-bodega - ventana start_date/end_date"
+call_ok "cmdb-activos-disponibles-bodega" '{"email_to":"usuario1@company.com","start_date":"2026-05-01 00:00:00","end_date":"2026-05-08 23:59:59"}'
+
+echo "## cmdb-activos-disponibles-bodega - error falta email_to"
+call_ok "cmdb-activos-disponibles-bodega" '{}'
+
+echo "## cmdb-activos-proximos-vencer-garantia - minimo valido"
+call_ok "cmdb-activos-proximos-vencer-garantia" '{"email_to":"usuario1@company.com","warranty_warning_months":12}'
+
+echo "## cmdb-activos-proximos-vencer-garantia - sin adjunto"
+call_ok "cmdb-activos-proximos-vencer-garantia" '{"email_to":"noattach@company.com","include_attachment":false,"warranty_warning_months":12}'
+
+echo "## cmdb-activos-proximos-vencer-garantia - sin resumen, detalle, notas ni boton iTop"
+call_ok "cmdb-activos-proximos-vencer-garantia" '{"email_to":"usuario1@company.com","warranty_warning_months":12,"include_summary":false,"include_detail":false,"include_operational_notes":false,"include_itop_button_footer":false}'
+
+echo "## cmdb-activos-proximos-vencer-garantia - destinatarios cc/bcc"
+call_ok "cmdb-activos-proximos-vencer-garantia" '{"email_to":"usuario1@company.com","warranty_warning_months":12,"email_cc":"supervisor@company.com","email_bcc":"auditoria@company.com"}'
+
+echo "## cmdb-activos-proximos-vencer-garantia - ventana start_date/end_date"
+call_ok "cmdb-activos-proximos-vencer-garantia" '{"email_to":"usuario1@company.com","warranty_warning_months":12,"start_date":"2026-05-01 00:00:00","end_date":"2026-05-08 23:59:59"}'
+
+echo "## cmdb-activos-proximos-vencer-garantia - error falta email_to"
+call_ok "cmdb-activos-proximos-vencer-garantia" '{"warranty_warning_months":12}'
+
+echo "## cmdb-activos-sin-contacto - minimo valido"
+call_ok "cmdb-activos-sin-contacto" '{"email_to":"usuario1@company.com"}'
+
+echo "## cmdb-activos-sin-contacto - sin adjunto"
+call_ok "cmdb-activos-sin-contacto" '{"email_to":"noattach@company.com","include_attachment":false}'
+
+echo "## cmdb-activos-sin-contacto - sin resumen, detalle, notas ni boton iTop"
+call_ok "cmdb-activos-sin-contacto" '{"email_to":"usuario1@company.com","include_summary":false,"include_detail":false,"include_operational_notes":false,"include_itop_button_footer":false}'
+
+echo "## cmdb-activos-sin-contacto - destinatarios cc/bcc"
+call_ok "cmdb-activos-sin-contacto" '{"email_to":"usuario1@company.com","email_cc":"supervisor@company.com","email_bcc":"auditoria@company.com"}'
+
+echo "## cmdb-activos-sin-contacto - error falta email_to"
+call_ok "cmdb-activos-sin-contacto" '{}'
+
+echo "## cmdb-inventario-activos-contactos - minimo valido"
+call_ok "cmdb-inventario-activos-contactos" '{"email_to":"usuario1@company.com"}'
+
+echo "## cmdb-inventario-activos-contactos - sin adjunto"
+call_ok "cmdb-inventario-activos-contactos" '{"email_to":"noattach@company.com","include_attachment":false}'
+
+echo "## cmdb-inventario-activos-contactos - sin resumen, detalle, notas ni boton iTop"
+call_ok "cmdb-inventario-activos-contactos" '{"email_to":"usuario1@company.com","include_summary":false,"include_detail":false,"include_operational_notes":false,"include_itop_button_footer":false}'
+
+echo "## cmdb-inventario-activos-contactos - destinatarios cc/bcc"
+call_ok "cmdb-inventario-activos-contactos" '{"email_to":"usuario1@company.com","email_cc":"supervisor@company.com","email_bcc":"auditoria@company.com"}'
+
+echo "## cmdb-inventario-activos-contactos - ventana start_date/end_date"
+call_ok "cmdb-inventario-activos-contactos" '{"email_to":"usuario1@company.com","start_date":"2026-05-01 00:00:00","end_date":"2026-05-08 23:59:59"}'
+
+echo "## cmdb-inventario-activos-contactos - error falta email_to"
+call_ok "cmdb-inventario-activos-contactos" '{}'
+
+echo "## cmdb-movimientos-recientes-inventario - minimo valido"
+call_ok "cmdb-movimientos-recientes-inventario" '{"email_to":"usuario1@company.com","movement_days":7}'
+
+echo "## cmdb-movimientos-recientes-inventario - sin adjunto"
+call_ok "cmdb-movimientos-recientes-inventario" '{"email_to":"noattach@company.com","include_attachment":false,"movement_days":7}'
+
+echo "## cmdb-movimientos-recientes-inventario - sin resumen, detalle, notas ni boton iTop"
+call_ok "cmdb-movimientos-recientes-inventario" '{"email_to":"usuario1@company.com","movement_days":7,"include_summary":false,"include_detail":false,"include_operational_notes":false,"include_itop_button_footer":false}'
+
+echo "## cmdb-movimientos-recientes-inventario - destinatarios cc/bcc"
+call_ok "cmdb-movimientos-recientes-inventario" '{"email_to":"usuario1@company.com","movement_days":7,"email_cc":"supervisor@company.com","email_bcc":"auditoria@company.com"}'
+
+echo "## cmdb-movimientos-recientes-inventario - ventana start_date/end_date"
+call_ok "cmdb-movimientos-recientes-inventario" '{"email_to":"usuario1@company.com","start_date":"2026-05-01 00:00:00","end_date":"2026-05-08 23:59:59"}'
+
+echo "## cmdb-movimientos-recientes-inventario - error falta email_to"
+call_ok "cmdb-movimientos-recientes-inventario" '{"movement_days":7}'
+
+echo "## cmdb-resumen-clase-estado-bodega - minimo valido"
+call_ok "cmdb-resumen-clase-estado-bodega" '{"email_to":"usuario1@company.com"}'
+
+echo "## cmdb-resumen-clase-estado-bodega - sin adjunto"
+call_ok "cmdb-resumen-clase-estado-bodega" '{"email_to":"noattach@company.com","include_attachment":false}'
+
+echo "## cmdb-resumen-clase-estado-bodega - sin resumen, detalle, notas ni boton iTop"
+call_ok "cmdb-resumen-clase-estado-bodega" '{"email_to":"usuario1@company.com","include_summary":false,"include_detail":false,"include_operational_notes":false,"include_itop_button_footer":false}'
+
+echo "## cmdb-resumen-clase-estado-bodega - destinatarios cc/bcc"
+call_ok "cmdb-resumen-clase-estado-bodega" '{"email_to":"usuario1@company.com","email_cc":"supervisor@company.com","email_bcc":"auditoria@company.com"}'
+
+echo "## cmdb-resumen-clase-estado-bodega - ventana start_date/end_date"
+call_ok "cmdb-resumen-clase-estado-bodega" '{"email_to":"usuario1@company.com","start_date":"2026-05-01 00:00:00","end_date":"2026-05-08 23:59:59"}'
+
+echo "## cmdb-resumen-clase-estado-bodega - error falta email_to"
+call_ok "cmdb-resumen-clase-estado-bodega" '{}'
+
+echo "## itsm-tickets-abiertos-agente - minimo valido"
+call_ok "itsm-tickets-abiertos-agente" '{"email_to":"usuario1@company.com"}'
+
+echo "## itsm-tickets-abiertos-agente - sin adjunto"
+call_ok "itsm-tickets-abiertos-agente" '{"email_to":"noattach@company.com","include_attachment":false}'
+
+echo "## itsm-tickets-abiertos-agente - sin resumen, detalle, notas ni boton iTop"
+call_ok "itsm-tickets-abiertos-agente" '{"email_to":"usuario1@company.com","include_summary":false,"include_detail":false,"include_operational_notes":false,"include_itop_button_footer":false}'
+
+echo "## itsm-tickets-abiertos-agente - destinatarios cc/bcc"
+call_ok "itsm-tickets-abiertos-agente" '{"email_to":"usuario1@company.com","email_cc":"supervisor@company.com","email_bcc":"auditoria@company.com"}'
+
+echo "## itsm-tickets-abiertos-agente - ventana start_date/end_date"
+call_ok "itsm-tickets-abiertos-agente" '{"email_to":"usuario1@company.com","start_date":"2026-05-01 00:00:00","end_date":"2026-05-08 23:59:59"}'
+
+echo "## itsm-tickets-abiertos-agente - filtros tipos ticket"
+call_ok "itsm-tickets-abiertos-agente" '{"email_to":"usuario1@company.com","include_requirements":true,"include_incidents":true,"include_changes":false,"include_problems":false}'
+
+echo "## itsm-tickets-abiertos-agente - envio por agente con fallback"
+call_ok "itsm-tickets-abiertos-agente" '{"email_to":"usuario1@company.com","send_only_with_agent_email":false,"fallback_agent_email":"mesa.control@company.com"}'
+
+echo "## itsm-tickets-abiertos-agente - error falta email_to"
+call_ok "itsm-tickets-abiertos-agente" '{}'
+
+echo "## itsm-tickets-abiertos-antiguedad - minimo valido"
+call_ok "itsm-tickets-abiertos-antiguedad" '{"email_to":"usuario1@company.com"}'
+
+echo "## itsm-tickets-abiertos-antiguedad - sin adjunto"
+call_ok "itsm-tickets-abiertos-antiguedad" '{"email_to":"noattach@company.com","include_attachment":false}'
+
+echo "## itsm-tickets-abiertos-antiguedad - sin resumen, detalle, notas ni boton iTop"
+call_ok "itsm-tickets-abiertos-antiguedad" '{"email_to":"usuario1@company.com","include_summary":false,"include_detail":false,"include_operational_notes":false,"include_itop_button_footer":false}'
+
+echo "## itsm-tickets-abiertos-antiguedad - destinatarios cc/bcc"
+call_ok "itsm-tickets-abiertos-antiguedad" '{"email_to":"usuario1@company.com","email_cc":"supervisor@company.com","email_bcc":"auditoria@company.com"}'
+
+echo "## itsm-tickets-abiertos-antiguedad - ventana start_date/end_date"
+call_ok "itsm-tickets-abiertos-antiguedad" '{"email_to":"usuario1@company.com","start_date":"2026-05-01 00:00:00","end_date":"2026-05-08 23:59:59"}'
+
+echo "## itsm-tickets-abiertos-antiguedad - filtros tipos ticket"
+call_ok "itsm-tickets-abiertos-antiguedad" '{"email_to":"usuario1@company.com","include_requirements":true,"include_incidents":true,"include_changes":false,"include_problems":false}'
+
+echo "## itsm-tickets-abiertos-antiguedad - error falta email_to"
+call_ok "itsm-tickets-abiertos-antiguedad" '{}'
+
+echo "## itsm-tickets-sin-actualizacion-24h - minimo valido"
+call_ok "itsm-tickets-sin-actualizacion-24h" '{"email_to":"usuario1@company.com","stale_threshold_hours":24}'
+
+echo "## itsm-tickets-sin-actualizacion-24h - sin adjunto"
+call_ok "itsm-tickets-sin-actualizacion-24h" '{"email_to":"noattach@company.com","include_attachment":false,"stale_threshold_hours":24}'
+
+echo "## itsm-tickets-sin-actualizacion-24h - sin resumen, detalle, notas ni boton iTop"
+call_ok "itsm-tickets-sin-actualizacion-24h" '{"email_to":"usuario1@company.com","stale_threshold_hours":24,"include_summary":false,"include_detail":false,"include_operational_notes":false,"include_itop_button_footer":false}'
+
+echo "## itsm-tickets-sin-actualizacion-24h - destinatarios cc/bcc"
+call_ok "itsm-tickets-sin-actualizacion-24h" '{"email_to":"usuario1@company.com","stale_threshold_hours":24,"email_cc":"supervisor@company.com","email_bcc":"auditoria@company.com"}'
+
+echo "## itsm-tickets-sin-actualizacion-24h - ventana start_date/end_date"
+call_ok "itsm-tickets-sin-actualizacion-24h" '{"email_to":"usuario1@company.com","stale_threshold_hours":24,"start_date":"2026-05-01 00:00:00","end_date":"2026-05-08 23:59:59"}'
+
+echo "## itsm-tickets-sin-actualizacion-24h - filtros tipos ticket"
+call_ok "itsm-tickets-sin-actualizacion-24h" '{"email_to":"usuario1@company.com","stale_threshold_hours":24,"include_requirements":true,"include_incidents":true,"include_changes":false,"include_problems":false}'
+
+echo "## itsm-tickets-sin-actualizacion-24h - error falta email_to"
+call_ok "itsm-tickets-sin-actualizacion-24h" '{"stale_threshold_hours":24}'
+
+echo "## Errores especificos"
+call_ok "cmdb-activos-proximos-vencer-garantia" '{"email_to":"usuario1@company.com"}'
+call_ok "cmdb-activos-proximos-vencer-garantia" '{"email_to":"usuario1@company.com","warranty_warning_months":0}'
+call_ok "cmdb-movimientos-recientes-inventario" '{"email_to":"usuario1@company.com"}'
+call_ok "cmdb-movimientos-recientes-inventario" '{"email_to":"usuario1@company.com","start_date":"2026-05-08 23:59:59"}'
+call_ok "cmdb-movimientos-recientes-inventario" '{"email_to":"usuario1@company.com","start_date":"2026-05-09 00:00:00","end_date":"2026-05-08 00:00:00"}'
+call_ok "itsm-tickets-sin-actualizacion-24h" '{"email_to":"usuario1@company.com"}'
+call_ok "itsm-tickets-sin-actualizacion-24h" '{"email_to":"usuario1@company.com","stale_threshold_hours":0}'
