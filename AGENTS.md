@@ -141,7 +141,6 @@ When a new cross-project concern appears, create a dedicated place for it early 
 - Backend container: `docs/containers/backend.md`
 - Worker container: `docs/containers/worker.md`
 - PDF worker container: `docs/containers/pdf-worker.md`
-- iTop container: `docs/containers/itop.md`
 - MariaDB container: `docs/containers/mariadb.md`
 - Redis container: `docs/containers/redis.md`
 - Mailpit container: `docs/containers/mailpit.md`
@@ -158,7 +157,7 @@ When a new cross-project concern appears, create a dedicated place for it early 
 
 - If the task is about regenerating, normalizing, deduplicating, or extending project rules/docs, read `REGENERATE.md`.
 - If the task mentions schema, seeds, grants, DB users, or bootstrap, read `docs/containers/mariadb.md`.
-- If the task mentions CMDB, ITSM, iTop integration, API sync, or shared database usage, read `docs/containers/itop.md`.
+- If the task mentions CMDB, ITSM, iTop integration, API sync, or shared database usage, read `docs/containers/backend.md`.
 - If the task mentions React, Vite, UI integration, or module migration from `Draft/`, read `docs/containers/frontend.md`.
 - If the task mentions business logic, APIs, auth, orchestration, or service integration, read `docs/containers/backend.md`.
 - If the task mentions queues, async jobs, background processing, or retries, read `docs/containers/worker.md`.

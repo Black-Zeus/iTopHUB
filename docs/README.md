@@ -13,7 +13,6 @@ Esta carpeta centraliza notas operativas y tecnicas de la arquitectura basada en
 - `containers/backend.md`
 - `containers/worker.md`
 - `containers/pdf-worker.md`
-- `containers/itop.md`
 - `containers/nginx.md`
 - `containers/mariadb.md`
 - `containers/redis.md`

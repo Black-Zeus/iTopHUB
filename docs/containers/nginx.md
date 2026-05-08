@@ -14,16 +14,15 @@ Acts as the reverse proxy entrypoint for the stack and centralizes public routin
 
 ## Current Intent
 
-- In `dev`, route `/` to the local iTop container.
+- In `dev`, route `/` to `/itop-hub/`.
 - Route `/api/` to the Hub backend.
 - Route `/itop-hub/` to the Hub frontend.
 - Prepare the project for hostname-based publishing later without coupling the applications directly to public URLs.
-- In `prd`, use `APP/config/nginx/prd/conf.d` so `/` redirects to `/itop-hub/` and no route depends on a local `itop` container.
+- In `prd`, use `APP/config/nginx/prd/conf.d` so `/` redirects to `/itop-hub/`.
 
 ## Notes
 
-- `itop` is only proxied locally in `dev`.
-- In `qa` and `prd`, the expectation is to proxy the Hub while consuming the original iTop site externally.
+- The stack does not include a local iTop container; iTop is consumed externally through backend REST/OQL integration.
 - `mailpit` and `redisinsight` are not part of the production compose.
 - SSE endpoints should be proxied with buffering disabled and longer read/send timeouts so `/api/v1/events/*` can stay open without polling.
 - Backend API endpoints use extended proxy connect/read/send timeouts because handover evidence confirmation can perform multiple iTop operations before responding.

@@ -4,7 +4,7 @@ This folder is executed in lexicographic order by the MariaDB entrypoint.
 
 ## Order by blocks
 
-- `00_bootstrap_databases.sh`: creates the app and iTop databases using environment variables.
+- `00_bootstrap_databases.sh`: creates the Hub app database using environment variables.
 - `00_preamble.sql`: reserved SQL slot before the schema blocks.
 - `10_hub_app_init.sh`: applies every Hub `.sql` block under `app/` in lexicographic order against `APP_DB_NAME`.
 
@@ -13,8 +13,8 @@ The SQL source files for the Hub now live under `APP/config/mariadb/init/app/`.
 Important:
 
 - These init scripts provision the Hub database structure in `APP_DB_NAME`.
-- They do not create or normalize the internal iTop application schema inside `ITOP_DB_NAME`.
-- If a backend query fails against an iTop table, the fix usually belongs to the iTop installation/version or to the backend integration query, not to the Hub init SQL block set.
+- They do not create or normalize any iTop application schema. iTop is consumed as an external service through REST/OQL.
+- If a backend query fails against iTop, the fix usually belongs to the external iTop installation/version or to the backend integration query, not to the Hub init SQL block set.
 
 ## Suggested grouping
 
@@ -36,7 +36,7 @@ Important:
 
 ## Manual recovery
 
-- `APP/config/mariadb/reset_hub_db.sh`: recreates only `APP_DB_NAME` and reapplies the Hub SQL blocks. Use this only when the MariaDB volume already exists and you need to rebuild the Hub database manually without touching `ITOP_DB_NAME`.
+- `APP/config/mariadb/reset_hub_db.sh`: recreates only `APP_DB_NAME` and reapplies the Hub SQL blocks. Use this only when the MariaDB volume already exists and you need to rebuild the Hub database manually.
 
 ## Security note
 

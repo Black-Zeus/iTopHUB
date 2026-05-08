@@ -1,7 +1,7 @@
 INSERT INTO hub_settings_panels (panel_code, config_json)
 VALUES
     ('organization', '{"organizationName":"iTop Hub","organizationAcronym":"ITH","itopOrganizationId":"","itopOrganizationName":"","organizationLogoPath":"","organizationLogoVersion":""}'),
-    ('itop', '{"integrationUrl":"http://itop","timeoutSeconds":30,"verifySsl":true,"sessionTtlMinutes":240,"runtimeTokenTtlMinutes":60,"sessionWarningMinutes":1}'),
+    ('itop', '{"integrationUrl":"","timeoutSeconds":30,"verifySsl":true,"sessionTtlMinutes":240,"runtimeTokenTtlMinutes":60,"sessionWarningMinutes":1}'),
     ('pdq', '{"moduleEnabled":true,"databaseFilePath":"/app/data/pdq","inventoryNote":"PDQ se consume desde una copia local disponible para el backend. El Hub no consulta el servidor PDQ en linea."}'),
     ('sync', '{"manualExecutionLabel":"Disponible bajo demanda","automationMode":"Copia externa de SQLite a carpeta compartida","queryMode":"Busqueda por nombre de maquina o MAC","notes":"Preparado para tareas programadas administradas desde la interfaz."}'),
     ('mail', '{"senderName":"Mesa de Ayuda TI","senderEmail":"soporte@empresa.local","smtpHost":"mailpit","smtpPort":"1025","smtpSecurity":"none","mailFormat":"html","footerNote":"Documento generado automaticamente por iTop Hub."}'),

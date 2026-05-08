@@ -2,7 +2,7 @@
 
 ## Role
 
-Provides the relational database server shared by the custom backend and iTop, using separate databases on the same MariaDB instance.
+Provides the relational database server for Hub-owned application data.
 
 ## Runtime
 
@@ -28,8 +28,8 @@ Provides the relational database server shared by the custom backend and iTop, u
 ## Notes
 
 - If a task touches schemas, grants, seeds, or indexes, start here.
-- `APP_DB_NAME` stores Hub auth metadata separately from `ITOP_DB_NAME`.
-- The repository init scripts normalize the Hub schema only; the internal schema of iTop inside `ITOP_DB_NAME` is owned by the iTop installation/bootstrap process.
+- `APP_DB_NAME` stores Hub auth metadata and domain persistence.
+- The repository init scripts normalize the Hub schema only; iTop data is external and accessed through REST/OQL.
 - Personal iTop tokens for Hub users are persisted encrypted in `hub_user_auth`; Redis only keeps short-lived runtime cache.
 - Functional settings panels are persisted in `hub_settings_panels`.
 - Synchronization task definitions for the settings module are persisted in `hub_sync_tasks`.

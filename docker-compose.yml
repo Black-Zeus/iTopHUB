@@ -35,7 +35,6 @@ services:
       MARIADB_USER: ${MARIADB_USER}
       MARIADB_PASSWORD: ${MARIADB_PASSWORD}
       APP_DB_NAME: ${APP_DB_NAME}
-      ITOP_DB_NAME: ${ITOP_DB_NAME}
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
@@ -44,6 +43,8 @@ services:
       - ${SETTINGS_ROOT}/mariadb/init:/docker-entrypoint-initdb.d:ro
       - ${SETTINGS_ROOT}/mariadb:/opt/mariadb-tools:ro
       - ${LOGS_ROOT}/mariadb:/var/log/mysql
+    ports:
+      - "${MARIADB_PORT}:3306"
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u${MARIADB_USER}", "-p${MARIADB_PASSWORD}"]
       interval: 10s
@@ -101,6 +102,8 @@ services:
       ITOP_URL: ${ITOP_URL}
       ITOP_VERIFY_SSL: ${ITOP_VERIFY_SSL}
       ITOP_TIMEOUT_SECONDS: ${ITOP_TIMEOUT_SECONDS}
+      WEBHOOK_TOKEN: ${WEBHOOK_TOKEN}
+      WEBHOOK_TOKEN_HEADER: ${WEBHOOK_TOKEN_HEADER}
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_DB: ${REDIS_DB}

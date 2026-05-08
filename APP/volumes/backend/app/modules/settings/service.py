@@ -84,7 +84,7 @@ PANEL_DEFAULTS: dict[str, dict[str, Any]] = {
         "itopOrganizationName": "",
     },
     "itop": {
-        "integrationUrl": "http://itop",
+        "integrationUrl": "",
         "timeoutSeconds": 30,
         "verifySsl": True,
         "sessionTtlMinutes": 240,
@@ -340,7 +340,7 @@ def normalize_panel_config(panel_code: str, config: dict[str, Any]) -> dict[str,
 
     if panel_code == "itop":
         return {
-            "integrationUrl": _coerce_str(merged.get("integrationUrl"), "http://itop"),
+            "integrationUrl": _coerce_str(merged.get("integrationUrl")),
             "timeoutSeconds": _coerce_int(merged.get("timeoutSeconds"), 30),
             "verifySsl": _coerce_bool(merged.get("verifySsl"), True),
             "sessionTtlMinutes": max(1, _coerce_int(merged.get("sessionTtlMinutes"), 240)),

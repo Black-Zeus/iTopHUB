@@ -36,7 +36,6 @@ services:
       MARIADB_USER: ${MARIADB_USER}
       MARIADB_PASSWORD: ${MARIADB_PASSWORD}
       APP_DB_NAME: ${APP_DB_NAME}
-      ITOP_DB_NAME: ${ITOP_DB_NAME}
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
@@ -48,8 +47,6 @@ services:
       # Incluye reset_hub_db.sh y su ruta relativa init/app para reconstruccion manual del Hub DB.
       - ${SETTINGS_ROOT}/mariadb:/opt/mariadb-tools:ro
       - ${LOGS_ROOT}/mariadb:/var/log/mysql
-      - ${SETTINGS_ROOT}/itop-installer/db:/opt/itop_setup/db:ro
-      - ${SETTINGS_ROOT}/itop-installer/scripts:/opt/itop_setup/script:ro
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u${MARIADB_USER}", "-p${MARIADB_PASSWORD}"]
       interval: 10s
@@ -104,14 +101,11 @@ services:
       APP_DB_NAME: ${APP_DB_NAME}
       APP_DB_USER: ${MARIADB_USER}
       APP_DB_PASSWORD: ${MARIADB_PASSWORD}
-      ITOP_URL: http://itop
+      ITOP_URL: ${ITOP_URL}
       ITOP_VERIFY_SSL: ${ITOP_VERIFY_SSL}
       ITOP_TIMEOUT_SECONDS: ${ITOP_TIMEOUT_SECONDS}
-      ITOP_DB_HOST: mysql
-      ITOP_DB_PORT: 3306
-      ITOP_DB_NAME: ${ITOP_DB_NAME}
-      ITOP_DB_USER: ${MARIADB_USER}
-      ITOP_DB_PASSWORD: ${MARIADB_PASSWORD}
+      WEBHOOK_TOKEN: ${WEBHOOK_TOKEN}
+      WEBHOOK_TOKEN_HEADER: ${WEBHOOK_TOKEN_HEADER}
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_DB: ${REDIS_DB}
@@ -158,8 +152,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      itop:
-        condition: service_started
       mailpit:
         condition: service_started
     networks:
@@ -293,7 +285,6 @@ services:
       - "${FRONTEND_PORT}:5173"
     depends_on:
       - backend
-      - itop
     networks:
       - internal
     logging: *default-logging
@@ -325,54 +316,12 @@ services:
     depends_on:
       - frontend
       - backend
-      - itop
     ports:
       - "${NGINX_HTTP_PORT}:80"
     volumes:
       - ${SETTINGS_ROOT}/nginx/conf.d:/etc/nginx/conf.d:ro
       - ${SETTINGS_ROOT}/nginx/certs:/etc/nginx/certs:ro
       - ${LOGS_ROOT}/nginx:/var/log/nginx
-    networks:
-      - internal
-    logging: *default-logging
-    <<: *restart-policy
-
-  # Dependencia temporal de desarrollo
-  itop:
-    build:
-      context: .
-      dockerfile: ./docker/dev/Dockerfile.itop
-      args:
-        ITOP_PHP_BASE_IMAGE: ${ITOP_PHP_BASE_IMAGE}
-    image: ${PROJECT_NAME}/itop:dev
-    container_name: ${PROJECT_NAME}-itop
-    labels:
-      <<: *common-labels
-      service.group: dependency
-      service.lifecycle: dev-temporary
-    environment:
-      <<: *common-env
-      ITOP_DB_HOST: mysql
-      ITOP_DB_PORT: 3306
-      ITOP_DB_NAME: ${ITOP_DB_NAME}
-      ITOP_DB_USER: ${MARIADB_USER}
-      ITOP_DB_PASSWORD: ${MARIADB_PASSWORD}
-      ITOP_ADMIN_USER: ${ITOP_ADMIN_USER}
-      ITOP_ADMIN_PASSWORD: ${ITOP_ADMIN_PASSWORD}
-      ITOP_PACKAGE_VERSION: ${ITOP_PACKAGE_VERSION}
-      ITOP_PACKAGE_URL: ${ITOP_PACKAGE_URL}
-      ITOP_INSTALL_FORCE: ${ITOP_INSTALL_FORCE}
-      ITOP_AUTO_INSTALL_IF_EMPTY: ${ITOP_AUTO_INSTALL_IF_EMPTY}
-    depends_on:
-      mysql:
-        condition: service_healthy
-    ports:
-      - "${ITOP_PORT}:80"
-    volumes:
-      - ${SETTINGS_ROOT}/itop-installer/html:/var/www/html
-      - ${SETTINGS_ROOT}/itop-installer/db:/opt/itop_setup/db:ro
-      - ${SETTINGS_ROOT}/itop-installer/scripts:/opt/itop_setup/script:ro
-      - ${LOGS_ROOT}/itop:/var/log/apache2
     networks:
       - internal
     logging: *default-logging
