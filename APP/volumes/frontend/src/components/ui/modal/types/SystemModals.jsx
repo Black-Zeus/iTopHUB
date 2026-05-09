@@ -243,7 +243,7 @@ export const renderCustomModal = ({
       )}
 
       {/* Body */}
-      <div className={MODAL_CLASSES.bodyContent}>
+      <div className={size === 'emailReportForm' ? 'box-border flex h-full min-h-0 flex-col overflow-hidden p-6' : MODAL_CLASSES.bodyContent}>
         {bodyContent}
       </div>
 

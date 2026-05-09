@@ -367,7 +367,7 @@ const Modal = ({
   const cssClasses = useMemo(() => ({
     overlay: `${MODAL_CLASSES.overlay.base} ${getModalPositionClasses(position)}`,
     backdrop: `${MODAL_CLASSES.overlay.backdrop} ${isAnimating ? 'opacity-100' : 'opacity-0'}`,
-    modal: `${MODAL_CLASSES.modal.base} ${getModalSizeClasses(modalSize)} ${['clientWide', 'minuteWide', 'pdfViewer', 'personDetail'].includes(modalSize) ? 'max-h-[90vh] overflow-visible rounded-[26px] border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-[var(--shadow-soft)]' : ''} ${isAnimating
+    modal: `${MODAL_CLASSES.modal.base} ${getModalSizeClasses(modalSize)} ${modalSize === 'emailReportForm' ? 'flex h-[90vh] max-h-[90vh] flex-col overflow-hidden rounded-[26px] border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-[var(--shadow-soft)]' : ''} ${['clientWide', 'minuteWide', 'pdfViewer', 'personDetail'].includes(modalSize) ? 'flex max-h-[90vh] flex-col overflow-hidden rounded-[26px] border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-[var(--shadow-soft)]' : ''} ${isAnimating
         ? MODAL_CLASSES.modal.enterActive
         : MODAL_CLASSES.modal.enter
       }`,
@@ -438,7 +438,10 @@ const Modal = ({
           )}
 
           {/* Contenido dinámico según el tipo */}
-          <div id={`modal-body-${uniqueId.current}`}>
+          <div
+            id={`modal-body-${uniqueId.current}`}
+            className={modalSize === 'emailReportForm' ? 'min-h-0 flex-1 overflow-hidden' : ''}
+          >
             {modalContent}
           </div>
         </div>
@@ -500,7 +503,7 @@ const validateModalProps = (props) => {
       modalLog.warn(`Modal: Tipo "${type}" no implementado. Usando fallback.`);
     }
 
-    if (size && !['small', 'medium', 'large', 'xlarge', 'fullscreen', 'fullscreenWide', 'pdfViewer', 'modalLarge', 'clientWide', 'minuteWide', 'personDetail'].includes(size)) {
+    if (size && !['small', 'medium', 'large', 'xlarge', 'fullscreen', 'fullscreenWide', 'pdfViewer', 'modalLarge', 'clientWide', 'minuteWide', 'personDetail', 'emailReportForm'].includes(size)) {
       modalLog.warn(`Modal: Tamaño "${size}" no válido. Usando "medium".`);
     }
 

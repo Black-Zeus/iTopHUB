@@ -239,6 +239,7 @@ def _normalize_payload(payload: dict[str, Any], existing: dict[str, Any] | None 
 
 
 def _serialize(row: dict[str, Any]) -> dict[str, Any]:
+    logo_url = _build_asset_url(row.get("logo_url") or "") if _coerce_str(row.get("logo_url")) else ""
     return {
         "id": row["id"],
         "reportCode": row["report_code"],
@@ -249,7 +250,7 @@ def _serialize(row: dict[str, Any]) -> dict[str, Any]:
         "status": row.get("status") or "active",
         "displayOrder": int(row.get("display_order") or 100),
         "iconName": row.get("icon_name") or "mail",
-        "logoUrl": _build_asset_url(row.get("logo_url") or ""),
+        "logoUrl": logo_url,
         "parameters": _normalize_parameters(row.get("parameters_json")),
         "createdAt": row["created_at"].isoformat() if row.get("created_at") else None,
         "updatedAt": row["updated_at"].isoformat() if row.get("updated_at") else None,

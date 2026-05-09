@@ -235,28 +235,28 @@ function TriggerReportModal({ report, user, onCancel, onSubmitted }) {
   };
 
   return (
-    <div className="flex max-h-[calc(100vh-150px)] min-h-[250px] flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-        <div className="grid gap-4 xl:grid-cols-[minmax(240px,0.5fr)_minmax(0,1.5fr)]">
-        <div className="flex min-h-[190px] flex-col justify-center rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] p-4 text-center xl:sticky xl:top-0 xl:max-h-[520px]">
-          <div className="flex flex-col items-center gap-4 sm:flex-row sm:text-left">
-            <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-[12px] border border-[var(--border-color)] bg-[var(--bg-panel)] text-[var(--accent-strong)]">
-              <img src={report.logoUrl || NO_IMAGE_URL} onError={handleNoImageFallback} alt="" className="h-full w-full object-contain p-2" />
-            </span>
-            <div>
-              <p className="text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Reporte por correo</p>
-              <h3 className="mt-1 text-base font-semibold leading-6 text-[var(--text-primary)]">{report.name}</h3>
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      <div className="min-h-0 flex-1 overflow-hidden">
+        <div className="grid h-full min-h-0 items-stretch gap-4 overflow-hidden xl:grid-cols-[minmax(240px,0.5fr)_minmax(0,1.5fr)]">
+          <div className="flex min-h-[260px] flex-col justify-center rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] p-4 text-center xl:h-full">
+            <div className="flex flex-col items-center gap-4 sm:flex-row sm:text-left">
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-[12px] border border-[var(--border-color)] bg-[var(--bg-panel)] text-[var(--accent-strong)]">
+                <img src={report.logoUrl || NO_IMAGE_URL} onError={handleNoImageFallback} alt="" className="h-full w-full object-contain p-2" />
+              </span>
+              <div>
+                <p className="text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Reporte por correo</p>
+                <h3 className="mt-1 text-base font-semibold leading-6 text-[var(--text-primary)]">{report.name}</h3>
+              </div>
             </div>
+            <p className="mt-4 max-h-[220px] overflow-y-auto text-sm leading-6 text-[var(--text-secondary)]">{report.description || "Sin descripcion."}</p>
           </div>
-          <p className="mt-4 max-h-[220px] overflow-y-auto text-sm leading-6 text-[var(--text-secondary)]">{report.description || "Sin descripcion."}</p>
-        </div>
 
-        <div className="space-y-3">
-          {error ? (
-            <div className="rounded-[14px] border border-[rgba(210,138,138,0.35)] bg-[rgba(210,138,138,0.1)] px-4 py-3 text-sm text-[var(--danger)]">
-              {error}
-            </div>
-          ) : null}
+          <div className="min-h-0 space-y-3 overflow-y-auto pr-1">
+            {error ? (
+              <div className="rounded-[14px] border border-[rgba(210,138,138,0.35)] bg-[rgba(210,138,138,0.1)] px-4 py-3 text-sm text-[var(--danger)]">
+                {error}
+              </div>
+            ) : null}
 
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <div className={isAdmin && emailCcParameter ? "md:col-span-1 xl:col-span-2" : "md:col-span-2 xl:col-span-4"}>
@@ -312,7 +312,7 @@ function TriggerReportModal({ report, user, onCancel, onSubmitted }) {
               </div>
             )}
           </div>
-        </div>
+          </div>
         </div>
       </div>
 
