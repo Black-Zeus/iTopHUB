@@ -404,7 +404,7 @@ const Modal = ({
       />
 
       {/* FLEX CONTAINER: Añadido para centrar el modal */}
-      <div className={['clientWide', 'minuteWide', 'pdfViewer', 'personDetail'].includes(modalSize) ? 'flex min-h-full items-center justify-center px-0 py-[5vh]' : MODAL_CLASSES.overlay.container}>
+      <div className={['clientWide', 'minuteWide', 'pdfViewer', 'personDetail', 'emailReportForm'].includes(modalSize) ? 'flex min-h-full items-center justify-center px-0 py-[5vh]' : MODAL_CLASSES.overlay.container}>
         <div
           ref={modalRef}
           className={cssClasses.modal}

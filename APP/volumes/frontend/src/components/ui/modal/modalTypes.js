@@ -110,7 +110,7 @@ export const MODAL_SIZES = {
   emailReportForm: {
     width: '!w-[80vw] !max-w-[1500px]',
     padding: 'p-6',
-    maxHeight: 'max-h-[90vh]'
+    maxHeight: '!max-h-[90vh]'
   },
   modalLarge: {
   width: 'max-w-5xl',
@@ -425,7 +425,7 @@ export const getModalConfig = (type) => {
  */
 export const getModalSizeClasses = (size = 'medium') => {
   const sizeConfig = MODAL_SIZES[size] || MODAL_SIZES.medium;
-  return `${sizeConfig.width} w-full`;
+  return `${sizeConfig.width} ${sizeConfig.maxHeight || ''} w-full`;
 };
 
 /**
