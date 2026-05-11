@@ -632,12 +632,83 @@ class iTopCMDBConnector:
         return grouped
 
     def link_contact_to_ci(self, ci_class: str | CIClass, ci_id: int, contact_id: int) -> iTopResponse:
-        contacts_list: list[dict[str, Any]] = [{"contact_id": contact_id}]
-        return self.update(
-            ci_class,
-            ci_id,
-            {"contacts_list": contacts_list},
-            comment="Contact linked via iTopCMDBConnector",
+        return self.link_contacts_to_ci(ci_class, ci_id, [contact_id])
+
+    def _create_missing_relation_link(
+        self,
+        relation_class: str,
+        target_field: str,
+        target_id: int,
+        contact_id: int,
+        relation_output_fields: str,
+        create_comment: str,
+    ) -> iTopResponse:
+        relation_fields = {
+            target_field: int(target_id),
+            "contact_id": int(contact_id),
+        }
+        try:
+            return self.create(
+                relation_class,
+                relation_fields,
+                output_fields=relation_output_fields,
+                comment=create_comment,
+            )
+        except TimeoutError:
+            recovered_links = self._fetch_contact_relation_links(
+                relation_class,
+                target_field,
+                int(target_id),
+                [int(contact_id)],
+                relation_output_fields,
+            )
+            if contact_id in recovered_links:
+                return iTopResponse(
+                    code=0,
+                    message="Relation link recovered after timeout.",
+                    objects=self._serialize_relation_link_objects(recovered_links),
+                    raw={"timeout_recovered": True},
+                )
+            raise
+
+    def _delete_relation_link_duplicates(
+        self,
+        relation_class: str,
+        links_by_contact: dict[int, list[iTopObject]],
+    ) -> None:
+        for links in links_by_contact.values():
+            if len(links) <= 1:
+                continue
+            for duplicate_link in sorted(links, key=lambda item: int(item.id))[1:]:
+                self.delete(
+                    relation_class,
+                    duplicate_link.id,
+                    simulate=False,
+                    comment="Duplicate contact relation removed via iTopCMDBConnector",
+                )
+
+    def _deduplicate_relation_links(
+        self,
+        relation_class: str,
+        target_field: str,
+        target_id: int,
+        contact_ids: list[int],
+        relation_output_fields: str,
+    ) -> dict[int, list[iTopObject]]:
+        links_by_contact = self._fetch_contact_relation_links(
+            relation_class,
+            target_field,
+            int(target_id),
+            contact_ids,
+            relation_output_fields,
+        )
+        self._delete_relation_link_duplicates(relation_class, links_by_contact)
+        return self._fetch_contact_relation_links(
+            relation_class,
+            target_field,
+            int(target_id),
+            contact_ids,
+            relation_output_fields,
         )
 
     def _fetch_contact_relation_links(
@@ -696,52 +767,52 @@ class iTopCMDBConnector:
         if not unique_ids:
             return iTopResponse(code=0, message="No contact links requested.", objects={}, raw={})
 
-        contacts_list: list[dict[str, Any]] = [{"contact_id": contact_id} for contact_id in unique_ids]
-        timeout_recovered = False
-        try:
-            response = self.update(
-                target_class,
-                target_id,
-                {"contacts_list": contacts_list},
-                comment=update_comment,
-            )
-        except TimeoutError:
-            timeout_recovered = True
-            response = iTopResponse(
-                code=0,
-                message="iTop timed out while linking contacts; relation state will be verified.",
-                objects={},
-                raw={"timeout_recovered": True},
-            )
+        del target_class, update_comment
 
-        existing_by_contact = self._fetch_contact_relation_links(
+        existing_by_contact = self._deduplicate_relation_links(
             relation_class,
             target_field,
             int(target_id),
             unique_ids,
             relation_output_fields,
         )
-        if response.ok and all(contact_id in existing_by_contact for contact_id in unique_ids):
-            if timeout_recovered:
-                response.raw = {**(response.raw or {}), "timeout_recovered": True}
-            return response
+        if all(contact_id in existing_by_contact for contact_id in unique_ids):
+            return iTopResponse(
+                code=0,
+                message=success_message,
+                objects=self._serialize_relation_link_objects(existing_by_contact),
+                raw={"idempotent": True, "relation": fallback_name},
+            )
 
         linked_objects = self._serialize_relation_link_objects(existing_by_contact)
         for contact_id in unique_ids:
             if contact_id in existing_by_contact:
                 continue
 
-            create_response = self.create(
+            create_response = self._create_missing_relation_link(
                 relation_class,
-                {
-                    target_field: int(target_id),
-                    "contact_id": int(contact_id),
-                },
-                output_fields=relation_output_fields,
-                comment=create_comment,
+                target_field,
+                int(target_id),
+                int(contact_id),
+                relation_output_fields,
+                create_comment,
             )
             if not create_response.ok:
-                return create_response
+                rechecked_links = self._fetch_contact_relation_links(
+                    relation_class,
+                    target_field,
+                    int(target_id),
+                    [int(contact_id)],
+                    relation_output_fields,
+                )
+                if contact_id not in rechecked_links:
+                    return create_response
+                create_response = iTopResponse(
+                    code=0,
+                    message="Relation link verified after create failure.",
+                    objects=self._serialize_relation_link_objects(rechecked_links),
+                    raw={"verified_after_create_failure": True},
+                )
             linked_objects.update(create_response.objects or {})
 
         return iTopResponse(

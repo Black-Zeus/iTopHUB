@@ -965,7 +965,7 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
       return;
     }
 
-    if (form.items.some((item) => item.asset?.id === asset.id)) {
+    if ((formRef.current?.items || []).some((item) => Number(item.asset?.id || 0) === Number(asset.id || 0))) {
       setNotice("El activo seleccionado ya fue agregado al acta.");
       resetAssetSearch();
       return;
@@ -975,18 +975,23 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
       matchesTemplateCmdbClass(asset?.className, template.cmdbClassLabel)
     ));
 
-    setForm((current) => ({
-      ...current,
-      items: [
-        ...current.items,
-        {
-          asset,
-          notes: "",
-          evidences: [],
-          checklists: applicableTemplates.length === 1 ? [cloneTemplate(applicableTemplates[0])] : [],
-        },
-      ],
-    }));
+    setForm((current) => {
+      if ((current.items || []).some((item) => Number(item.asset?.id || 0) === Number(asset.id || 0))) {
+        return current;
+      }
+      return {
+        ...current,
+        items: [
+          ...current.items,
+          {
+            asset,
+            notes: "",
+            evidences: [],
+            checklists: applicableTemplates.length === 1 ? [cloneTemplate(applicableTemplates[0])] : [],
+          },
+        ],
+      };
+    });
     if (applicableTemplates.length === 1) {
       setSelectedTemplateByAsset((current) => {
         const next = { ...current };

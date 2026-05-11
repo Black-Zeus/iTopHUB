@@ -537,8 +537,17 @@ def build_receiver_payload(receiver: dict[str, Any]) -> dict[str, Any]:
 
 def build_item_payloads_from_detail(detail_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     payloads: list[dict[str, Any]] = []
+    seen_asset_ids: set[int] = set()
     for item in detail_items:
         asset = item.get("asset") or {}
+        try:
+            asset_itop_id = int(asset["id"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail="Uno de los activos del acta no es valido.") from exc
+        if asset_itop_id in seen_asset_ids:
+            asset_label = coerce_str(asset.get("code") or asset.get("name") or asset_itop_id)
+            raise HTTPException(status_code=422, detail=f"El activo '{asset_label}' esta repetido en el acta.")
+        seen_asset_ids.add(asset_itop_id)
         evidences: list[dict[str, Any]] = []
         for evidence in item.get("evidences") or []:
             file_size_raw = evidence.get("fileSize")
@@ -586,7 +595,7 @@ def build_item_payloads_from_detail(detail_items: list[dict[str, Any]]) -> list[
 
         payloads.append(
             {
-                "asset_itop_id": int(asset["id"]),
+                "asset_itop_id": asset_itop_id,
                 "asset_code": coerce_str(asset.get("code")),
                 "asset_name": coerce_str(asset.get("name")),
                 "asset_class_name": coerce_str(asset.get("className")) or None,
