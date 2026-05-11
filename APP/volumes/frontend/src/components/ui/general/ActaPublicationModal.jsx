@@ -9,7 +9,7 @@ const SELECT_CLASS_NAME =
   "h-10 w-full rounded-[10px] border border-[var(--border-color)] bg-[var(--bg-app)] px-3 text-sm text-[var(--text-primary)] outline-none transition focus:border-[var(--accent-strong)]";
 
 const TEXTAREA_CLASS_NAME =
-  "w-full resize-y rounded-[10px] border border-[var(--border-color)] bg-[var(--bg-app)] px-3 py-2 text-sm leading-5 text-[var(--text-primary)] outline-none transition focus:border-[var(--accent-strong)]";
+  "w-full resize-none rounded-[10px] border border-[var(--border-color)] bg-[var(--bg-app)] px-3 py-2 text-sm leading-5 text-[var(--text-primary)] outline-none transition focus:border-[var(--accent-strong)]";
 
 const TEXTAREA_FILL_CLASS_NAME =
   "h-full min-h-[12rem] w-full resize-none rounded-[10px] border border-[var(--border-color)] bg-[var(--bg-app)] px-3 py-2 text-sm leading-5 text-[var(--text-primary)] outline-none transition focus:border-[var(--accent-strong)]";
@@ -98,7 +98,7 @@ function Field({ label, value, onChange, rows = 0, fill = false, className = "" 
     <label className={`grid gap-1.5 ${fill ? "min-h-0 grid-rows-[auto_minmax(0,1fr)]" : ""} ${className}`.trim()}>
       <span className="text-xs font-semibold text-[var(--text-secondary)]">{label}</span>
       {rows ? (
-        <textarea rows={rows} value={value} onChange={(event) => onChange(event.target.value)} className={fill ? TEXTAREA_FILL_CLASS_NAME : TEXTAREA_CLASS_NAME} />
+        <textarea rows={rows} value={value} onChange={(event) => onChange(event.target.value)} className={fill ? TEXTAREA_FILL_CLASS_NAME : `${TEXTAREA_CLASS_NAME} max-h-[11rem] overflow-y-auto`} />
       ) : (
         <input type="text" value={value} onChange={(event) => onChange(event.target.value)} className={INPUT_CLASS_NAME} />
       )}
@@ -343,81 +343,85 @@ export function ActaPublicationModalContent({
   };
 
   return (
-    <div className="flex max-h-[78vh] min-h-0 flex-col gap-4 overflow-hidden">
+    <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
       {error ? (
         <div className="shrink-0 rounded-[12px] border border-[rgba(214,106,106,0.22)] bg-[rgba(214,106,106,0.08)] px-4 py-3 text-sm text-[var(--text-secondary)]">
           {error}
         </div>
       ) : null}
 
-      <div className="grid min-h-0 flex-1 content-start gap-4 overflow-y-auto pr-1 xl:grid-cols-2">
-        <Section title="Informacion general">
-          <SelectField
-            label="Solicitante"
-            value={form.requesterId}
-            onChange={(value) => updateField("requesterId", value)}
-            options={requesterOptions}
-            disabled
-          />
-          <SelectField label="Grupo" value={form.groupId} onChange={updateGroup} options={groupOptions} disabled={!isGroupEditable} />
-          <SelectField
-            label="Analista"
-            value={form.analystId}
-            onChange={(value) => updateField("analystId", value)}
-            options={analystFieldOptions}
-            disabled={analystFieldOptions.length <= 1 && Boolean(form.analystId)}
-          />
-        </Section>
+      <div className="grid min-h-0 flex-1 gap-4 overflow-hidden xl:grid-cols-2">
+        <div className="grid min-h-0 content-start gap-4 overflow-y-auto pr-1">
+          <Section title="Informacion general">
+            <SelectField
+              label="Solicitante"
+              value={form.requesterId}
+              onChange={(value) => updateField("requesterId", value)}
+              options={requesterOptions}
+              disabled
+            />
+            <SelectField label="Grupo" value={form.groupId} onChange={updateGroup} options={groupOptions} disabled={!isGroupEditable} />
+            <SelectField
+              label="Analista"
+              value={form.analystId}
+              onChange={(value) => updateField("analystId", value)}
+              options={analystFieldOptions}
+              disabled={analystFieldOptions.length <= 1 && Boolean(form.analystId)}
+            />
+          </Section>
 
-        <Section title="Datos del ticket" className="min-h-0 content-start" bodyClassName="grid min-h-0 content-start gap-3">
-          <Field label="Asunto" value={form.subject} onChange={(value) => updateField("subject", value)} />
-          <Field label="Descripcion" rows={8} value={form.description} onChange={(value) => updateField("description", value)} />
-        </Section>
-
-        <Section title="Clasificacion">
-          <div className="grid gap-3 md:grid-cols-3">
-            <SelectField label="Impacto" value={form.impact} onChange={(value) => updateField("impact", value)} options={options.impactOptions} />
-            <SelectField label="Urgencia" value={form.urgency} onChange={(value) => updateField("urgency", value)} options={options.urgencyOptions} />
-            <SelectField label="Prioridad" value={form.priority} onChange={(value) => updateField("priority", value)} options={options.priorityOptions} />
-          </div>
-          <SelectField label="Origen" value={form.origin} onChange={(value) => updateField("origin", value)} options={options.originOptions} />
-          <div className="grid gap-3 md:grid-cols-2">
-            <SelectField label="Categoria" value={form.category} onChange={(value) => updateField("category", value)} options={options.categoryOptions} />
-            <SelectField label="Subcategoria" value={form.subcategory} onChange={(value) => updateField("subcategory", value)} options={subcategoryOptions} />
-          </div>
-        </Section>
-
-        <Section title="Adjuntos">
-          {documentItems.length ? (
-            <div className="grid gap-3">
-              {documentItems.map((document) => (
-                <div key={document.id} className="flex min-w-0 items-center gap-3 rounded-[10px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 py-2">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] border border-[var(--border-color)] bg-[var(--bg-app)]">
-                    <Icon name={document.iconName} size={14} className="h-3.5 w-3.5 text-[var(--text-secondary)]" aria-hidden="true" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-[var(--text-primary)]" title={document.name}>{document.name}</p>
-                    <p className="mt-0.5 truncate text-xs text-[var(--text-muted)]">
-                      {[document.documentType, document.uploadedAt ? document.uploadedAt.replace("T", " ") : ""].filter(Boolean).join(" / ")}
-                    </p>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    className="shrink-0 px-3 py-1.5 text-[11px]"
-                    onClick={() => onPreviewDocument?.(document)}
-                    disabled={!onPreviewDocument || (!document.previewFile && !document.isAvailable)}
-                  >
-                    <Icon name="regWindowRestore" size={13} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                    Preview
-                  </Button>
-                </div>
-              ))}
+          <Section title="Clasificacion">
+            <div className="grid gap-3 md:grid-cols-3">
+              <SelectField label="Impacto" value={form.impact} onChange={(value) => updateField("impact", value)} options={options.impactOptions} />
+              <SelectField label="Urgencia" value={form.urgency} onChange={(value) => updateField("urgency", value)} options={options.urgencyOptions} />
+              <SelectField label="Prioridad" value={form.priority} onChange={(value) => updateField("priority", value)} options={options.priorityOptions} />
             </div>
-          ) : (
-            <p className="text-sm text-[var(--text-muted)]">Sin adjuntos asociados.</p>
-          )}
-        </Section>
+            <SelectField label="Origen" value={form.origin} onChange={(value) => updateField("origin", value)} options={options.originOptions} />
+            <div className="grid gap-3 md:grid-cols-2">
+              <SelectField label="Categoria" value={form.category} onChange={(value) => updateField("category", value)} options={options.categoryOptions} />
+              <SelectField label="Subcategoria" value={form.subcategory} onChange={(value) => updateField("subcategory", value)} options={subcategoryOptions} />
+            </div>
+          </Section>
+        </div>
+
+        <div className="grid min-h-0 content-start gap-4 overflow-y-auto pr-1">
+          <Section title="Datos del ticket" className="min-h-0 content-start overflow-hidden" bodyClassName="grid min-h-0 content-start gap-3 overflow-hidden">
+            <Field label="Asunto" value={form.subject} onChange={(value) => updateField("subject", value)} />
+            <Field label="Descripcion" rows={6} value={form.description} onChange={(value) => updateField("description", value)} />
+          </Section>
+
+          <Section title="Adjuntos">
+            {documentItems.length ? (
+              <div className="grid gap-3">
+                {documentItems.map((document) => (
+                  <div key={document.id} className="flex min-w-0 items-center gap-3 rounded-[10px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 py-2">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] border border-[var(--border-color)] bg-[var(--bg-app)]">
+                      <Icon name={document.iconName} size={14} className="h-3.5 w-3.5 text-[var(--text-secondary)]" aria-hidden="true" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-[var(--text-primary)]" title={document.name}>{document.name}</p>
+                      <p className="mt-0.5 truncate text-xs text-[var(--text-muted)]">
+                        {[document.documentType, document.uploadedAt ? document.uploadedAt.replace("T", " ") : ""].filter(Boolean).join(" / ")}
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="shrink-0 px-3 py-1.5 text-[11px]"
+                      onClick={() => onPreviewDocument?.(document)}
+                      disabled={!onPreviewDocument || (!document.previewFile && !document.isAvailable)}
+                    >
+                      <Icon name="regWindowRestore" size={13} className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                      Preview
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-[var(--text-muted)]">Sin adjuntos asociados.</p>
+            )}
+          </Section>
+        </div>
       </div>
 
       <div className="flex shrink-0 flex-wrap justify-end gap-3 border-t border-[var(--border-color)] pt-4">

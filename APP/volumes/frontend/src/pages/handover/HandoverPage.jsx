@@ -1310,6 +1310,7 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
   const { add } = useToast();
   const moduleConfig = getHandoverModuleConfig(moduleVariant);
   const [rows, setRows] = useState([]);
+  const [kpiRows, setKpiRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [filters, setFilters] = useState({ query: "", status: "" });
@@ -1322,7 +1323,7 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
   });
   const [itopIntegrationUrl, setItopIntegrationUrl] = useState("");
 
-  const kpis = useMemo(() => buildKpis(rows), [rows]);
+  const kpis = useMemo(() => buildKpis(kpiRows), [kpiRows]);
 
   const loadDocuments = async (nextFilters = filters) => {
     setLoading(true);
@@ -1338,6 +1339,26 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
     } finally {
       setLoading(false);
     }
+  };
+
+  const loadKpiDocuments = async () => {
+    try {
+      const payload = await listHandoverDocuments({
+        query: "",
+        status: "",
+        handoverType: moduleConfig.typeFilter,
+      });
+      setKpiRows(payload.items || []);
+    } catch (loadError) {
+      setError(loadError.message || `No fue posible cargar los indicadores de ${moduleConfig.titleSingular}.`);
+    }
+  };
+
+  const refreshDocuments = async (nextFilters = filters) => {
+    await Promise.all([
+      loadDocuments(nextFilters),
+      loadKpiDocuments(),
+    ]);
   };
 
   const loadCatalog = async () => {
@@ -1360,7 +1381,7 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
 
   useEffect(() => {
     loadCatalog();
-    loadDocuments({ query: "", status: "" });
+    refreshDocuments({ query: "", status: "" });
   }, []);
 
   const handleFilterSubmit = async (event) => {
@@ -1396,7 +1417,7 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
           description: `El acta ${row.code} quedo en estado Emitida y sus PDFs fueron generados correctamente.`,
           tone: "success",
         });
-        await loadDocuments(filters);
+        await refreshDocuments(filters);
       } catch (processError) {
         if (loadingModalId) {
           ModalManager.close(loadingModalId);
@@ -1528,7 +1549,7 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
       let publicationModalId = null;
       publicationModalId = ModalManager.custom({
         title: `Registrar en iTop ${row.code}`,
-        size: "personDetail",
+        size: "ticketPublication",
         showFooter: false,
         closeOnOverlayClick: false,
         closeOnEscape: false,
@@ -1619,7 +1640,7 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
         description: `El acta ${row.code} fue marcada como Anulada en el Hub.`,
         tone: "success",
       });
-      await loadDocuments(filters);
+      await refreshDocuments(filters);
     } catch (cancelError) {
       setError(cancelError.message || "No fue posible anular el acta.");
     }
@@ -1649,7 +1670,7 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
         description: `El acta ${row.code} volvió a estado En creación y quedó editable nuevamente.`,
         tone: "success",
       });
-      await loadDocuments(filters);
+      await refreshDocuments(filters);
     } catch (rollbackError) {
       setError(rollbackError.message || "No fue posible cancelar la emision del acta.");
     }
@@ -1803,7 +1824,7 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
                       description: `El acta ${row.code} quedo Confirmada y las evidencias fueron registradas correctamente.`,
                       tone: "success",
                     });
-                    await loadDocuments(filters);
+                    await refreshDocuments(filters);
                   } catch (publishError) {
                     ModalManager.close(confirmLoadingModalId);
                     ModalManager.error({
@@ -1833,7 +1854,7 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
                         description: `El acta ${row.code} quedo Confirmada y las evidencias fueron registradas correctamente.`,
                         tone: "success",
                       });
-                      await loadDocuments(filters);
+                      await refreshDocuments(filters);
                     } catch (publishError) {
                       stopProgressPulse();
                       ModalManager.close(publishLoadingModalId);
@@ -1860,7 +1881,7 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
                 : `Las evidencias del acta ${row.code} fueron registradas correctamente.`,
               tone: "success",
             });
-            await loadDocuments(filters);
+            await refreshDocuments(filters);
           }}
         />
       ),
@@ -1895,7 +1916,7 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
             ModalManager.close(modalId);
           }
           try {
-            await loadDocuments(filters);
+            await refreshDocuments(filters);
             await handlePublishSigned({ ...row, status: "Firmada" });
           } catch (autoPublishError) {
             ModalManager.error({
@@ -2013,7 +2034,7 @@ export function HandoverPage({ moduleVariant = "delivery" }) {
               description: `El acta ${row.code} quedó Confirmada y su ticket se registró usando el PDF firmado por QR.`,
               tone: "success",
             });
-            await loadDocuments(filters);
+            await refreshDocuments(filters);
           } catch (publishError) {
             stopProgressPulse();
             ModalManager.close(publishLoadingModalId);

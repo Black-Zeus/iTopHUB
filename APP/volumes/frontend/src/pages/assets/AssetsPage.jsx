@@ -209,7 +209,7 @@ function AssetDetailModalContent({ row }) {
   const resourceFields = orderedFields.filter((field) => RESOURCE_FIELD_LABELS.has(field.label));
 
   return (
-    <div className="flex h-[640px] flex-col overflow-hidden p-6">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <div className="border-b border-[var(--border-color)] pb-4">
         <div className="flex flex-wrap gap-2">
           {tabs.map((tab) => (
@@ -229,7 +229,7 @@ function AssetDetailModalContent({ row }) {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto pt-5">
+      <div className="min-h-0 flex-1 overflow-hidden pt-5">
         {error ? (
           <div className="rounded-[18px] border border-[rgba(210,138,138,0.45)] bg-[rgba(210,138,138,0.12)] px-4 py-3 text-sm text-[var(--text-primary)]">
             {error}
@@ -237,51 +237,55 @@ function AssetDetailModalContent({ row }) {
         ) : null}
 
         {activeTab === "summary" ? (
-          <section className="rounded-[22px] border border-[var(--border-color)] bg-[var(--bg-app)] px-5 py-5 shadow-[var(--shadow-subtle)]">
-            <div className="mb-4 border-b border-[rgba(255,255,255,0.05)] pb-3">
-              <p className="text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
-                Activo CMDB
-              </p>
-              <p className="mt-1 text-lg font-semibold text-[var(--text-primary)]">
-                {loading ? row.name : detail?.name || row.name}
-              </p>
-              <p className="mt-1 text-sm text-[var(--text-secondary)]">
-                {loading ? "Cargando detalle..." : detail?.className || row.className}
-              </p>
+          <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-[22px] border border-[var(--border-color)] bg-[var(--bg-app)] shadow-[var(--shadow-subtle)]">
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+              <div className="mb-4 border-b border-[rgba(255,255,255,0.05)] pb-3">
+                <p className="text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+                  Activo CMDB
+                </p>
+                <p className="mt-1 text-lg font-semibold text-[var(--text-primary)]">
+                  {loading ? row.name : detail?.name || row.name}
+                </p>
+                <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                  {loading ? "Cargando detalle..." : detail?.className || row.className}
+                </p>
+              </div>
+
+              <DetailRows items={summaryItems} loading={loading} columns={2} />
+
+              {generalFields.length > 0 ? (
+                <div className="mt-6 border-t border-[var(--border-color)] pt-5">
+                  <p className="mb-4 text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+                    Informacion general
+                  </p>
+                  <DetailRows items={generalFields} loading={loading} columns={2} />
+                </div>
+              ) : null}
+
+              {resourceFields.length > 0 ? (
+                <div className="mt-6 border-t border-[var(--border-color)] pt-5">
+                  <p className="mb-4 text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+                    Recursos
+                  </p>
+                  <DetailRows items={resourceFields} loading={loading} columns={2} />
+                </div>
+              ) : null}
             </div>
-
-            <DetailRows items={summaryItems} loading={loading} columns={2} />
-
-            {generalFields.length > 0 ? (
-              <div className="mt-6 border-t border-[var(--border-color)] pt-5">
-                <p className="mb-4 text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
-                  Informacion general
-                </p>
-                <DetailRows items={generalFields} loading={loading} columns={2} />
-              </div>
-            ) : null}
-
-            {resourceFields.length > 0 ? (
-              <div className="mt-6 border-t border-[var(--border-color)] pt-5">
-                <p className="mb-4 text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
-                  Recursos
-                </p>
-                <DetailRows items={resourceFields} loading={loading} columns={2} />
-              </div>
-            ) : null}
           </section>
         ) : activeTab === "contacts" ? (
-          <div className="rounded-[22px] border border-[var(--border-color)] bg-[var(--bg-app)] shadow-[var(--shadow-subtle)]">
+          <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[22px] border border-[var(--border-color)] bg-[var(--bg-app)] shadow-[var(--shadow-subtle)]">
             {loading ? (
-              Array.from({ length: 2 }).map((_, index) => (
-                <div
-                  key={`contacts-loading-${index}`}
-                  className="border-b border-[var(--border-color)] px-5 py-4 last:border-b-0 animate-pulse"
-                >
-                  <div className="h-4 w-48 rounded-full bg-[var(--bg-hover)]" />
-                  <div className="mt-2 h-3 w-28 rounded-full bg-[var(--bg-hover)]" />
-                </div>
-              ))
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                {Array.from({ length: 2 }).map((_, index) => (
+                  <div
+                    key={`contacts-loading-${index}`}
+                    className="border-b border-[var(--border-color)] px-5 py-4 last:border-b-0 animate-pulse"
+                  >
+                    <div className="h-4 w-48 rounded-full bg-[var(--bg-hover)]" />
+                    <div className="mt-2 h-3 w-28 rounded-full bg-[var(--bg-hover)]" />
+                  </div>
+                ))}
+              </div>
             ) : null}
 
             {!loading && contactItems.length === 0 ? (
@@ -291,57 +295,63 @@ function AssetDetailModalContent({ row }) {
             ) : null}
 
             {!loading
-              ? contactItems.map((contact) => (
-                  <div
-                    key={contact.id}
-                    className="border-b border-[var(--border-color)] px-5 py-4 last:border-b-0"
-                  >
-                    <div className="grid gap-3 md:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)_minmax(0,1fr)_auto] md:items-center">
-                      <div className="min-w-0">
-                        <p className="truncate text-base font-semibold text-[var(--text-primary)]">{contact.name}</p>
-                        <p className="mt-1 truncate text-sm text-[var(--text-secondary)]">
-                          {contact.role || "Sin cargo registrado"}
-                        </p>
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
-                          Correo
-                        </p>
-                        <p className="mt-1 truncate text-sm text-[var(--text-primary)]">
-                          {contact.email || "Sin correo"}
-                        </p>
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
-                          Asignacion
-                        </p>
-                        <p className="mt-1 truncate text-sm text-[var(--text-primary)]">
-                          {contact.assignedAt ? formatAssignmentDate(contact.assignedAt) : "Sin fecha disponible"}
-                        </p>
-                        <p className="mt-1 truncate text-xs text-[var(--text-secondary)]">
-                          {contact.assignedBy ? `Por ${contact.assignedBy}` : "Usuario no disponible"}
-                        </p>
-                      </div>
-                      <div className="flex items-center md:justify-end">
-                        <StatusChip status={contact.status} />
+              ? (
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                  {contactItems.map((contact) => (
+                    <div
+                      key={contact.id}
+                      className="border-b border-[var(--border-color)] px-5 py-4 last:border-b-0"
+                    >
+                      <div className="grid gap-3 md:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)_minmax(0,1fr)_auto] md:items-center">
+                        <div className="min-w-0">
+                          <p className="truncate text-base font-semibold text-[var(--text-primary)]">{contact.name}</p>
+                          <p className="mt-1 truncate text-sm text-[var(--text-secondary)]">
+                            {contact.role || "Sin cargo registrado"}
+                          </p>
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+                            Correo
+                          </p>
+                          <p className="mt-1 truncate text-sm text-[var(--text-primary)]">
+                            {contact.email || "Sin correo"}
+                          </p>
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+                            Asignacion
+                          </p>
+                          <p className="mt-1 truncate text-sm text-[var(--text-primary)]">
+                            {contact.assignedAt ? formatAssignmentDate(contact.assignedAt) : "Sin fecha disponible"}
+                          </p>
+                          <p className="mt-1 truncate text-xs text-[var(--text-secondary)]">
+                            {contact.assignedBy ? `Por ${contact.assignedBy}` : "Usuario no disponible"}
+                          </p>
+                        </div>
+                        <div className="flex items-center md:justify-end">
+                          <StatusChip status={contact.status} />
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))
+                  ))}
+                </div>
+              )
               : null}
           </div>
         ) : (
-          <div className="rounded-[22px] border border-[var(--border-color)] bg-[var(--bg-app)] shadow-[var(--shadow-subtle)]">
+          <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[22px] border border-[var(--border-color)] bg-[var(--bg-app)] shadow-[var(--shadow-subtle)]">
             {loading ? (
-              Array.from({ length: 3 }).map((_, index) => (
-                <div
-                  key={`history-loading-${index}`}
-                  className="border-b border-[var(--border-color)] px-5 py-4 last:border-b-0 animate-pulse"
-                >
-                  <div className="h-4 w-56 rounded-full bg-[var(--bg-hover)]" />
-                  <div className="mt-2 h-3 w-36 rounded-full bg-[var(--bg-hover)]" />
-                </div>
-              ))
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                {Array.from({ length: 3 }).map((_, index) => (
+                  <div
+                    key={`history-loading-${index}`}
+                    className="border-b border-[var(--border-color)] px-5 py-4 last:border-b-0 animate-pulse"
+                  >
+                    <div className="h-4 w-56 rounded-full bg-[var(--bg-hover)]" />
+                    <div className="mt-2 h-3 w-36 rounded-full bg-[var(--bg-hover)]" />
+                  </div>
+                ))}
+              </div>
             ) : null}
 
             {!loading && historyItems.length === 0 ? (
@@ -351,47 +361,51 @@ function AssetDetailModalContent({ row }) {
             ) : null}
 
             {!loading
-              ? historyItems.map((entry) => (
-                  <div
-                    key={`${entry.id}-${entry.contactId}`}
-                    className="border-b border-[var(--border-color)] px-5 py-4 last:border-b-0"
-                  >
-                    <div className="grid gap-3 md:grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)] md:items-start">
-                      <div>
-                        <span
-                          className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getHistoryBadgeClassName(entry.action)}`}
-                        >
-                          {entry.action}
-                        </span>
-                      </div>
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold text-[var(--text-primary)]">
-                          {entry.contactName}
-                        </p>
-                        <p className="mt-1 truncate text-sm text-[var(--text-secondary)]">
-                          {entry.contactEmail || entry.contactRole || entry.contactStatus || "Sin detalle adicional"}
-                        </p>
-                        <p className="mt-1 truncate text-xs text-[var(--text-secondary)]">
-                          {entry.contactStatus ? `Estado ${entry.contactStatus}` : "Estado no disponible"}
-                        </p>
-                      </div>
-                      <div className="min-w-0">
-                        {entry.changedAt ? (
-                          <p className="text-sm font-medium text-[var(--text-primary)]">
-                            {formatAssignmentDate(entry.changedAt)}
+              ? (
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                  {historyItems.map((entry) => (
+                    <div
+                      key={`${entry.id}-${entry.contactId}`}
+                      className="border-b border-[var(--border-color)] px-5 py-4 last:border-b-0"
+                    >
+                      <div className="grid gap-3 md:grid-cols-[112px_minmax(0,1.2fr)_minmax(0,1fr)] md:items-start">
+                        <div className="min-w-0">
+                          <span
+                            className={`inline-flex w-full justify-center rounded-full px-3 py-1 text-xs font-semibold ${getHistoryBadgeClassName(entry.action)}`}
+                          >
+                            {entry.action}
+                          </span>
+                        </div>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-[var(--text-primary)]">
+                            {entry.contactName}
                           </p>
-                        ) : null}
-                        {entry.changedBy ? (
+                          <p className="mt-1 truncate text-sm text-[var(--text-secondary)]">
+                            {entry.contactEmail || entry.contactRole || entry.contactStatus || "Sin detalle adicional"}
+                          </p>
                           <p className="mt-1 truncate text-xs text-[var(--text-secondary)]">
-                            Por {entry.changedBy}
+                            {entry.contactStatus ? `Estado ${entry.contactStatus}` : "Estado no disponible"}
                           </p>
-                        ) : (
-                          <p className="text-sm text-[var(--text-secondary)]">Vinculo vigente en iTop</p>
-                        )}
+                        </div>
+                        <div className="min-w-0">
+                          {entry.changedAt ? (
+                            <p className="text-sm font-medium text-[var(--text-primary)]">
+                              {formatAssignmentDate(entry.changedAt)}
+                            </p>
+                          ) : null}
+                          {entry.changedBy ? (
+                            <p className="mt-1 truncate text-xs text-[var(--text-secondary)]">
+                              Por {entry.changedBy}
+                            </p>
+                          ) : (
+                            <p className="text-sm text-[var(--text-secondary)]">Vinculo vigente en iTop</p>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))
+                  ))}
+                </div>
+              )
               : null}
           </div>
         )}
