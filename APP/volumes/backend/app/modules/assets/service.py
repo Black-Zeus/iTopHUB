@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import copy
+import hashlib
 import logging
+import time
 from typing import Any
 
 from modules.cmdb_visibility import (
@@ -14,6 +17,13 @@ from integrations.itop_runtime import get_itop_runtime_config
 from modules.people.service import _build_ci_detail, _format_ci_status
 
 logger = logging.getLogger(__name__)
+
+ASSET_CATALOG_CACHE_TTL_SECONDS = 300
+ASSET_CATALOG_OUTPUT_FIELDS = (
+    "id,name,friendlyname,finalclass,status,type,"
+    "brand_id_friendlyname,brand_name,model_id_friendlyname,model_name"
+)
+_asset_catalog_cache: dict[str, tuple[float, dict[str, list[dict[str, object]]]]] = {}
 
 CMDB_TYPE_RULES: dict[str, dict[str, set[str]]] = {
     "Desktop (PC)": {
@@ -69,6 +79,45 @@ def _safe_int(value: Any) -> int:
         return int(str(value).strip())
     except (TypeError, ValueError):
         return 0
+
+
+def _build_asset_catalog_cache_key(
+    *,
+    runtime_token: str,
+    integration_url: str,
+    enabled_labels: list[str],
+    show_obsolete_assets: bool,
+    show_implementation_assets: bool,
+) -> str:
+    token_hash = hashlib.sha256(runtime_token.encode("utf-8")).hexdigest()
+    labels = ",".join(sorted(enabled_labels))
+    return "|".join(
+        [
+            token_hash,
+            integration_url,
+            labels,
+            "obsolete:1" if show_obsolete_assets else "obsolete:0",
+            "implementation:1" if show_implementation_assets else "implementation:0",
+        ]
+    )
+
+
+def _copy_asset_catalog(payload: dict[str, list[dict[str, object]]]) -> dict[str, list[dict[str, object]]]:
+    return copy.deepcopy(payload)
+
+
+def _get_cached_asset_catalog(cache_key: str, *, allow_stale: bool = False) -> dict[str, list[dict[str, object]]] | None:
+    cached = _asset_catalog_cache.get(cache_key)
+    if not cached:
+        return None
+    created_at, payload = cached
+    if allow_stale or time.monotonic() - created_at <= ASSET_CATALOG_CACHE_TTL_SECONDS:
+        return _copy_asset_catalog(payload)
+    return None
+
+
+def _store_asset_catalog(cache_key: str, payload: dict[str, list[dict[str, object]]]) -> None:
+    _asset_catalog_cache[cache_key] = (time.monotonic(), _copy_asset_catalog(payload))
 
 
 def _build_asset_query_conditions(query: str) -> list[str]:
@@ -537,6 +586,16 @@ def list_itop_asset_catalog(runtime_token: str) -> dict[str, list[dict[str, obje
     show_obsolete_assets = should_show_obsolete_assets(cmdb_settings)
     show_implementation_assets = should_show_implementation_assets(cmdb_settings)
     itop_config = get_itop_runtime_config()
+    cache_key = _build_asset_catalog_cache_key(
+        runtime_token=runtime_token,
+        integration_url=itop_config["integrationUrl"],
+        enabled_labels=enabled_labels,
+        show_obsolete_assets=show_obsolete_assets,
+        show_implementation_assets=show_implementation_assets,
+    )
+    cached_catalog = _get_cached_asset_catalog(cache_key)
+    if cached_catalog is not None:
+        return cached_catalog
 
     connector = iTopCMDBConnector(
         base_url=itop_config["integrationUrl"],
@@ -557,7 +616,7 @@ def list_itop_asset_catalog(runtime_token: str) -> dict[str, list[dict[str, obje
         )
         asset_items = []
         for query_class in _iter_query_classes(enabled_labels):
-            query_items = connector.oql(f"SELECT {query_class}", output_fields="*")
+            query_items = connector.oql(f"SELECT {query_class}", output_fields=ASSET_CATALOG_OUTPUT_FIELDS)
             asset_items.extend(query_items)
         brand_index = {
             int(item.id): {
@@ -633,12 +692,24 @@ def list_itop_asset_catalog(runtime_token: str) -> dict[str, list[dict[str, obje
         # can load reliably; per-asset related contacts are still resolved in detail/search flows.
         assigned_user_items: list[dict[str, str]] = []
 
-        return {
+        catalog_payload = {
             "classes": enabled_labels,
             "brands": brand_items,
             "models": model_items,
             "assignedUsers": assigned_user_items,
         }
+        _store_asset_catalog(cache_key, catalog_payload)
+        return _copy_asset_catalog(catalog_payload)
+    except TimeoutError as exc:
+        cached_catalog = _get_cached_asset_catalog(cache_key, allow_stale=True)
+        if cached_catalog is not None:
+            logger.warning("Using stale iTop asset catalog after timeout: %s", exc)
+            return cached_catalog
+        raise AuthenticationError(
+            "iTop no respondio a tiempo mientras cargaba el catalogo de activos. Intente nuevamente en unos segundos.",
+            status_code=504,
+            code="ITOP_TIMEOUT",
+        ) from exc
     except ConnectionError as exc:
         raise AuthenticationError(
             f"No fue posible consultar catalogos de activos en iTop: {exc}",
