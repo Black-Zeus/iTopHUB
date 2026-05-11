@@ -131,7 +131,6 @@ function downloadPdqResultsAsExcel(results, query) {
     "OSName",
     "CurrentUser",
     "DisplayName",
-    "Activo",
     "MAC",
     "IPv4",
     "IPv6",
@@ -151,7 +150,6 @@ function downloadPdqResultsAsExcel(results, query) {
       row.osName || "N/D",
       row.currentUser || "N/D",
       row.currentUserCommonName || "N/D",
-      row.network?.active || "N/D",
       row.network?.mac || "N/D",
       networkIps.ipv4,
       networkIps.ipv6,
@@ -628,28 +626,6 @@ export function PDQPage() {
   const columns = useMemo(
     () => [
       { key: "hostname", label: "HostName", sortable: true },
-      {
-        key: "networkActive",
-        label: "Activo",
-        sortable: true,
-        render: (_, row) => {
-          const isActive = row.network?.active === "Si";
-
-          return (
-            <div className="flex items-center gap-2 text-sm">
-              <span
-                className={`inline-flex h-2.5 w-2.5 rounded-full ${
-                  isActive ? "bg-[var(--success)] shadow-[0_0_0_4px_rgba(74,222,128,0.12)]" : "bg-[var(--danger)] shadow-[0_0_0_4px_rgba(248,113,113,0.12)]"
-                }`}
-                aria-hidden="true"
-              />
-              <span className={isActive ? "text-[var(--text-primary)]" : "text-[var(--text-secondary)]"}>
-                {isActive ? "En linea" : "Sin conexion"}
-              </span>
-            </div>
-          );
-        },
-      },
       {
         key: "device",
         label: "Device",
