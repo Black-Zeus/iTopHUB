@@ -33,7 +33,7 @@ services:
       retries: 20
 
   redis:
-    image: redis:7-alpine
+    image: redis:7.4.8-alpine
     container_name: ${PROJECT_NAME}-redis
     restart: unless-stopped
     labels:
@@ -162,7 +162,7 @@ services:
       - --chromium-disable-javascript=true
 
   nginx:
-    image: nginx:1.25-alpine
+    image: nginx:1.30.0-alpine
     container_name: ${PROJECT_NAME}-nginx
     restart: unless-stopped
     labels:

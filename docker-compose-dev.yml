@@ -20,7 +20,7 @@ x-common-labels: &common-labels
 services:
   # Core
   mysql:
-    image:  mariadb:10.6
+    image:  mariadb:11.4
     container_name: ${PROJECT_NAME}-mysql
     labels:
       <<: *common-labels
@@ -48,7 +48,7 @@ services:
       - ${SETTINGS_ROOT}/mariadb:/opt/mariadb-tools:ro
       - ${LOGS_ROOT}/mariadb:/var/log/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u${MARIADB_USER}", "-p${MARIADB_PASSWORD}"]
+      test: ["CMD", "mariadb-admin", "ping", "-h", "127.0.0.1", "-u${MARIADB_USER}", "-p${MARIADB_PASSWORD}"]
       interval: 10s
       timeout: 5s
       retries: 20
@@ -58,7 +58,7 @@ services:
     <<: *restart-policy
 
   redis:
-    image: redis:7-alpine
+    image: redis:7.4.8-alpine
     container_name: ${PROJECT_NAME}-redis
     labels:
       <<: *common-labels
@@ -299,7 +299,7 @@ services:
     <<: *restart-policy
 
   nginx:
-    image: nginx:1.25-alpine
+    image: nginx:1.30.0-alpine
     container_name: ${PROJECT_NAME}-nginx
     entrypoint: ["nginx", "-g", "daemon off;"]
     labels:
