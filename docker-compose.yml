@@ -39,7 +39,7 @@ services:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
     volumes:
-      - ${DATA_ROOT}/mariadb_data:/var/lib/mysql
+      - mariadb_data:/var/lib/mysql
       - ${SETTINGS_ROOT}/mariadb/init:/docker-entrypoint-initdb.d:ro
       - ${SETTINGS_ROOT}/mariadb:/opt/mariadb-tools:ro
       - ${LOGS_ROOT}/mariadb:/var/log/mysql
@@ -66,7 +66,7 @@ services:
     environment:
       <<: *common-env
     volumes:
-      - ${DATA_ROOT}/redis_data:/data
+      - redis_data:/data
       - ${SETTINGS_ROOT}/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
       - ${LOGS_ROOT}/redis:/var/log/redis
     healthcheck:
@@ -116,9 +116,6 @@ services:
       HUB_NOTIFICATION_HISTORY_LIMIT: ${HUB_NOTIFICATION_HISTORY_LIMIT}
       HUB_SSE_HEARTBEAT_SECONDS: ${HUB_SSE_HEARTBEAT_SECONDS}
       HUB_SSE_RETRY_MS: ${HUB_SSE_RETRY_MS}
-      SMTP_HOST: ${SMTP_HOST}
-      SMTP_PORT: ${SMTP_PORT}
-      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL}
       PDF_WORKER_QUEUE: ${PDF_WORKER_QUEUE}
       PDF_WORKER_URL: ${PDF_WORKER_URL}
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
@@ -164,8 +161,6 @@ services:
       REDIS_PORT: 6379
       REDIS_DB: ${REDIS_DB}
       BACKEND_INTERNAL_URL: http://backend:8000
-      MAIL_HOST: ${SMTP_HOST}
-      MAIL_PORT: ${SMTP_PORT}
       PDF_WORKER_QUEUE: ${PDF_WORKER_QUEUE}
       WORKER_HEARTBEAT_SECONDS: ${WORKER_HEARTBEAT_SECONDS}
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
@@ -288,5 +283,11 @@ services:
 
 networks:
   internal:
-    driver: bridge
+    external: true
     name: ${PROJECT_NAME}_internal
+
+volumes:
+  mariadb_data:
+    name: ${PROJECT_NAME}_mariadb_data
+  redis_data:
+    name: ${PROJECT_NAME}_redis_data

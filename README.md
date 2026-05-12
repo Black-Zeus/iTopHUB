@@ -18,7 +18,6 @@ Servicios considerados en esta etapa:
 - `pdf-worker`
 - `mariadb`
 - `redis`
-- `mailpit`
 - `gotenberg`
 
 Los archivos [docker-compose.yml](/docker-compose.yml) y [docker-compose-qa.yml](/docker-compose-qa.yml) se mantienen como scaffolds de promoción para fases posteriores.
@@ -67,9 +66,10 @@ La configuracion actual deja preparada esta idea:
 
 Exposición directa en `dev`:
 
-- `http://localhost` -> `nginx`
-- `http://localhost:8080` -> `itop`
-- `http://localhost:8081` -> `itop-hub`
+- `http://localhost:8082` -> `nginx` del Hub
+- `http://localhost:5173` -> frontend del Hub
+- `http://localhost:8000` -> backend del Hub
+- `localhost:3307` -> MariaDB del Hub
 
 En `dev`, `iTop` sigue corriendo como dependencia temporal para facilitar integracion local.
 En `qa` y `prd`, la intencion es consumir el sitio original de iTop y mantener el Hub por fuera del core.

@@ -6,6 +6,11 @@
 -- ============================================================
 
 SET NAMES utf8mb4;
+
+-- URL publica base de n8n para este entorno.
+-- Cambiar solo este valor al preparar QA/PRD, sin slash final.
+SET @n8n_public_base_url = 'http://192.168.3.138/n8n';
+
 START TRANSACTION;
 
 -- 10. CMDB - Activos disponibles por bodega - SMTP
@@ -16,7 +21,7 @@ INSERT INTO hub_email_reports (
     'cmdb_activos_disponibles_bodega',
     'CMDB - Activos disponibles por bodega - SMTP',
     'Reporte de activos disponibles en inventario, agrupados por clase y bodega. Facilita revisar stock utilizable para asignaciones, redistribución interna, control físico y planificación de compras.',
-    'http://192.168.3.138:8089/n8n/webhook/cmdb-activos-disponibles-bodega',
+    CONCAT(@n8n_public_base_url, '/webhook/cmdb-activos-disponibles-bodega'),
     'POST',
     'active',
     10,
@@ -45,7 +50,7 @@ INSERT INTO hub_email_reports (
     'cmdb_activos_garantia_vencida',
     'CMDB - Activos con garantía vencida - SMTP',
     'Reporte de activos CMDB no obsoletos cuya garantía ya se encuentra vencida. Permite identificar equipamiento fuera de cobertura, apoyar renovación o reemplazo y priorizar riesgos de continuidad operacional.',
-    'http://192.168.3.138:8089/n8n/webhook/cmdb-activos-garantia-vencida',
+    CONCAT(@n8n_public_base_url, '/webhook/cmdb-activos-garantia-vencida'),
     'POST',
     'active',
     20,
@@ -74,7 +79,7 @@ INSERT INTO hub_email_reports (
     'cmdb_activos_garantia_vigente',
     'CMDB - Activos con garantía vigente - SMTP',
     'Reporte de activos CMDB no obsoletos con garantía vigente a la fecha de referencia. Entrega una vista de cobertura activa para control de parque, soporte y planificación contractual.',
-    'http://192.168.3.138:8089/n8n/webhook/cmdb-activos-garantia-vigente',
+    CONCAT(@n8n_public_base_url, '/webhook/cmdb-activos-garantia-vigente'),
     'POST',
     'active',
     30,
@@ -103,7 +108,7 @@ INSERT INTO hub_email_reports (
     'cmdb_activos_proximos_vencer_garantia',
     'CMDB - Activos próximos a vencer garantía - SMTP',
     'Reporte de activos CMDB cuya garantía vence dentro de la ventana configurada. Permite anticipar renovaciones, reemplazos o validaciones contractuales antes de quedar fuera de cobertura.',
-    'http://192.168.3.138:8089/n8n/webhook/cmdb-activos-proximos-vencer-garantia',
+    CONCAT(@n8n_public_base_url, '/webhook/cmdb-activos-proximos-vencer-garantia'),
     'POST',
     'active',
     40,
@@ -132,7 +137,7 @@ INSERT INTO hub_email_reports (
     'cmdb_activos_sin_contacto',
     'CMDB - Activos sin contacto asignado - SMTP',
     'Reporte de activos físicos en estado productivo sin contacto responsable asociado. Ayuda a detectar brechas de trazabilidad, accountability y control administrativo.',
-    'http://192.168.3.138:8089/n8n/webhook/cmdb-activos-sin-contacto',
+    CONCAT(@n8n_public_base_url, '/webhook/cmdb-activos-sin-contacto'),
     'POST',
     'active',
     50,
@@ -161,7 +166,7 @@ INSERT INTO hub_email_reports (
     'cmdb_inventario_activos_contactos',
     'CMDB - Inventario de activos con contactos - SMTP',
     'Reporte de activos CMDB que poseen contacto asignado. Entrega una vista consolidada del inventario trazable, responsables asociados, estado operacional, ubicación y datos relevantes para seguimiento.',
-    'http://192.168.3.138:8089/n8n/webhook/cmdb-inventario-activos-contactos',
+    CONCAT(@n8n_public_base_url, '/webhook/cmdb-inventario-activos-contactos'),
     'POST',
     'active',
     60,
@@ -190,7 +195,7 @@ INSERT INTO hub_email_reports (
     'cmdb_movimientos_recientes_inventario',
     'CMDB - Movimientos recientes de inventario - SMTP',
     'Reporte de cambios recientes sobre activos CMDB, incluyendo variaciones de estado, ubicación, bodega o asignación. Permite revisar rotación, traslados y modificaciones relevantes del inventario.',
-    'http://192.168.3.138:8089/n8n/webhook/cmdb-movimientos-recientes-inventario',
+    CONCAT(@n8n_public_base_url, '/webhook/cmdb-movimientos-recientes-inventario'),
     'POST',
     'active',
     70,
@@ -219,7 +224,7 @@ INSERT INTO hub_email_reports (
     'cmdb_resumen_clase_estado_bodega',
     'CMDB - Resumen por clase, estado y bodega - SMTP',
     'Reporte consolidado de activos CMDB agrupados por clase, estado y bodega. Entrega una visión transversal del parque, su distribución física y su condición operacional.',
-    'http://192.168.3.138:8089/n8n/webhook/cmdb-resumen-clase-estado-bodega',
+    CONCAT(@n8n_public_base_url, '/webhook/cmdb-resumen-clase-estado-bodega'),
     'POST',
     'active',
     80,
@@ -248,7 +253,7 @@ INSERT INTO hub_email_reports (
     'itsm_tickets_abiertos_agente',
     'ITSM - Tickets abiertos por agente - SMTP',
     'Reporte de tickets abiertos agrupados por agente asignado. Permite revisar carga operativa, distribución de trabajo, tickets críticos y posibles concentraciones por responsable.',
-    'http://192.168.3.138:8089/n8n/webhook/itsm-tickets-abiertos-agente',
+    CONCAT(@n8n_public_base_url, '/webhook/itsm-tickets-abiertos-agente'),
     'POST',
     'active',
     90,
@@ -277,7 +282,7 @@ INSERT INTO hub_email_reports (
     'itsm_tickets_abiertos_antiguedad',
     'ITSM - Tickets abiertos por antigüedad - SMTP',
     'Reporte de tickets abiertos organizados por antigüedad. Facilita priorizar casos envejecidos, controlar deuda operativa y revisar la salud general del backlog ITSM.',
-    'http://192.168.3.138:8089/n8n/webhook/itsm-tickets-abiertos-antiguedad',
+    CONCAT(@n8n_public_base_url, '/webhook/itsm-tickets-abiertos-antiguedad'),
     'POST',
     'active',
     100,
@@ -306,7 +311,7 @@ INSERT INTO hub_email_reports (
     'itsm_tickets_sin_actualizacion_24h',
     'ITSM - Tickets sin actualización mayor a 24h - SMTP',
     'Reporte de tickets abiertos que no registran actualización dentro del umbral definido. Permite controlar seguimiento, detectar casos sin avance reciente y reforzar disciplina operacional.',
-    'http://192.168.3.138:8089/n8n/webhook/itsm-tickets-sin-actualizacion-24h',
+    CONCAT(@n8n_public_base_url, '/webhook/itsm-tickets-sin-actualizacion-24h'),
     'POST',
     'active',
     110,

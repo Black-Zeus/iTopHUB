@@ -39,7 +39,6 @@ def meta() -> dict[str, str]:
         "app_db_name": os.getenv("APP_DB_NAME", ""),
         "itop_url": os.getenv("ITOP_URL", ""),
         "redis_host": os.getenv("REDIS_HOST", ""),
-        "smtp_host": os.getenv("SMTP_HOST", ""),
         "pdq_sqlite_dir": settings.pdq_sqlite_dir,
     }
 

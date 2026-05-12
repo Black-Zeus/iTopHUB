@@ -13,6 +13,17 @@ export class ApiError extends Error {
 let tokenRevalidationHandler = null;
 let sessionExpiredHandler = null;
 
+function looksLikeHtml(value) {
+  const text = String(value || "").trim();
+  return /<!doctype\s+html/i.test(text) || /<\/?(html|head|body|pre|title|script)\b/i.test(text);
+}
+
+function getReadableRawMessage(rawText) {
+  const text = String(rawText || "").trim();
+  if (!text || looksLikeHtml(text)) return "";
+  return text;
+}
+
 export function setApiClientHandlers({ onTokenRevalidationRequired, onSessionExpired } = {}) {
   tokenRevalidationHandler = onTokenRevalidationRequired || null;
   sessionExpiredHandler = onSessionExpired || null;
@@ -34,17 +45,18 @@ async function parseResponse(response, fallbackMessage) {
   }
 
   const detail = payload?.detail;
+  const rawMessage = getReadableRawMessage(rawText);
   const message =
     (detail && typeof detail === "object" ? detail.message : null) ||
     (typeof detail === "string" ? detail : null) ||
-    rawText ||
+    rawMessage ||
     fallbackMessage;
   const code = detail && typeof detail === "object" ? detail.code || "API_ERROR" : "API_ERROR";
 
   throw new ApiError(message, {
     status: response.status,
     code,
-    detail,
+    detail: detail || rawMessage || null,
   });
 }
 

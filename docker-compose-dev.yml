@@ -42,7 +42,7 @@ services:
     ports:
       - "${MARIADB_PORT}:3306"
     volumes:
-      - mysql_data:/var/lib/mysql
+      - mariadb_data:/var/lib/mysql
       - ${SETTINGS_ROOT}/mariadb/init:/docker-entrypoint-initdb.d:ro
       # Incluye reset_hub_db.sh y su ruta relativa init/app para reconstruccion manual del Hub DB.
       - ${SETTINGS_ROOT}/mariadb:/opt/mariadb-tools:ro
@@ -68,7 +68,7 @@ services:
     environment:
       <<: *common-env
     volumes:
-      - ${DATA_ROOT}/redis_data:/data
+      - redis_data:/data
       - ${SETTINGS_ROOT}/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
       - ${LOGS_ROOT}/redis:/var/log/redis
     healthcheck:
@@ -118,9 +118,6 @@ services:
       HUB_NOTIFICATION_HISTORY_LIMIT: ${HUB_NOTIFICATION_HISTORY_LIMIT}
       HUB_SSE_HEARTBEAT_SECONDS: ${HUB_SSE_HEARTBEAT_SECONDS}
       HUB_SSE_RETRY_MS: ${HUB_SSE_RETRY_MS}
-      SMTP_HOST: ${SMTP_HOST}
-      SMTP_PORT: ${SMTP_PORT}
-      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL}
       PDF_WORKER_QUEUE: ${PDF_WORKER_QUEUE}
       PDF_WORKER_URL: ${PDF_WORKER_URL}
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
@@ -152,8 +149,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      mailpit:
-        condition: service_started
     networks:
       - internal
     logging: *default-logging
@@ -176,8 +171,6 @@ services:
       REDIS_PORT: 6379
       REDIS_DB: ${REDIS_DB}
       BACKEND_INTERNAL_URL: http://backend:8000
-      MAIL_HOST: ${SMTP_HOST}
-      MAIL_PORT: ${SMTP_PORT}
       PDF_WORKER_QUEUE: ${PDF_WORKER_QUEUE}
       WORKER_HEARTBEAT_SECONDS: ${WORKER_HEARTBEAT_SECONDS}
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
@@ -327,24 +320,6 @@ services:
     logging: *default-logging
     <<: *restart-policy
 
-  # Herramientas de soporte
-  mailpit:
-    image: axllent/mailpit:v1.29
-    container_name: ${PROJECT_NAME}-mailpit
-    labels:
-      <<: *common-labels
-      service.group: tools
-      service.lifecycle: dev-qa-only
-    environment:
-      <<: *common-env
-    ports:
-      - "${MAILPIT_UI_PORT}:8025"
-      - "${MAILPIT_SMTP_PORT}:1025"
-    networks:
-      - internal
-    logging: *default-logging
-    <<: *restart-policy
-
   redisinsight:
     image: ${REDISINSIGHT_IMAGE}
     container_name: ${PROJECT_NAME}-redisinsight
@@ -365,11 +340,13 @@ services:
 
 networks:
   internal:
-    driver: bridge
+    external: true
     name: ${PROJECT_NAME}_internal
 
 volumes:
-  mysql_data:
-    name: ${PROJECT_NAME}_mysql_data
+  mariadb_data:
+    name: ${PROJECT_NAME}_mariadb_data
+  redis_data:
+    name: ${PROJECT_NAME}_redis_data
   frontend_node_modules:
     name: ${PROJECT_NAME}_frontend_node_modules

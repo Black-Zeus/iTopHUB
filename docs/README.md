@@ -17,7 +17,6 @@ Esta carpeta centraliza notas operativas y tecnicas de la arquitectura basada en
 - `containers/mariadb.md`
 - `containers/redis.md`
 - `containers/redis.md` (incluye nota sobre `redisinsight`)
-- `containers/mailpit.md`
 - `containers/gotenberg.md`
 
 ## Dominios

@@ -22,7 +22,7 @@ services:
       MARIADB_USER: ${MARIADB_USER}
       MARIADB_PASSWORD: ${MARIADB_PASSWORD}
     volumes:
-      - ./APP/data/qa/mariadb_data:/var/lib/mysql
+      - mariadb_data:/var/lib/mysql
       - ./APP/config/mariadb/init:/docker-entrypoint-initdb.d:ro
     ports:
       - "${MARIADB_PORT}:3306"
@@ -42,10 +42,8 @@ services:
       service.lifecycle: deferred-qa
     command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
     volumes:
-      - ./APP/data/qa/redis_data:/data
+      - redis_data:/data
       - ./APP/config/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
-    ports:
-      - "${REDIS_PORT}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -73,17 +71,12 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_DB: ${REDIS_DB}
-      SMTP_HOST: ${SMTP_HOST}
-      SMTP_PORT: ${SMTP_PORT}
-      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL}
       PDF_WORKER_QUEUE: ${PDF_WORKER_QUEUE}
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
       JWT_SECRET: ${JWT_SECRET}
     volumes:
       - ./APP/volumes/backend/app:/app
       - ./APP/data/qa/backend_data:/app/_data
-    ports:
-      - "${BACKEND_PORT}:8000"
     depends_on:
       mariadb:
         condition: service_healthy
@@ -106,8 +99,6 @@ services:
       REDIS_PORT: 6379
       REDIS_DB: ${REDIS_DB}
       BACKEND_INTERNAL_URL: http://backend:8000
-      MAIL_HOST: ${SMTP_HOST}
-      MAIL_PORT: ${SMTP_PORT}
       PDF_WORKER_QUEUE: ${PDF_WORKER_QUEUE}
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
     volumes:
@@ -187,18 +178,6 @@ services:
       - ./APP/config/nginx/conf.d:/etc/nginx/conf.d:ro
       - ./APP/config/nginx/certs:/etc/nginx/certs:ro
 
-  mailpit:
-    image: axllent/mailpit:v1.29
-    container_name: ${PROJECT_NAME}-mailpit
-    restart: unless-stopped
-    labels:
-      <<: *common-labels
-      service.group: tooling
-      service.lifecycle: dev-qa-only
-    ports:
-      - "${MAILPIT_UI_PORT}:8025"
-      - "${MAILPIT_SMTP_PORT}:1025"
-
   redisinsight:
     image: ${REDISINSIGHT_IMAGE}
     container_name: ${PROJECT_NAME}-redisinsight
@@ -213,3 +192,14 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+
+networks:
+  default:
+    external: true
+    name: ${PROJECT_NAME}_internal
+
+volumes:
+  mariadb_data:
+    name: ${PROJECT_NAME}_mariadb_data
+  redis_data:
+    name: ${PROJECT_NAME}_redis_data

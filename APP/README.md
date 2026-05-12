@@ -14,7 +14,6 @@ El stack activo en esta fase es:
 - `pdf-worker`
 - `mariadb`
 - `redis`
-- `mailpit`
 - `gotenberg`
 
 Las carpetas `APP/data/qa`, `APP/logs/qa`, `APP/data/prd` y `APP/logs/prd` se dejan preparadas por portabilidad, pero la referencia activa hoy sigue siendo `dev`.
@@ -43,7 +42,7 @@ Notas de fase:
 
 - `nginx` es parte del stack para centralizar el reverse proxy.
 - `itop` se mantiene solo como dependencia temporal en `dev`.
-- `mailpit` se considera herramienta de soporte para `dev` y `qa`.
+- El Hub no publica ni levanta Mailpit; las pruebas SMTP viven en el stack `iTopN8N`.
 
 ## Próxima integración sugerida
 

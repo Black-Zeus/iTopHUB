@@ -23,7 +23,8 @@ Acts as the reverse proxy entrypoint for the stack and centralizes public routin
 ## Notes
 
 - The stack does not include a local iTop container; iTop is consumed externally through backend REST/OQL integration.
-- `mailpit` and `redisinsight` are not part of the production compose.
+- `mailpit` is not part of the Hub stack; SMTP testing belongs to `iTopN8N`.
+- `redisinsight` is not part of the production compose.
 - SSE endpoints should be proxied with buffering disabled and longer read/send timeouts so `/api/v1/events/*` can stay open without polling.
 - Backend API endpoints use extended proxy connect/read/send timeouts because handover evidence confirmation can perform multiple iTop operations before responding.
 - Dev proxy allows request bodies up to `50m` so handover evidence uploads can pass through `/api/` even when files are serialized from the browser.

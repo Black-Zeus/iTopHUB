@@ -106,6 +106,45 @@ function serializeSubmittedValues(values, parameters) {
   }, {});
 }
 
+function getTriggerErrorMessage(error) {
+  const status = Number(error?.status || 0);
+  const message = String(error?.message || "").trim();
+
+  if (status === 400 || status === 422) {
+    return message || "La solicitud contiene datos incompletos o invalidos. Revise los campos e intente nuevamente.";
+  }
+
+  if (status === 401 || status === 403) {
+    return "Su sesion no tiene permisos suficientes para solicitar este reporte. Vuelva a ingresar o contacte al administrador.";
+  }
+
+  if (status === 409) {
+    return message || "El reporte ya fue solicitado recientemente. Espere unos minutos e intente nuevamente.";
+  }
+
+  if (status === 504) {
+    return "El servicio de automatizacion no respondio a tiempo. Contacte al administrador de la plataforma si el problema persiste.";
+  }
+
+  if (status >= 500 || status === 0) {
+    return "Ocurrio un problema al solicitar el reporte. La automatizacion de correo no pudo procesar la solicitud en este momento. Contacte al administrador de la plataforma.";
+  }
+
+  return message || "No fue posible solicitar el reporte. Intente nuevamente o contacte al administrador de la plataforma.";
+}
+
+function showTriggerErrorModal(error, report) {
+  const status = Number(error?.status || 0);
+  const reportName = report?.name || "el reporte";
+  const technicalCode = status ? `HTTP ${status}` : "sin respuesta";
+
+  ModalManager.error({
+    title: "No fue posible solicitar el reporte",
+    message: `Ocurrio un problema al solicitar "${reportName}". La automatizacion de correo no pudo procesar la solicitud en este momento. Contacte al administrador de la plataforma para revisar la integracion.`,
+    details: `Codigo tecnico: ${technicalCode}`,
+  });
+}
+
 function getParameterGroup(parameter) {
   if (isDateLikeParameter(parameter)) return "dates";
   if (parameter?.type === "boolean") return "checks";
@@ -200,7 +239,7 @@ function buildInitialValues(parameters) {
   }, {});
 }
 
-function TriggerReportModal({ report, user, onCancel, onSubmitted }) {
+function TriggerReportModal({ report, user, onCancel, onSubmitted, onSubmitError }) {
   const parameters = Array.isArray(report.parameters) ? report.parameters : [];
   const emailCcParameter = parameters.find(isEmailCcParameter);
   const [values, setValues] = useState(() => buildInitialValues(parameters));
@@ -228,7 +267,11 @@ function TriggerReportModal({ report, user, onCancel, onSubmitted }) {
         ...(isAdmin && emailCcParameter && cc.emails.length > 0 ? { [emailCcParameter.name]: cc.emails.join(",") } : {}),
       });
     } catch (submitError) {
-      setError(submitError?.message || "No fue posible solicitar el reporte.");
+      const friendlyMessage = getTriggerErrorMessage(submitError);
+      setError(friendlyMessage);
+      if (submitError?.status || submitError?.code) {
+        onSubmitError?.(submitError);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -397,7 +440,15 @@ export function EmailReportsPage() {
       title: "Solicitar reporte",
       size: "emailReportForm",
       showFooter: false,
-      content: <TriggerReportModal report={report} user={user} onCancel={() => ModalManager.close(modalId)} onSubmitted={submit} />,
+      content: (
+        <TriggerReportModal
+          report={report}
+          user={user}
+          onCancel={() => ModalManager.close(modalId)}
+          onSubmitted={submit}
+          onSubmitError={(submitError) => showTriggerErrorModal(submitError, report)}
+        />
+      ),
     });
   };
 
