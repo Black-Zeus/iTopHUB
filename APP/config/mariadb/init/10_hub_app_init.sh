@@ -1,5 +1,5 @@
 #!/bin/sh
-set -eu
+set -e
 
 APP_INIT_DIR="/docker-entrypoint-initdb.d/app"
 FOUND_SQL=0

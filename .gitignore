@@ -51,6 +51,7 @@ APP/volumes/backend/app/assets/test/*.pdf
 APP/volumes/itop/
 
 # Runtime temp files
+APP/volumes/backend/app/data/
 APP/volumes/backend/app/assets/temp/*
 !APP/volumes/backend/app/assets/temp/.gitkeep
 APP/config/worker/temp/*

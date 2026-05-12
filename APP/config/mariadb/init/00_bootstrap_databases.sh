@@ -1,5 +1,5 @@
 #!/bin/sh
-set -eu
+set -e
 
 DB_CLIENT="${DB_CLIENT:-mysql}"
 
