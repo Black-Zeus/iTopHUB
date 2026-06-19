@@ -71,6 +71,7 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_DB: ${REDIS_DB}
+      HUB_SESSION_COOKIE_SECURE: ${HUB_SESSION_COOKIE_SECURE}
       PDF_WORKER_QUEUE: ${PDF_WORKER_QUEUE}
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
       JWT_SECRET: ${JWT_SECRET}
@@ -172,8 +173,6 @@ services:
     depends_on:
       - frontend
       - backend
-    ports:
-      - "${NGINX_HTTP_PORT}:80"
     volumes:
       - ./APP/config/nginx/conf.d:/etc/nginx/conf.d:ro
       - ./APP/config/nginx/certs:/etc/nginx/certs:ro
@@ -187,8 +186,6 @@ services:
       <<: *common-labels
       service.group: tooling
       service.lifecycle: dev-qa-only
-    ports:
-      - "${REDISINSIGHT_PORT}:5540"
     depends_on:
       redis:
         condition: service_healthy

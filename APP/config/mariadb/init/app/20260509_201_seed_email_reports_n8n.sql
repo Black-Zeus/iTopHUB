@@ -9,7 +9,7 @@ SET NAMES utf8mb4;
 
 -- URL publica base de n8n para este entorno.
 -- Cambiar solo este valor al preparar QA/PRD, sin slash final.
-SET @n8n_public_base_url = 'http://192.168.3.138/n8n';
+SET @n8n_public_base_url = 'http://10.101.0.122/n8n';
 
 START TRANSACTION;
 
