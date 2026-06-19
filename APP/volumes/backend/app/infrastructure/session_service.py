@@ -30,6 +30,13 @@ def _read_int(name: str, default: int) -> int:
         return default
 
 
+def _read_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "y", "si", "s", "on", "enabled"}
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -62,6 +69,10 @@ def get_session_warning_seconds() -> int:
     itop_settings = _get_itop_settings()
     minutes = int(itop_settings.get("sessionWarningMinutes") or 0)
     return minutes * 60 if minutes > 0 else _read_int("HUB_SESSION_WARNING_SECONDS", 30)
+
+
+def get_session_cookie_secure() -> bool:
+    return _read_bool("HUB_SESSION_COOKIE_SECURE", True)
 
 
 def new_session_id() -> str:

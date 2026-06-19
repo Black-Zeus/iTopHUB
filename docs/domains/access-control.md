@@ -95,5 +95,6 @@ Covers Hub login, authorization, user linking, personal iTop token handling, and
 ## Notes
 
 - The browser should keep only the session cookie, never passwords or tokens.
+- The session cookie must be `HttpOnly`, `SameSite=Lax`, and `Secure` in HTTPS environments. Development over plain HTTP is the only accepted reason to disable `Secure` with `HUB_SESSION_COOKIE_SECURE=0`.
 - The Hub session and token cache may expire independently.
 - Token revalidation is part of normal runtime behavior, not a failure by itself.

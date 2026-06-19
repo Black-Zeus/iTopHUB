@@ -3,7 +3,7 @@ from typing import Any
 from fastapi import APIRouter, Cookie, HTTPException, Response
 
 from api.deps import ensure_session, raise_auth_error
-from infrastructure.session_service import get_session_ttl_seconds
+from infrastructure.session_service import get_session_cookie_secure, get_session_ttl_seconds
 from modules.auth.service import (
     AuthenticationError,
     bootstrap_first_admin,
@@ -18,6 +18,26 @@ from schemas.auth import BootstrapFirstAdminRequest, LoginRequest, RevalidateReq
 
 
 router = APIRouter(prefix="/v1/auth", tags=["auth"])
+
+
+def _set_session_cookie(response: Response, session_id: str) -> None:
+    response.set_cookie(
+        key="hub_session_id",
+        value=session_id,
+        httponly=True,
+        samesite="lax",
+        max_age=get_session_ttl_seconds(),
+        secure=get_session_cookie_secure(),
+    )
+
+
+def _delete_session_cookie(response: Response) -> None:
+    response.delete_cookie(
+        key="hub_session_id",
+        httponly=True,
+        samesite="lax",
+        secure=get_session_cookie_secure(),
+    )
 
 
 @router.get("/bootstrap")
@@ -48,14 +68,7 @@ def auth_bootstrap_initialize(payload: BootstrapFirstAdminRequest, response: Res
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Bootstrap failed: {exc}") from exc
 
-    response.set_cookie(
-        key="hub_session_id",
-        value=session.session_id,
-        httponly=True,
-        samesite="lax",
-        max_age=get_session_ttl_seconds(),
-        secure=False,
-    )
+    _set_session_cookie(response, session.session_id)
     return {
         "user": session.user,
         "expiresAt": session.session_meta["expiresAt"],
@@ -74,14 +87,7 @@ def login(payload: LoginRequest, response: Response) -> dict[str, Any]:
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Authentication failed: {exc}") from exc
 
-    response.set_cookie(
-        key="hub_session_id",
-        value=session.session_id,
-        httponly=True,
-        samesite="lax",
-        max_age=get_session_ttl_seconds(),
-        secure=False,
-    )
+    _set_session_cookie(response, session.session_id)
     return {
         "user": session.user,
         "expiresAt": session.session_meta["expiresAt"],
@@ -141,5 +147,5 @@ def auth_revalidate(payload: RevalidateRequest, hub_session_id: str | None = Coo
 def auth_logout(response: Response, hub_session_id: str | None = Cookie(default=None)) -> dict[str, bool]:
     if hub_session_id:
         logout_user(hub_session_id)
-    response.delete_cookie("hub_session_id")
+    _delete_session_cookie(response)
     return {"ok": True}

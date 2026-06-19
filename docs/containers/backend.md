@@ -41,6 +41,7 @@ Hosts the custom application API and integration layer between the frontend, iTo
   - `hub_session_id` cookie in the browser
   - session metadata in Redis under `hub:session:{session_id}:meta`
   - runtime token cache in Redis under `hub:session:{session_id}:token`
+- The `hub_session_id` cookie uses `HttpOnly`, `SameSite=Lax`, and `Secure` by default. Local HTTP-only development may set `HUB_SESSION_COOKIE_SECURE=0`; QA/PRD should keep it enabled and publish the Hub only through HTTPS.
 - SSE notifications should be served from the same FastAPI backend under `/v1/events/stream`, authenticated with the existing `hub_session_id` cookie instead of a separate realtime service.
 - Long-running job notifications are ephemeral:
   - live fanout through Redis Pub/Sub
@@ -100,6 +101,7 @@ Hosts the custom application API and integration layer between the frontend, iTo
   - `HUB_SESSION_TTL_SECONDS`
   - `HUB_RUNTIME_TOKEN_TTL_SECONDS`
   - `HUB_SESSION_WARNING_SECONDS`
+  - `HUB_SESSION_COOKIE_SECURE`
 - Expected backend runtime env vars for PDF orchestration:
   - `PDF_WORKER_URL`
   - `INTERNAL_API_SECRET`

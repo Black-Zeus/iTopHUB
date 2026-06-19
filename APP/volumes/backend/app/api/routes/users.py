@@ -2,9 +2,9 @@ from typing import Any
 
 from fastapi import APIRouter, Cookie, HTTPException
 
-from api.deps import ensure_session, model_to_dict, raise_auth_error
+from api.deps import ensure_module_access, ensure_session, model_to_dict, raise_auth_error
 from modules.auth.schema import ensure_token_storage_supported
-from modules.auth.service import AuthenticationError, get_runtime_token, get_session_user, refresh_session, register_user_token
+from modules.auth.service import AuthenticationError, get_runtime_token, refresh_session, register_user_token
 from schemas.users import UserCreateRequest, UserUpdateRequest
 from modules.users.service import create_user, get_user, list_roles, list_users, sync_user_email_from_itop, update_user
 
@@ -12,14 +12,23 @@ from modules.users.service import create_user, get_user, list_roles, list_users,
 router = APIRouter(prefix="/v1/users", tags=["users"])
 
 
+def _ensure_users_access(session_id: str, write: bool = False) -> dict[str, Any]:
+    session_user = ensure_module_access(session_id, "users", write=write)
+    if write and not session_user.get("isAdmin"):
+        raise HTTPException(status_code=403, detail="Solo administradores pueden administrar usuarios.")
+    return session_user
+
+
 @router.get("")
 def users_list(hub_session_id: str | None = Cookie(default=None)) -> dict[str, Any]:
     session_id = ensure_session(hub_session_id)
     try:
-        get_session_user(session_id)
+        _ensure_users_access(session_id)
         return {"items": list_users()}
     except AuthenticationError as exc:
         raise_auth_error(exc)
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Unable to load users: {exc}") from exc
 
@@ -28,10 +37,12 @@ def users_list(hub_session_id: str | None = Cookie(default=None)) -> dict[str, A
 def users_roles(hub_session_id: str | None = Cookie(default=None)) -> dict[str, Any]:
     session_id = ensure_session(hub_session_id)
     try:
-        get_session_user(session_id)
+        _ensure_users_access(session_id)
         return {"items": list_roles()}
     except AuthenticationError as exc:
         raise_auth_error(exc)
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Unable to load roles: {exc}") from exc
 
@@ -43,7 +54,7 @@ def users_update(user_id: int, payload: UserUpdateRequest, hub_session_id: str |
         raise HTTPException(status_code=422, detail="Invalid user status.")
 
     try:
-        session_user = get_session_user(session_id)
+        session_user = _ensure_users_access(session_id, write=True)
         updated_user = update_user(user_id, model_to_dict(payload))
         if payload.tokenChanged:
             ensure_token_storage_supported()
@@ -59,6 +70,8 @@ def users_update(user_id: int, payload: UserUpdateRequest, hub_session_id: str |
             session = None
     except AuthenticationError as exc:
         raise_auth_error(exc)
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Unable to update user: {exc}") from exc
 
@@ -82,10 +95,12 @@ def users_create(payload: UserCreateRequest, hub_session_id: str | None = Cookie
         raise HTTPException(status_code=422, detail="Invalid user status.")
 
     try:
-        get_session_user(session_id)
+        _ensure_users_access(session_id, write=True)
         created_user = create_user(model_to_dict(payload))
     except AuthenticationError as exc:
         raise_auth_error(exc)
+    except HTTPException:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as exc:
@@ -101,7 +116,7 @@ def users_create(payload: UserCreateRequest, hub_session_id: str | None = Cookie
 def users_sync_itop_email(user_id: int, hub_session_id: str | None = Cookie(default=None)) -> dict[str, Any]:
     session_id = ensure_session(hub_session_id)
     try:
-        session_user = get_session_user(session_id)
+        session_user = _ensure_users_access(session_id, write=True)
         runtime_token = get_runtime_token(session_id)
         updated_user = sync_user_email_from_itop(user_id, runtime_token)
         if session_user["id"] == user_id:
@@ -110,6 +125,8 @@ def users_sync_itop_email(user_id: int, hub_session_id: str | None = Cookie(defa
             session = None
     except AuthenticationError as exc:
         raise_auth_error(exc)
+    except HTTPException:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
