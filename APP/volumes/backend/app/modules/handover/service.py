@@ -81,6 +81,7 @@ from modules.handover.shared import (
     normalize_comparison_text as _normalize_comparison_text,
 )
 from modules.settings.service import (
+    get_requirement_final_status,
     get_requirement_initial_status,
     get_settings_panel,
     is_requirement_ticket_enabled,
@@ -1804,6 +1805,7 @@ def _resolve_handover_ticket_rules(docs_settings: dict[str, Any] | None = None) 
     return {
         "enabled": is_requirement_ticket_enabled(resolved_settings),
         "initialStatus": get_requirement_initial_status(resolved_settings),
+        "finalStatus": get_requirement_final_status(resolved_settings),
     }
 
 
@@ -1833,6 +1835,10 @@ ITOP_HANDOVER_TICKET_OUTPUT_FIELDS = (
     "agent_id,agent_id_friendlyname,impact,urgency,priority,service_id,service_id_friendlyname,"
     "servicesubcategory_id,servicesubcategory_id_friendlyname"
 )
+
+ITOP_TICKET_AUTOCLOSE_RESOLUTION_CODE = "assistance"
+ITOP_TICKET_AUTOCLOSE_SOLUTION_TEXT = "Ticket cerrado automaticamente al generarse desde iTop Hub."
+ITOP_TICKET_CLASSES_SUPPORTING_AUTOCLOSE = {"UserRequest", "Incident"}
 
 
 def _ensure_itop_ticket_assignment(
@@ -1906,6 +1912,74 @@ def _ensure_itop_ticket_assignment(
         return None
     if _coerce_str(refreshed_item.get("status")).lower() != "assigned":
         raise HTTPException(status_code=502, detail="No fue posible dejar el ticket iTop en estado Asignado.")
+    return refreshed_item
+
+
+def _ensure_itop_ticket_closed(
+    connector: iTopCMDBConnector,
+    ticket_class: str,
+    ticket_id: int,
+    document_number: str,
+) -> iTopObject | None:
+    if ticket_class not in ITOP_TICKET_CLASSES_SUPPORTING_AUTOCLOSE:
+        return None
+
+    try:
+        response = connector.get(ticket_class, ticket_id, output_fields=ITOP_HANDOVER_TICKET_OUTPUT_FIELDS)
+    except Exception:
+        return None
+
+    item = response.first()
+    if item is None:
+        return None
+
+    status = _coerce_str(item.get("status")).lower()
+    if status == "closed":
+        return item
+
+    comment = f"Cierre automatico sincronizado desde acta {document_number}".strip()
+
+    if status != "resolved":
+        try:
+            resolve_response = connector.apply_stimulus(
+                ticket_class,
+                ticket_id,
+                "ev_autoresolve",
+                fields={
+                    "resolution_code": ITOP_TICKET_AUTOCLOSE_RESOLUTION_CODE,
+                    "solution": ITOP_TICKET_AUTOCLOSE_SOLUTION_TEXT,
+                },
+                output_fields=ITOP_HANDOVER_TICKET_OUTPUT_FIELDS,
+                comment=comment,
+            )
+        except TimeoutError:
+            resolve_response = None
+        if resolve_response is not None and resolve_response.ok and resolve_response.first() is not None:
+            item = resolve_response.first()
+            status = _coerce_str(item.get("status")).lower()
+
+    if status == "resolved":
+        try:
+            close_response = connector.apply_stimulus(
+                ticket_class,
+                ticket_id,
+                "ev_close",
+                output_fields=ITOP_HANDOVER_TICKET_OUTPUT_FIELDS,
+                comment=comment,
+            )
+        except TimeoutError:
+            close_response = None
+        if close_response is not None and close_response.ok and close_response.first() is not None:
+            closed_item = close_response.first()
+            if _coerce_str(closed_item.get("status")).lower() == "closed":
+                return closed_item
+
+    refresh_response = connector.get(ticket_class, ticket_id, output_fields=ITOP_HANDOVER_TICKET_OUTPUT_FIELDS)
+    refreshed_item = refresh_response.first()
+    if refreshed_item is None:
+        return None
+    if _coerce_str(refreshed_item.get("status")).lower() != "closed":
+        raise HTTPException(status_code=502, detail="No fue posible cerrar automaticamente el ticket iTop.")
     return refreshed_item
 
 
@@ -2084,6 +2158,16 @@ def _create_itop_handover_ticket(
             )
             if assigned_item is not None:
                 item = assigned_item
+
+        if ticket_rules.get("finalStatus") == "closed":
+            closed_item = _ensure_itop_ticket_closed(
+                connector,
+                ticket_class,
+                item.id,
+                _coerce_str(current_detail.get("documentNumber")),
+            )
+            if closed_item is not None:
+                item = closed_item
 
         resolved_contact_ids = (
             sorted({int(contact_id) for contact_id in (contact_ids or []) if int(contact_id) > 0})

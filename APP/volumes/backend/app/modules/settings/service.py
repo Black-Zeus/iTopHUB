@@ -74,6 +74,7 @@ DEFAULT_REQUIREMENT_TICKET_TEMPLATE = (
     "Solicitamos gestionar la actualizacion correspondiente y mantener trazabilidad del requerimiento asociado."
 )
 DEFAULT_REQUIREMENT_INITIAL_STATUS = "assigned"
+DEFAULT_REQUIREMENT_FINAL_STATUS = "open"
 
 PANEL_DEFAULTS: dict[str, dict[str, Any]] = {
     "organization": {
@@ -138,6 +139,7 @@ PANEL_DEFAULTS: dict[str, dict[str, Any]] = {
         "requirementEnabled": False,
         "requirementTicketClass": "UserRequest",
         "requirementInitialStatus": DEFAULT_REQUIREMENT_INITIAL_STATUS,
+        "requirementFinalStatus": DEFAULT_REQUIREMENT_FINAL_STATUS,
         "requirementServiceId": "",
         "requirementServiceSubcategoryId": "",
         "requirementOrigin": "",
@@ -255,6 +257,18 @@ def _normalize_requirement_initial_status(value: Any, default: str = DEFAULT_REQ
         "creado": "created",
         "new": "created",
         "nuevo": "created",
+    }
+    return mapping.get(normalized, default)
+
+
+def _normalize_requirement_final_status(value: Any, default: str = DEFAULT_REQUIREMENT_FINAL_STATUS) -> str:
+    normalized = _coerce_str(value, default).lower()
+    mapping = {
+        "open": "open",
+        "abierto": "open",
+        "closed": "closed",
+        "cerrado": "closed",
+        "close": "closed",
     }
     return mapping.get(normalized, default)
 
@@ -430,6 +444,7 @@ def normalize_panel_config(panel_code: str, config: dict[str, Any]) -> dict[str,
         if requirement_ticket_class not in {"UserRequest", "Incident", "NormalChange"}:
             requirement_ticket_class = "UserRequest"
         requirement_initial_status = _normalize_requirement_initial_status(merged.get("requirementInitialStatus"))
+        requirement_final_status = _normalize_requirement_final_status(merged.get("requirementFinalStatus"))
         requirement_subject = _coerce_str(merged.get("requirementSubject"), DEFAULT_REQUIREMENT_SUBJECT)
         if requirement_subject == LEGACY_REQUIREMENT_SUBJECT:
             requirement_subject = DEFAULT_REQUIREMENT_SUBJECT
@@ -446,6 +461,7 @@ def normalize_panel_config(panel_code: str, config: dict[str, Any]) -> dict[str,
             "requirementEnabled": _coerce_bool(merged.get("requirementEnabled"), False),
             "requirementTicketClass": requirement_ticket_class,
             "requirementInitialStatus": requirement_initial_status,
+            "requirementFinalStatus": requirement_final_status,
             "requirementServiceId": _coerce_str(merged.get("requirementServiceId")),
             "requirementServiceSubcategoryId": _coerce_str(merged.get("requirementServiceSubcategoryId")),
             "requirementOrigin": _coerce_str(merged.get("requirementOrigin")),
@@ -790,3 +806,8 @@ def is_requirement_ticket_enabled(docs_settings: dict[str, Any] | None = None) -
 def get_requirement_initial_status(docs_settings: dict[str, Any] | None = None) -> str:
     resolved_settings = docs_settings if docs_settings is not None else get_settings_panel("docs")
     return _normalize_requirement_initial_status(resolved_settings.get("requirementInitialStatus"))
+
+
+def get_requirement_final_status(docs_settings: dict[str, Any] | None = None) -> str:
+    resolved_settings = docs_settings if docs_settings is not None else get_settings_panel("docs")
+    return _normalize_requirement_final_status(resolved_settings.get("requirementFinalStatus"))
