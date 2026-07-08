@@ -687,6 +687,7 @@ export function HandoverEditorSections({
   addAssetToForm,
   requestRemoveAssetFromForm,
   updateItemNotes,
+  updateItemUnlinkContactSelection = () => {},
   addChecklistToAsset,
   requestRemoveChecklistFromAsset,
   updateChecklistAnswer,
@@ -738,6 +739,7 @@ export function HandoverEditorSections({
   assetRestrictionMode = assetSelectionMode === "modal" ? "assigned_to_receiver" : "stock_unassigned",
   assetLayoutMode = "stacked",
   enforceSingleAssignment = false,
+  showUnlinkContactSelection = false,
   onOpenAssetSelector = null,
   showChecklistSection = true,
   showReceiverSection = true,
@@ -787,6 +789,8 @@ export function HandoverEditorSections({
 
   const renderAssetCard = (item, { fullHeight = false } = {}) => {
     const assetId = item.asset?.id;
+    const unlinkContacts = Array.isArray(item.unlinkContacts) ? item.unlinkContacts : [];
+    const selectedUnlinkContacts = unlinkContacts.filter((contact) => Boolean(contact?.selected));
     const availableTemplates = activeTemplates.filter((template) => (
       matchesTemplateCmdbClass(item.asset?.className, template.cmdbClassLabel)
       && !item.checklists.some((checklist) => checklist.templateId === template.id)
@@ -819,6 +823,41 @@ export function HandoverEditorSections({
                     : <textarea rows="4" value={item.notes || ""} onChange={(event) => updateItemNotes(assetId, event.target.value)} className={TEXTAREA_CLASS_NAME} placeholder={itemNotesPlaceholder} />
                   }
                 </Field>
+
+                {showUnlinkContactSelection && unlinkContacts.length ? (
+                  <section className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Personas a desvincular</p>
+                        <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                          Selecciona las relaciones que esta acta debe remover desde iTop.
+                        </p>
+                      </div>
+                      <span className="rounded-full border border-[var(--border-color)] bg-[var(--bg-app)] px-3 py-1 text-xs font-semibold text-[var(--text-secondary)]">
+                        {selectedUnlinkContacts.length} de {unlinkContacts.length}
+                      </span>
+                    </div>
+                    <div className="mt-4 grid gap-2">
+                      {unlinkContacts.map((contact) => (
+                        <label key={contact.id} className="flex min-h-[44px] cursor-pointer items-center gap-3 rounded-[14px] border border-[var(--border-color)] bg-[var(--bg-app)] px-3 py-2 text-sm text-[var(--text-primary)]">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(contact.selected)}
+                            disabled={readOnly}
+                            onChange={(event) => updateItemUnlinkContactSelection(assetId, contact.id, event.target.checked)}
+                            className="h-4 w-4 shrink-0 accent-[var(--accent-strong)]"
+                          />
+                          <span className="min-w-0 flex-1 truncate font-semibold">{contact.name || `Persona ${contact.id}`}</span>
+                        </label>
+                      ))}
+                    </div>
+                    {!readOnly && selectedUnlinkContacts.length === 0 ? (
+                      <p className="mt-3 text-xs font-semibold text-[var(--danger-text,#d28a8a)]">
+                        Debes seleccionar al menos una persona para desvincular este activo.
+                      </p>
+                    ) : null}
+                  </section>
+                ) : null}
 
                 {!readOnly && showChecklistSection ? (
                   <section className="relative z-0 min-w-0 mb-16 rounded-[22px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-4">

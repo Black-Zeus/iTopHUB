@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from infrastructure.db import get_db_connection
@@ -238,6 +239,7 @@ def fetch_handover_item_rows(document_id: int) -> list[dict[str, Any]]:
             asset_serial,
             asset_status,
             assigned_user_name,
+            unlink_contacts,
             notes,
             sort_order,
             created_at,
@@ -617,10 +619,11 @@ def save_handover_document(
             asset_serial,
             asset_status,
             assigned_user_name,
+            unlink_contacts,
             notes,
             sort_order
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """
     insert_item_checklist_query = """
         INSERT INTO hub_handover_item_checklists (
@@ -735,6 +738,7 @@ def save_handover_document(
                             item["asset_serial"],
                             item["asset_status"],
                             item["assigned_user_name"],
+                            json.dumps(item.get("unlink_contacts") or [], ensure_ascii=False),
                             item["notes"],
                             (item_index + 1) * 10,
                         ),

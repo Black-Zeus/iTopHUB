@@ -221,7 +221,7 @@ const HANDOVER_MODULE_VARIANTS = {
         iconName: "userSlash",
         requiresReceiver: true,
         assetSelectionMode: "modal",
-        enforceSingleAssignment: true,
+        enforceSingleAssignment: false,
       },
       {
         value: "return_to_stock",
@@ -231,7 +231,7 @@ const HANDOVER_MODULE_VARIANTS = {
         iconName: "inbox",
         requiresReceiver: true,
         assetSelectionMode: "modal",
-        enforceSingleAssignment: true,
+        enforceSingleAssignment: false,
       },
     ],
   },

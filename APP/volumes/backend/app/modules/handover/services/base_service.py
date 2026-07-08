@@ -92,8 +92,13 @@ class BaseHandoverService:
         connector: Any,
         asset_id: int,
         receiver_person_id: int,
+        item: dict[str, Any] | None = None,
     ) -> list[int]:
         del current_detail, connector, asset_id
+        helpers = _helpers()
+        selected_contact_ids = helpers._get_selected_unlink_contact_ids(item or {})
+        if selected_contact_ids:
+            return selected_contact_ids
         return [receiver_person_id] if receiver_person_id > 0 else []
 
     def handle_evidence_sync(
@@ -163,10 +168,26 @@ class BaseHandoverService:
                     contact_ids_to_unlink = sorted(
                         {
                             int(contact_id)
-                            for contact_id in self.get_contacts_to_unlink(current_detail, connector, asset_id, person_id)
+                            for contact_id in self.get_contacts_to_unlink(current_detail, connector, asset_id, person_id, item)
                             if int(contact_id) > 0
                         }
                     )
+                    assigned_contacts = helpers._load_ci_assigned_contacts(connector, asset_id)
+                    assigned_contact_ids = {
+                        int(contact.get("id") or 0)
+                        for contact in assigned_contacts
+                        if int(contact.get("id") or 0) > 0
+                    }
+                    missing_contact_ids = [
+                        contact_id
+                        for contact_id in contact_ids_to_unlink
+                        if contact_id not in assigned_contact_ids
+                    ]
+                    if missing_contact_ids:
+                        raise HTTPException(
+                            status_code=422,
+                            detail=f"El EC {asset_id} ya no esta asociado a una o mas personas seleccionadas para desvincular.",
+                        )
                     for contact_id in contact_ids_to_unlink:
                         unlink_response = connector.unlink_contact_from_ci(asset_id, contact_id)
                         if not unlink_response.ok:

@@ -83,6 +83,31 @@ function renderCatalogDropdownOptionLeading() {
   return <span className="inline-flex h-2.5 w-2.5 rounded-full bg-current opacity-70" />;
 }
 
+function normalizeAssignedContacts(asset) {
+  const seenIds = new Set();
+  return (Array.isArray(asset?.assignedUsers) ? asset.assignedUsers : [])
+    .map((person) => ({
+      id: Number(person?.id || 0),
+      name: String(person?.name || "").trim(),
+    }))
+    .filter((person) => {
+      if (!person.id || seenIds.has(person.id)) {
+        return false;
+      }
+      seenIds.add(person.id);
+      return true;
+    });
+}
+
+function buildUnlinkContactsForAsset(asset, responsible, defaultMode) {
+  const assignedContacts = normalizeAssignedContacts(asset);
+  const responsibleId = Number(responsible?.id || 0);
+  return assignedContacts.map((person) => ({
+    ...person,
+    selected: defaultMode === "all" || Number(person.id) === responsibleId,
+  }));
+}
+
 function getCatalogDropdownOptionClassName(_, isActive) {
   return isActive
     ? "border-transparent bg-[var(--accent-soft)] text-[var(--accent-strong)] shadow-[0_10px_22px_rgba(81,152,194,0.14)]"
@@ -326,7 +351,6 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
   const normalizationRequiresReceiver = activeModeConfig?.requiresReceiver ?? false;
   const normalizationRequiresTargetStatus = Boolean(activeModeConfig?.requiresTargetStatus);
   const normalizationRequiresTargetLocation = Boolean(activeModeConfig?.requiresTargetLocation);
-  const normalizationEnforceSingleAssignment = Boolean(activeModeConfig?.enforceSingleAssignment);
   const normalizationAssetSelectionMode = activeModeConfig?.assetSelectionMode || "inline";
   const isNormalizationAssignedAssetFlow = isNormalizationFlow && normalizationAssetSelectionMode === "modal";
   const effectiveIsAssignedAssetFlow = isAssignedAssetFlow || isNormalizationAssignedAssetFlow;
@@ -957,7 +981,7 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
     const restrictionMessage = isNormalizationFlow ? "" : getAssetAssignmentRestriction(asset, {
       assetSelectionMode: effectiveAssetRestrictionMode,
       receiver: resolvedAssignmentResponsible,
-      enforceSingleAssignment: isReturnFlow,
+      enforceSingleAssignment: false,
     });
     if (restrictionMessage) {
       setError(restrictionMessage);
@@ -974,6 +998,14 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
     const applicableTemplates = activeTemplates.filter((template) => (
       matchesTemplateCmdbClass(asset?.className, template.cmdbClassLabel)
     ));
+    const latestMode = String(formRef.current?.normalizationMode || "").trim();
+    const shouldCaptureUnlinkContacts = isReturnFlow || (
+      isNormalizationFlow && ["remove_from_person", "return_to_stock"].includes(latestMode)
+    );
+    const unlinkContactDefaultMode = isReturnFlow || latestMode === "return_to_stock" ? "all" : "responsible";
+    const unlinkContacts = shouldCaptureUnlinkContacts
+      ? buildUnlinkContactsForAsset(asset, resolvedAssignmentResponsible, unlinkContactDefaultMode)
+      : [];
 
     setForm((current) => {
       if ((current.items || []).some((item) => Number(item.asset?.id || 0) === Number(asset.id || 0))) {
@@ -985,6 +1017,7 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
           ...current.items,
           {
             asset,
+            unlinkContacts,
             notes: "",
             evidences: [],
             checklists: applicableTemplates.length === 1 ? [cloneTemplate(applicableTemplates[0])] : [],
@@ -1374,6 +1407,25 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
     }));
   };
 
+  const updateItemUnlinkContactSelection = (assetId, contactId, selected) => {
+    setForm((current) => ({
+      ...current,
+      items: current.items.map((item) => {
+        if (Number(item.asset?.id || 0) !== Number(assetId || 0)) {
+          return item;
+        }
+        return {
+          ...item,
+          unlinkContacts: (item.unlinkContacts || []).map((contact) => (
+            Number(contact?.id || 0) === Number(contactId || 0)
+              ? { ...contact, selected }
+              : contact
+          )),
+        };
+      }),
+    }));
+  };
+
   const addItemEvidenceFiles = (assetId, files) => {
     const incomingFiles = Array.from(files || []).filter((file) => String(file?.type || "").startsWith("image/"));
     if (!incomingFiles.length) {
@@ -1594,7 +1646,7 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
         <AssignedAssetSelectionModalContent
           responsible={resolvedResponsible}
           selectedAssetIds={selectedAssetIds}
-          enforceSingleAssignment={isReturnFlow || normalizationEnforceSingleAssignment}
+          enforceSingleAssignment={false}
           helperText={isReassignmentFlow
             ? "Esta lista se carga desde iTop solo con los activos actualmente asociados al responsable origen seleccionado."
             : "Esta lista se carga desde iTop solo con los activos actualmente asociados a este responsable."}
@@ -1666,6 +1718,20 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
         return;
       }
     }
+    const requiresUnlinkContactSelection = isReturnFlow || (
+      isNormalizationFlow && ["remove_from_person", "return_to_stock"].includes(String(form.normalizationMode || "").trim())
+    );
+    if (requiresUnlinkContactSelection) {
+      const invalidUnlinkItem = (form.items || []).find((item) => {
+        const contacts = Array.isArray(item.unlinkContacts) ? item.unlinkContacts : [];
+        return contacts.length > 0 && !contacts.some((contact) => Boolean(contact?.selected));
+      });
+      if (invalidUnlinkItem) {
+        const assetLabel = invalidUnlinkItem.asset?.name || invalidUnlinkItem.asset?.code || "seleccionado";
+        setError(`Selecciona al menos una persona a desvincular para el activo ${assetLabel}.`);
+        return;
+      }
+    }
 
     setSaving(true);
 
@@ -1692,14 +1758,14 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
       const invalidAsset = form.items.find((item) => getAssetAssignmentRestriction(item.asset, {
         assetSelectionMode: effectiveAssetRestrictionMode,
         receiver: isReassignmentFlow ? sourceResponsible : form.receiver,
-        enforceSingleAssignment: isReturnFlow,
+        enforceSingleAssignment: false,
       }));
       if (invalidAsset) {
         setSaving(false);
         setError(getAssetAssignmentRestriction(invalidAsset.asset, {
           assetSelectionMode: effectiveAssetRestrictionMode,
           receiver: isReassignmentFlow ? sourceResponsible : form.receiver,
-          enforceSingleAssignment: isReturnFlow,
+          enforceSingleAssignment: false,
         }));
         return;
       }
@@ -1885,6 +1951,7 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
             addAssetToForm={addAssetToForm}
             requestRemoveAssetFromForm={requestRemoveAssetFromForm}
             updateItemNotes={updateItemNotes}
+            updateItemUnlinkContactSelection={updateItemUnlinkContactSelection}
             addChecklistToAsset={addChecklistToAsset}
             requestRemoveChecklistFromAsset={requestRemoveChecklistFromAsset}
             updateChecklistAnswer={updateChecklistAnswer}
@@ -1937,7 +2004,8 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
             assetSelectorHelper={moduleConfig.assetSelectorHelper}
             assetSelectorButtonLabel={moduleConfig.assetSelectorButtonLabel}
             assetAssignmentResponsible={isReassignmentFlow ? sourceResponsible : form.receiver}
-            enforceSingleAssignment={isReturnFlow || normalizationEnforceSingleAssignment}
+            enforceSingleAssignment={false}
+            showUnlinkContactSelection={isReturnFlow || (isNormalizationFlow && ["remove_from_person", "return_to_stock"].includes(String(form.normalizationMode || "").trim()))}
             onOpenAssetSelector={effectiveIsAssignedAssetFlow ? openAssignedAssetSelector : null}
             assetLayoutMode={isNormalizationFlow ? "grouped" : isReassignmentFlow ? "grid" : "stacked"}
             showReceiverSection={isNormalizationFlow ? Boolean(form.normalizationMode) : true}

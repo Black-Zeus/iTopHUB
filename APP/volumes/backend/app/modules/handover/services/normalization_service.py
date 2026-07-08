@@ -262,14 +262,45 @@ class NormalizationHandoverService(BaseHandoverService):
                         person_id = int(receiver.get("id") or 0)
                     except (TypeError, ValueError):
                         person_id = 0
-                    if person_id > 0:
-                        unlink_response = connector.unlink_contact_from_ci(asset_id, person_id)
+                    selected_contact_ids = helpers._get_selected_unlink_contact_ids(item)
+                    if selected_contact_ids:
+                        contact_ids_to_unlink = sorted(set(selected_contact_ids))
+                    elif mode == "return_to_stock":
+                        contact_ids_to_unlink = sorted(
+                            {
+                                int(contact.get("id") or 0)
+                                for contact in helpers._load_ci_assigned_contacts(connector, asset_id)
+                                if int(contact.get("id") or 0) > 0
+                            }
+                        )
+                    else:
+                        contact_ids_to_unlink = [person_id] if person_id > 0 else []
+
+                    assigned_contacts = helpers._load_ci_assigned_contacts(connector, asset_id)
+                    assigned_contact_ids = {
+                        int(contact.get("id") or 0)
+                        for contact in assigned_contacts
+                        if int(contact.get("id") or 0) > 0
+                    }
+                    missing_contact_ids = [
+                        contact_id
+                        for contact_id in contact_ids_to_unlink
+                        if contact_id not in assigned_contact_ids
+                    ]
+                    if missing_contact_ids:
+                        raise HTTPException(
+                            status_code=422,
+                            detail=f"El EC {asset_id} ya no esta asociado a una o mas personas seleccionadas para desvincular.",
+                        )
+
+                    for contact_id in contact_ids_to_unlink:
+                        unlink_response = connector.unlink_contact_from_ci(asset_id, contact_id)
                         if not unlink_response.ok:
                             raise HTTPException(
                                 status_code=502,
                                 detail=f"No fue posible remover el EC {asset_id} de la persona: {unlink_response.message}",
                             )
-                        asset_result["contactUnlinked"] = True
+                    asset_result["contactUnlinked"] = bool(contact_ids_to_unlink)
                     if mode == "return_to_stock":
                         status_response = connector.update_ci_status(
                             asset_class,

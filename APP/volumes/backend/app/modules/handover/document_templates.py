@@ -77,6 +77,18 @@ def _build_asset_display_name(asset: dict[str, Any]) -> str:
     return _coerce_str(asset.get("name") or asset.get("code"), "Activo sin identificar")
 
 
+def _format_unlink_contact_names(item: dict[str, Any]) -> str:
+    contacts = item.get("unlinkContacts") or []
+    if not isinstance(contacts, list):
+        return ""
+    names = [
+        _coerce_str(contact.get("name")) or f"Persona {_coerce_str(contact.get('id'))}"
+        for contact in contacts
+        if isinstance(contact, dict) and bool(contact.get("selected"))
+    ]
+    return _join_non_empty(names, ", ")
+
+
 def _format_check_answer_value(answer: dict[str, Any]) -> str:
     answer_type = _coerce_str(answer.get("type"))
     value = answer.get("value")
@@ -1219,6 +1231,9 @@ def _build_return_detail_html(detail: dict[str, Any], type_definition: Any) -> t
                 ("Estado", _coerce_str(itop_detail.get("status")) or _coerce_str(asset.get("status"))),
                 ("Asignado a", _coerce_str(asset.get("assignedUser"))),
             ]
+        unlink_contact_names = _format_unlink_contact_names(item)
+        if unlink_contact_names:
+            specification_rows.append(("A desvincular", unlink_contact_names))
         specification_html = "".join(
             f"<tr><td class=\"label-cell\">{_escape(label)}</td><td>{_escape(value)}</td></tr>"
             for label, value in specification_rows
@@ -1463,6 +1478,9 @@ def _build_delivery_detail_html(detail: dict[str, Any], type_definition: Any) ->
                 ("Estado", _coerce_str(itop_detail.get("status")) or _coerce_str(asset.get("status"))),
                 ("Asignado a", _coerce_str(asset.get("assignedUser"))),
             ]
+        unlink_contact_names = _format_unlink_contact_names(item)
+        if unlink_contact_names:
+            specification_rows.append(("A desvincular", unlink_contact_names))
         specification_html = "".join(
             f"<tr><td class=\"label-cell\">{_escape(label)}</td><td>{_escape(value)}</td></tr>"
             for label, value in specification_rows

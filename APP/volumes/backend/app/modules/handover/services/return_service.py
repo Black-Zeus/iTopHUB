@@ -40,9 +40,13 @@ class ReturnHandoverService(AssignedReceiverHandoverService):
         connector: Any,
         asset_id: int,
         receiver_person_id: int,
+        item: dict[str, Any] | None = None,
     ) -> list[int]:
         del current_detail, receiver_person_id
         helpers = _helpers()
+        selected_contact_ids = helpers._get_selected_unlink_contact_ids(item or {})
+        if selected_contact_ids:
+            return selected_contact_ids
         assigned_contacts = helpers._load_ci_assigned_contacts(connector, asset_id)
         return [
             int(contact.get("id") or 0)

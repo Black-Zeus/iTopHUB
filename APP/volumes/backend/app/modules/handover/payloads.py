@@ -604,6 +604,7 @@ def build_item_payloads_from_detail(detail_items: list[dict[str, Any]]) -> list[
                 "asset_serial": coerce_str(asset.get("serial")) or None,
                 "asset_status": coerce_str(asset.get("status")) or None,
                 "assigned_user_name": coerce_str(asset.get("assignedUser")) or None,
+                "unlink_contacts": item.get("unlinkContacts") if isinstance(item.get("unlinkContacts"), list) else [],
                 "notes": coerce_str(item.get("notes")) or None,
                 "evidences": evidences,
                 "checklists": checklists,

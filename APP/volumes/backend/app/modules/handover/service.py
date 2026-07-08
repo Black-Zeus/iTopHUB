@@ -1194,6 +1194,7 @@ def get_handover_document_detail(document_id: int) -> dict[str, Any]:
                 "status": row.get("asset_status") or "",
                 "assignedUser": row.get("assigned_user_name") or "",
             },
+            "unlinkContacts": _normalize_unlink_contacts_payload(row.get("unlink_contacts")),
             "notes": row.get("notes") or "",
             "evidences": [],
             "checklists": [],
@@ -1570,6 +1571,46 @@ def _load_ci_assigned_contacts(connector: iTopCMDBConnector, asset_id: int) -> l
     return normalized
 
 
+def _normalize_unlink_contacts_payload(value: Any) -> list[dict[str, Any]]:
+    if isinstance(value, str):
+        try:
+            value = json.loads(value) if value.strip() else []
+        except (TypeError, ValueError):
+            value = []
+    if not isinstance(value, list):
+        return []
+
+    normalized: list[dict[str, Any]] = []
+    seen_ids: set[int] = set()
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        try:
+            contact_id = int(item.get("id") or 0)
+        except (TypeError, ValueError):
+            contact_id = 0
+        if contact_id <= 0 or contact_id in seen_ids:
+            continue
+        seen_ids.add(contact_id)
+        normalized.append(
+            {
+                "id": contact_id,
+                "name": _coerce_str(item.get("name")) or f"Persona {contact_id}",
+                "selected": bool(item.get("selected")),
+            }
+        )
+    return normalized
+
+
+def _get_selected_unlink_contact_ids(item: dict[str, Any]) -> list[int]:
+    contacts = _normalize_unlink_contacts_payload(item.get("unlinkContacts") or item.get("unlink_contacts"))
+    return [
+        int(contact["id"])
+        for contact in contacts
+        if int(contact.get("id") or 0) > 0 and bool(contact.get("selected"))
+    ]
+
+
 def _is_ci_assigned_to_contact(connector: iTopCMDBConnector, asset_id: int, contact_id: int) -> bool:
     if asset_id <= 0 or contact_id <= 0:
         return False
@@ -1585,7 +1626,8 @@ def _is_ci_assigned_to_contact(connector: iTopCMDBConnector, asset_id: int, cont
 
 
 def _requires_exclusive_receiver_assignment(type_definition: Any) -> bool:
-    return _coerce_str(getattr(type_definition, "code", "")).lower() == "return"
+    del type_definition
+    return False
 
 
 def _validate_ci_receiver_alignment(
@@ -3045,6 +3087,7 @@ def _normalize_items(
                 "asset_serial": _coerce_str(asset.get("serial")),
                 "asset_status": _coerce_str(asset.get("status")),
                 "assigned_user_name": _coerce_str(asset.get("assignedUser")),
+                "unlink_contacts": _normalize_unlink_contacts_payload(item.get("unlinkContacts") or item.get("unlink_contacts")),
                 "notes": _coerce_str(item.get("notes")),
                 "evidences": normalized_evidences,
                 "checklists": normalized_checklists,
