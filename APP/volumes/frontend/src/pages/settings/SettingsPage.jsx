@@ -125,6 +125,16 @@ const REQUIREMENT_INITIAL_STATUS_OPTIONS = [
   { value: "created", label: "Creado" },
 ];
 
+const REQUIREMENT_FINAL_STATUS_OPTIONS = [
+  { value: "open", label: "Abierto" },
+  { value: "closed", label: "Cerrado" },
+];
+
+const REQUIREMENT_TICKET_CLASS_REQUEST_TYPE = {
+  UserRequest: "service_request",
+  Incident: "incident",
+};
+
 const EMPTY_TASK = {
   schedule: "",
   description: "",
@@ -947,32 +957,58 @@ export function SettingsPage() {
     ),
     [drafts.docs?.requirementOrigin, loadingRequirementCatalog, requirementCatalog.origins]
   );
+  const requirementFilteredServiceCatalog = useMemo(() => {
+    const requestType = REQUIREMENT_TICKET_CLASS_REQUEST_TYPE[drafts.docs?.requirementTicketClass];
+    if (!requestType) return [];
+    const eligibleServiceIds = new Set(
+      requirementCatalog.serviceSubcategories
+        .filter((item) => item.requestType === requestType)
+        .map((item) => `${item.serviceId || ""}`.trim())
+        .filter(Boolean)
+    );
+    return requirementCatalog.services.filter((item) => eligibleServiceIds.has(`${item.value || ""}`.trim()));
+  }, [drafts.docs?.requirementTicketClass, requirementCatalog.services, requirementCatalog.serviceSubcategories]);
   const requirementServiceOptions = useMemo(
     () => buildSelectOptions(
-      requirementCatalog.services,
-      loadingRequirementCatalog ? "Cargando categorias..." : "Selecciona categoria",
-      drafts.docs?.requirementServiceId || "",
-      drafts.docs?.requirementServiceId || ""
+      requirementFilteredServiceCatalog,
+      loadingRequirementCatalog
+        ? "Cargando categorias..."
+        : !REQUIREMENT_TICKET_CLASS_REQUEST_TYPE[drafts.docs?.requirementTicketClass]
+          ? "No aplica para esta clase de ticket"
+          : "Selecciona categoria",
+      loadingRequirementCatalog ? "" : drafts.docs?.requirementServiceId || "",
+      loadingRequirementCatalog ? "" : drafts.docs?.requirementServiceId || ""
     ),
-    [drafts.docs?.requirementServiceId, loadingRequirementCatalog, requirementCatalog.services]
+    [drafts.docs?.requirementServiceId, drafts.docs?.requirementTicketClass, loadingRequirementCatalog, requirementFilteredServiceCatalog]
   );
   const requirementFilteredSubcategoryCatalog = useMemo(() => {
     const selectedServiceId = `${drafts.docs?.requirementServiceId || ""}`.trim();
-    if (!selectedServiceId) return [];
-    return requirementCatalog.serviceSubcategories.filter((item) => `${item.serviceId || ""}`.trim() === selectedServiceId);
-  }, [drafts.docs?.requirementServiceId, requirementCatalog.serviceSubcategories]);
+    const requestType = REQUIREMENT_TICKET_CLASS_REQUEST_TYPE[drafts.docs?.requirementTicketClass];
+    if (!selectedServiceId || !requestType) return [];
+    return requirementCatalog.serviceSubcategories.filter(
+      (item) => `${item.serviceId || ""}`.trim() === selectedServiceId && item.requestType === requestType
+    );
+  }, [drafts.docs?.requirementServiceId, drafts.docs?.requirementTicketClass, requirementCatalog.serviceSubcategories]);
   const requirementSubcategoryOptions = useMemo(
     () => buildSelectOptions(
       requirementFilteredSubcategoryCatalog,
       loadingRequirementCatalog
         ? "Cargando subcategorias..."
-        : drafts.docs?.requirementServiceId
-          ? "Selecciona subcategoria"
-          : "Selecciona categoria primero",
-      drafts.docs?.requirementServiceSubcategoryId || "",
-      drafts.docs?.requirementServiceSubcategoryId || ""
+        : !REQUIREMENT_TICKET_CLASS_REQUEST_TYPE[drafts.docs?.requirementTicketClass]
+          ? "No aplica para esta clase de ticket"
+          : drafts.docs?.requirementServiceId
+            ? "Selecciona subcategoria"
+            : "Selecciona categoria primero",
+      loadingRequirementCatalog ? "" : drafts.docs?.requirementServiceSubcategoryId || "",
+      loadingRequirementCatalog ? "" : drafts.docs?.requirementServiceSubcategoryId || ""
     ),
-    [drafts.docs?.requirementServiceId, drafts.docs?.requirementServiceSubcategoryId, loadingRequirementCatalog, requirementFilteredSubcategoryCatalog]
+    [
+      drafts.docs?.requirementServiceId,
+      drafts.docs?.requirementServiceSubcategoryId,
+      drafts.docs?.requirementTicketClass,
+      loadingRequirementCatalog,
+      requirementFilteredSubcategoryCatalog,
+    ]
   );
   const requirementImpactOptions = useMemo(
     () => buildSelectOptions(
@@ -1010,6 +1046,10 @@ export function SettingsPage() {
     setDrafts((current) => {
       const nextPanel = { ...(current[panelId] || {}), [field]: value };
       if (panelId === "docs" && field === "requirementServiceId" && !options.preserveRequirementSubcategory) {
+        nextPanel.requirementServiceSubcategoryId = "";
+      }
+      if (panelId === "docs" && field === "requirementTicketClass") {
+        nextPanel.requirementServiceId = "";
         nextPanel.requirementServiceSubcategoryId = "";
       }
       if (panelId === "docs" && (field === "itopDocumentTypeStrategy" || field === "itopDocumentTypeBaseName")) {
@@ -2408,29 +2448,39 @@ export function SettingsPage() {
                     </div>
                   </div>
                   <div className="mt-4 grid gap-4">
-                    <Field
-                      label="Nombre organizacion iTop"
-                      value={resolvedRequirementOrganizationId}
-                      onChange={(e) => {
-                        const selectedId = e.target.value;
-                        const selectedOrganization = requirementCatalog.organizations.find((item) => `${item.value}`.trim() === selectedId);
-                        updateField("organization", "itopOrganizationId", selectedId);
-                        updateField("organization", "itopOrganizationName", selectedOrganization?.label || "");
-                      }}
-                      options={requirementOrganizationOptions}
-                    />
-                    <Field
-                      label="Clase de ticket"
-                      value={drafts.docs?.requirementTicketClass || "UserRequest"}
-                      onChange={(e) => updateField("docs", "requirementTicketClass", e.target.value)}
-                      options={REQUIREMENT_TICKET_CLASS_OPTIONS}
-                    />
-                    <Field
-                      label="Estado inicial"
-                      value={drafts.docs?.requirementInitialStatus || "assigned"}
-                      onChange={(e) => updateField("docs", "requirementInitialStatus", e.target.value)}
-                      options={REQUIREMENT_INITIAL_STATUS_OPTIONS}
-                    />
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <Field
+                        label="Nombre organizacion iTop"
+                        value={resolvedRequirementOrganizationId}
+                        onChange={(e) => {
+                          const selectedId = e.target.value;
+                          const selectedOrganization = requirementCatalog.organizations.find((item) => `${item.value}`.trim() === selectedId);
+                          updateField("organization", "itopOrganizationId", selectedId);
+                          updateField("organization", "itopOrganizationName", selectedOrganization?.label || "");
+                        }}
+                        options={requirementOrganizationOptions}
+                      />
+                      <Field
+                        label="Clase de ticket"
+                        value={drafts.docs?.requirementTicketClass || "UserRequest"}
+                        onChange={(e) => updateField("docs", "requirementTicketClass", e.target.value)}
+                        options={REQUIREMENT_TICKET_CLASS_OPTIONS}
+                      />
+                    </div>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <Field
+                        label="Estado inicial"
+                        value={drafts.docs?.requirementInitialStatus || "assigned"}
+                        onChange={(e) => updateField("docs", "requirementInitialStatus", e.target.value)}
+                        options={REQUIREMENT_INITIAL_STATUS_OPTIONS}
+                      />
+                      <Field
+                        label="Estado Final"
+                        value={drafts.docs?.requirementFinalStatus || "open"}
+                        onChange={(e) => updateField("docs", "requirementFinalStatus", e.target.value)}
+                        options={REQUIREMENT_FINAL_STATUS_OPTIONS}
+                      />
+                    </div>
                   </div>
                 </div>
 
@@ -2452,13 +2502,14 @@ export function SettingsPage() {
                       value={drafts.docs?.requirementServiceId || ""}
                       onChange={(e) => updateField("docs", "requirementServiceId", e.target.value)}
                       options={requirementServiceOptions}
+                      disabled={loadingRequirementCatalog}
                     />
                     <Field
                       label="SubCategoria"
                       value={drafts.docs?.requirementServiceSubcategoryId || ""}
                       onChange={(e) => updateField("docs", "requirementServiceSubcategoryId", e.target.value)}
                       options={requirementSubcategoryOptions}
-                      disabled={!drafts.docs?.requirementServiceId}
+                      disabled={loadingRequirementCatalog || !drafts.docs?.requirementServiceId}
                     />
                   </div>
                 </div>

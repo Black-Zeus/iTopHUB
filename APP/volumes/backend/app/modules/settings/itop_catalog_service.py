@@ -117,7 +117,7 @@ def _list_services(connector: iTopCMDBConnector) -> list[dict[str, Any]]:
 def _list_service_subcategories(connector: iTopCMDBConnector) -> list[dict[str, Any]]:
     response = connector.oql(
         "SELECT ServiceSubcategory",
-        output_fields="id,name,friendlyname,status,service_id,service_id_friendlyname",
+        output_fields="id,name,friendlyname,status,service_id,service_id_friendlyname,request_type",
     )
     options: list[dict[str, Any]] = []
     for item in response:
@@ -129,6 +129,7 @@ def _list_service_subcategories(connector: iTopCMDBConnector) -> list[dict[str, 
             item.get("friendlyname") or item.get("name"),
             serviceId=service_id,
             serviceName=_normalize_space(item.get("service_id_friendlyname")),
+            requestType=str(item.get("request_type") or "").strip().lower(),
             status=str(item.get("status") or "").strip().lower(),
         )
         if option:
