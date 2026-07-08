@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 ASSET_CATALOG_CACHE_TTL_SECONDS = 300
 ASSET_CATALOG_OUTPUT_FIELDS = (
-    "id,name,friendlyname,finalclass,status,type,"
+    "id,name,friendlyname,finalclass,status,"
     "brand_id_friendlyname,brand_name,model_id_friendlyname,model_name"
 )
 _asset_catalog_cache: dict[str, tuple[float, dict[str, list[dict[str, object]]]]] = {}
@@ -36,11 +36,11 @@ CMDB_TYPE_RULES: dict[str, dict[str, set[str]]] = {
     },
     "Tableta (Tablet)": {
         "classes": {"tablet"},
-        "types": {"tablet"},
+        "types": set(),
     },
     "Celular (MobilePhone)": {
         "classes": {"mobilephone", "phone"},
-        "types": {"phone", "mobile phone", "mobile_phone", "cell phone", "smartphone"},
+        "types": set(),
     },
     "Impresora (Printer)": {
         "classes": {"printer"},
@@ -202,6 +202,7 @@ def _matches_asset_query(item, query: str) -> bool:
 def _build_asset_row(item, enabled_labels: list[str], assigned_contacts: list[dict[str, str | int]] | None = None) -> dict[str, str | int | list[dict[str, str | int]]]:
     label = _resolve_asset_type_label(item, enabled_labels)
     asset_number = _normalize_space(item.get("asset_number"))
+    serial_number = _normalize_space(item.get("serialnumber")) or _normalize_space(item.get("imei"))
     warranty_end = _normalize_space(item.get("end_of_warranty"))
     contact_items = assigned_contacts or []
     normalized_assigned_user = ", ".join(
@@ -228,7 +229,7 @@ def _build_asset_row(item, enabled_labels: list[str], assigned_contacts: list[di
             ]
             if part
         ),
-        "serial": _normalize_space(item.get("serialnumber")),
+        "serial": serial_number,
         "organization": _normalize_space(item.get("org_id_friendlyname") or item.get("organization_name")),
         "location": _normalize_space(item.get("location_id_friendlyname") or item.get("location_name")),
         "assignedUser": normalized_assigned_user or "Sin asignar",
@@ -616,7 +617,7 @@ def list_itop_asset_catalog(runtime_token: str) -> dict[str, list[dict[str, obje
         )
         asset_items = []
         for query_class in _iter_query_classes(enabled_labels):
-            query_items = connector.oql(f"SELECT {query_class}", output_fields=ASSET_CATALOG_OUTPUT_FIELDS)
+            query_items = connector.oql(f"SELECT {query_class}", output_fields=_asset_output_fields_for_class(query_class))
             asset_items.extend(query_items)
         brand_index = {
             int(item.id): {
@@ -725,23 +726,37 @@ def _load_asset_summary(connector: iTopCMDBConnector, item):
     detailed_item = connector.get_ci(
         ci_class,
         item.id,
-        output_fields=(
-            "id,name,friendlyname,finalclass,status,asset_number,serialnumber,"
-            "type,"
-            "brand_id_friendlyname,brand_name,model_id_friendlyname,model_name,"
-            "org_id_friendlyname,organization_name,location_id_friendlyname,location_name"
-        ),
+        output_fields=_asset_output_fields_for_class(ci_class),
     )
     return detailed_item or item
 
 
 ASSET_SEARCH_OUTPUT_FIELDS = (
     "id,name,friendlyname,finalclass,status,asset_number,serialnumber,"
-    "type,"
     "brand_id_friendlyname,brand_name,model_id_friendlyname,model_name,"
     "org_id_friendlyname,organization_name,location_id_friendlyname,location_name,"
     "end_of_warranty"
 )
+
+ASSET_SEARCH_OUTPUT_FIELDS_BY_CLASS = {
+    "PC": (
+        "id,name,friendlyname,finalclass,status,asset_number,serialnumber,"
+        "type,"
+        "brand_id_friendlyname,brand_name,model_id_friendlyname,model_name,"
+        "org_id_friendlyname,organization_name,location_id_friendlyname,location_name,"
+        "end_of_warranty"
+    ),
+    "MobilePhone": (
+        "id,name,friendlyname,finalclass,status,asset_number,serialnumber,"
+        "brand_id_friendlyname,brand_name,model_id_friendlyname,model_name,"
+        "org_id_friendlyname,organization_name,location_id_friendlyname,location_name,"
+        "end_of_warranty,phonenumber,imei,hw_pin"
+    ),
+}
+
+
+def _asset_output_fields_for_class(query_class: str) -> str:
+    return ASSET_SEARCH_OUTPUT_FIELDS_BY_CLASS.get(query_class, ASSET_SEARCH_OUTPUT_FIELDS)
 
 
 def _iter_query_classes(enabled_labels: list[str]) -> list[str]:
@@ -778,7 +793,11 @@ def _load_assets_by_ids(connector: iTopCMDBConnector, asset_ids: list[int]) -> l
             if not base_item:
                 continue
             ci_class = _normalize_space(base_item.get("finalclass") or base_item.itop_class) or "FunctionalCI"
-            item = connector.get_ci(ci_class, asset_id, output_fields=ASSET_SEARCH_OUTPUT_FIELDS)
+            item = connector.get_ci(ci_class, asset_id, output_fields=_asset_output_fields_for_class(ci_class))
+            if item and not _normalize_space(item.get("name") or item.get("friendlyname")):
+                detailed_item = connector.get_ci(ci_class, asset_id, output_fields="*")
+                if detailed_item:
+                    item = detailed_item
             items.append(item or base_item)
         except Exception:
             logger.warning(
@@ -810,6 +829,8 @@ def _search_assets_by_person(
         item
         for item in enriched_items
         if (
+            _matches_enabled_asset_types(item, enabled_labels)
+            and
             _matches_asset_query(item, normalized_query)
             and is_visible_ci_status(item.get("status"), show_obsolete_assets, show_implementation_assets)
         )
@@ -852,9 +873,8 @@ def search_itop_assets(
 
     try:
         if assigned_person_id:
-            # Fast path: use OQL JOIN to fetch only assets assigned to this person.
-            # Queries all known CMDB classes (ignores enabledAssetTypes filter) so that
-            # peripherals, monitors, docking stations, etc. are always included.
+            # Fast path: use the canonical iTop relation and then apply the same
+            # enabledAssetTypes/status/query filters used by the global asset search.
             person_id_int = int(assigned_person_id)
             filtered_items = _search_assets_by_person(
                 connector,
@@ -883,14 +903,14 @@ def search_itop_assets(
                 conditions = _build_asset_query_conditions(normalized_query)
                 if conditions:
                     oql = f"{oql} WHERE {' AND '.join(conditions)}"
-            query_items = connector.oql(oql, output_fields=ASSET_SEARCH_OUTPUT_FIELDS)
+            query_items = connector.oql(oql, output_fields=_asset_output_fields_for_class(query_class))
             enriched_items.extend(query_items)
 
         if normalized_query and not enriched_items:
             # Fallback for iTop instances where per-class OQL filtering can behave more strictly
             # than expected for some fields. We retry with a broad class fetch and backend filtering.
             for query_class in _iter_query_classes(enabled_labels):
-                query_items = connector.oql(f"SELECT {query_class}", output_fields=ASSET_SEARCH_OUTPUT_FIELDS)
+                query_items = connector.oql(f"SELECT {query_class}", output_fields=_asset_output_fields_for_class(query_class))
                 enriched_items.extend(query_items)
 
         filtered_items = [
