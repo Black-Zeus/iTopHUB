@@ -1540,7 +1540,7 @@ export function SettingsPage() {
               <p className="text-sm font-semibold text-[var(--text-primary)]">Sesion y token runtime</p>
               <div className="mt-4 grid gap-4 md:grid-cols-3">
                 <Field label="Vigencia sesion iTop-Hub (min)" type="number" value={drafts.itop?.sessionTtlMinutes || 240} onChange={(e) => updateField("itop", "sessionTtlMinutes", e.target.value)} />
-                <Field label="Vigencia token desofuscado (min)" type="number" value={drafts.itop?.runtimeTokenTtlMinutes || 60} onChange={(e) => updateField("itop", "runtimeTokenTtlMinutes", e.target.value)} />
+                <Field label="Vigencia token desofuscado (min)" type="number" value={drafts.itop?.runtimeTokenTtlMinutes || 240} onChange={(e) => updateField("itop", "runtimeTokenTtlMinutes", e.target.value)} />
                 <Field label="Aviso previo expiracion (min)" type="number" value={drafts.itop?.sessionWarningMinutes || 1} onChange={(e) => updateField("itop", "sessionWarningMinutes", e.target.value)} />
               </div>
             </div>

@@ -88,7 +88,7 @@ PANEL_DEFAULTS: dict[str, dict[str, Any]] = {
         "timeoutSeconds": 30,
         "verifySsl": True,
         "sessionTtlMinutes": 240,
-        "runtimeTokenTtlMinutes": 60,
+        "runtimeTokenTtlMinutes": 240,
         "sessionWarningMinutes": 1,
     },
     "pdq": {
@@ -344,7 +344,7 @@ def normalize_panel_config(panel_code: str, config: dict[str, Any]) -> dict[str,
             "timeoutSeconds": _coerce_int(merged.get("timeoutSeconds"), 30),
             "verifySsl": _coerce_bool(merged.get("verifySsl"), True),
             "sessionTtlMinutes": max(1, _coerce_int(merged.get("sessionTtlMinutes"), 240)),
-            "runtimeTokenTtlMinutes": max(1, _coerce_int(merged.get("runtimeTokenTtlMinutes"), 60)),
+            "runtimeTokenTtlMinutes": max(1, _coerce_int(merged.get("runtimeTokenTtlMinutes"), 240)),
             "sessionWarningMinutes": max(1, _coerce_int(merged.get("sessionWarningMinutes"), 1)),
         }
 
