@@ -337,6 +337,7 @@ export async function searchHandoverPeople({ query = "" } = {}) {
     phone: item.phone,
     role: item.role,
     status: item.status,
+    employeeNumber: item.employeeNumber,
   }));
 }
 
