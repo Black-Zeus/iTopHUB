@@ -167,6 +167,7 @@ PANEL_DEFAULTS: dict[str, dict[str, Any]] = {
         "itopDocumentTypeStrategy": "single",
         "itopDocumentTypeBaseName": DEFAULT_DOCUMENT_TYPE_BASE_NAME,
         "itopDocumentTypeIds": {},
+        "attachHandoverDocumentsToAssets": False,
         "handoverFooterNote": (
             "El firmante declara haber recibido los activos detallados en la presente acta, en la fecha indicada, "
             "aceptando su asignacion conforme a la informacion registrada. La revision tecnica y de preparacion "
