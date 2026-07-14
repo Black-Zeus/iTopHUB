@@ -12,6 +12,37 @@ export class ApiError extends Error {
 
 let tokenRevalidationHandler = null;
 let sessionExpiredHandler = null;
+const inFlightGetRequests = new Map();
+const cachedGetResponses = new Map();
+
+const CACHEABLE_GET_PATTERNS = [
+  /^\/v1\/handover\/bootstrap(?:\?|$)/,
+  /^\/v1\/lab\/bootstrap(?:\?|$)/,
+  /^\/v1\/settings(?:\/|\?|$)/,
+  /^\/v1\/itop\/settings\/requirement-catalog(?:\?|$)/,
+  /^\/v1\/itop\/ticket\/defaults(?:\?|$)/,
+  /^\/v1\/itop\/me\/teams(?:\?|$)/,
+  /^\/v1\/itop\/assets\/catalog(?:\?|$)/,
+];
+
+function isGetRequest(fetchOptions) {
+  return String(fetchOptions.method || "GET").toUpperCase() === "GET" && !fetchOptions.body;
+}
+
+function getDefaultCacheTtl(path) {
+  return CACHEABLE_GET_PATTERNS.some((pattern) => pattern.test(path)) ? 30_000 : 0;
+}
+
+function buildGetCacheKey(path, fetchOptions) {
+  const headers = fetchOptions.headers || {};
+  const headerEntries = headers instanceof Headers
+    ? Array.from(headers.entries())
+    : Object.entries(headers);
+  const stableHeaders = headerEntries
+    .map(([key, value]) => [String(key).toLowerCase(), String(value)])
+    .sort(([left], [right]) => left.localeCompare(right));
+  return JSON.stringify([path, stableHeaders]);
+}
 
 function looksLikeHtml(value) {
   const text = String(value || "").trim();
@@ -64,8 +95,28 @@ export async function apiRequest(path, options = {}) {
   const {
     fallbackMessage = "No fue posible completar la solicitud.",
     retryOnRevalidate = false,
+    dedupe = true,
+    cacheTtlMs,
     ...fetchOptions
   } = options;
+  const canUseGetCache = isGetRequest(fetchOptions);
+  const requestCacheTtl = Number.isFinite(cacheTtlMs) ? Math.max(0, cacheTtlMs) : getDefaultCacheTtl(path);
+  const cacheKey = canUseGetCache ? buildGetCacheKey(path, fetchOptions) : "";
+
+  if (canUseGetCache && requestCacheTtl > 0) {
+    const cached = cachedGetResponses.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.value;
+    }
+    if (cached) {
+      cachedGetResponses.delete(cacheKey);
+    }
+  }
+
+  if (canUseGetCache && dedupe && inFlightGetRequests.has(cacheKey)) {
+    return inFlightGetRequests.get(cacheKey);
+  }
+
   const isFormDataBody = typeof FormData !== "undefined" && fetchOptions.body instanceof FormData;
   const requestHeaders = {
     Accept: "application/json",
@@ -73,14 +124,29 @@ export async function apiRequest(path, options = {}) {
     ...(fetchOptions.headers || {}),
   };
 
-  try {
+  const requestPromise = (async () => {
     const response = await fetch(`${API_BASE_URL}${path}`, {
       credentials: "include",
       headers: requestHeaders,
       ...fetchOptions,
     });
 
-    return await parseResponse(response, fallbackMessage);
+    const payload = await parseResponse(response, fallbackMessage);
+    if (canUseGetCache && requestCacheTtl > 0) {
+      cachedGetResponses.set(cacheKey, {
+        value: payload,
+        expiresAt: Date.now() + requestCacheTtl,
+      });
+    }
+    return payload;
+  })();
+
+  if (canUseGetCache && dedupe) {
+    inFlightGetRequests.set(cacheKey, requestPromise);
+  }
+
+  try {
+    return await requestPromise;
   } catch (error) {
     if (!(error instanceof ApiError)) {
       throw error;
@@ -98,9 +164,20 @@ export async function apiRequest(path, options = {}) {
         ...fetchOptions,
       });
 
-      return parseResponse(retryResponse, fallbackMessage);
+      const payload = await parseResponse(retryResponse, fallbackMessage);
+      if (canUseGetCache && requestCacheTtl > 0) {
+        cachedGetResponses.set(cacheKey, {
+          value: payload,
+          expiresAt: Date.now() + requestCacheTtl,
+        });
+      }
+      return payload;
     }
 
     throw error;
+  } finally {
+    if (canUseGetCache && dedupe) {
+      inFlightGetRequests.delete(cacheKey);
+    }
   }
 }
