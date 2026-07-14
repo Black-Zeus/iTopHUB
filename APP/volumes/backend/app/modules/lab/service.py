@@ -1044,20 +1044,10 @@ def _assert_can_open_signature(record: dict[str, Any], workflow_kind: str, phase
             raise HTTPException(status_code=422, detail="La aprobación administrativa no está disponible en el estado actual del acta.")
         return
 
-    if not _get_phase_document(record, phase_key):
-        raise HTTPException(status_code=422, detail="Debes generar el PDF de esta fase antes de solicitar la firma QR.")
-    if not state["requiresSignature"]:
-        raise HTTPException(status_code=422, detail="La firma QR está deshabilitada para este flujo.")
-    existing_status = resolve_phase_signature_status(record, phase_key)
-    if existing_status in {"pending", "claimed", "signed", "published"}:
-        return
-    expected_status = {
-        "entry": "pending_entry_signature",
-        "processing": "pending_processing_signature",
-        "exit": "pending_exit_signature",
-    }.get(phase_key)
-    if state["statusDb"] != expected_status:
-        raise HTTPException(status_code=422, detail="La firma QR solo está disponible para la fase activa pendiente de firma.")
+    # La firma QR por fase (entrada/procesamiento/salida) fue retirada del flujo de
+    # Laboratorio: solo la aprobacion administrativa (workflow_kind="admin") para
+    # cierres marcados como obsoletos sigue vigente (ver rama anterior).
+    raise HTTPException(status_code=422, detail="La firma QR por fase ya no está disponible en Laboratorio. Solo aplica la aprobación administrativa para cierres marcados como obsoletos.")
 
 
 def _save_scoped_signature_workflow(record_id: int, record: dict[str, Any], workflow_kind: str, phase_key: str, workflow: dict[str, Any]) -> dict[str, Any]:

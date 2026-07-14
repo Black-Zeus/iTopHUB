@@ -9,6 +9,10 @@ STATUS_DB_TO_UI = {
     "draft": "Borrador de ingreso",
     "in_execution": "En ejecucion",
     "ready_for_closure": "Lista para cierre",
+    # "Pendiente de firma" (no un texto propio) porque el frontend publico de
+    # firma movil (MobileSignatureSessionPage) valida el estado del documento
+    # contra una lista fija de literales permitidos que incluye este mismo.
+    "pending_admin_signature": "Pendiente de firma",
     "pending_itop_sync": "Pendiente registro iTop",
     "completed_return_to_stock": "Cerrada",
     "completed_obsolete": "Cerrada con normalizacion",
@@ -235,6 +239,8 @@ def derive_status_db(
     is_obsolete = exit_final_state in OBSOLETE_EXIT_STATES or bool(record.get("marked_obsolete"))
 
     if not is_itop_ticket_registered(record):
+        if is_obsolete and resolve_admin_signature_status(record) not in {"signed", "published"}:
+            return "pending_admin_signature"
         return "pending_itop_sync"
 
     if is_obsolete:
