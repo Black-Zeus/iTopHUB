@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import re
 from datetime import datetime
 from html import escape
 from io import BytesIO
@@ -65,8 +66,22 @@ def _join_non_empty(parts: list[Any], separator: str = " / ") -> str:
     return separator.join(_coerce_str(part) for part in parts if _coerce_str(part))
 
 
+def _format_brand_model_cell_html(asset: dict[str, Any]) -> str:
+    parts = [_escape(part) for part in [asset.get("brand"), asset.get("model")] if _coerce_str(part)]
+    return "<br/>".join(parts)
+
+
+def _strip_class_suffix(class_name: str) -> str:
+    """Quita el sufijo entre parentesis de un nombre de clase, ej. "Laptop (Laptop)" -> "Laptop"."""
+    return re.sub(r"\s*\([^)]*\)\s*$", "", _coerce_str(class_name)).strip()
+
+
+def _format_asset_type_label(asset: dict[str, Any]) -> str:
+    return _strip_class_suffix(asset.get("className"))
+
+
 def _build_asset_heading(asset: dict[str, Any]) -> str:
-    class_name = _coerce_str(asset.get("className"), "Activo")
+    class_name = _strip_class_suffix(asset.get("className")) or "Activo"
     asset_name = _build_asset_display_name(asset)
     if asset_name and asset_name != "Activo sin identificar":
         return f"{class_name} - {asset_name}"
@@ -908,9 +923,9 @@ def _build_return_main_html(detail: dict[str, Any], type_definition: Any) -> tup
             f"""
             <tr>
                 <td>{index}</td>
-                <td>{_escape(asset.get("className"))}</td>
+                <td>{_escape(_format_asset_type_label(asset))}</td>
                 <td>{_escape(_build_asset_display_name(asset))}</td>
-                <td>{_escape(_join_non_empty([asset.get("brand"), asset.get("model")]))}</td>
+                <td>{_format_brand_model_cell_html(asset)}</td>
                 <td>{_escape(asset.get("serial") or asset.get("code"))}</td>
                 <td>1</td>
             </tr>
@@ -932,9 +947,9 @@ def _build_return_main_html(detail: dict[str, Any], type_definition: Any) -> tup
             <table>
                 <thead>
                     <tr>
-                        <th style="width:34%;">Responsabilidad</th>
-                        <th style="width:33%;">Nombre</th>
-                        <th style="width:33%;">Cargo</th>
+                        <th style="width:18%;">Responsabilidad</th>
+                        <th style="width:47%;">Nombre</th>
+                        <th style="width:35%;">Cargo</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -973,12 +988,12 @@ def _build_return_main_html(detail: dict[str, Any], type_definition: Any) -> tup
             <table>
                 <thead>
                     <tr>
-                        <th style="width:8%;">#</th>
-                        <th style="width:14%;">Tipo</th>
-                        <th style="width:29%;">Activo</th>
-                        <th style="width:21%;">Marca / Modelo</th>
-                        <th style="width:18%;">Serie / Identificador</th>
-                        <th style="width:10%;">Cantidad</th>
+                        <th style="width:5%;">#</th>
+                        <th style="width:16%;">Tipo</th>
+                        <th style="width:21%;">Activo</th>
+                        <th style="width:22%;">Marca / Modelo</th>
+                        <th style="width:22%;">Serie / Identificador</th>
+                        <th style="width:14%;">Cantidad</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -1025,9 +1040,9 @@ def _build_reassignment_main_html(detail: dict[str, Any], type_definition: Any) 
             f"""
             <tr>
                 <td>{index}</td>
-                <td>{_escape(asset.get("className"))}</td>
+                <td>{_escape(_format_asset_type_label(asset))}</td>
                 <td>{_escape(_build_asset_display_name(asset))}</td>
-                <td>{_escape(_join_non_empty([asset.get("brand"), asset.get("model")]))}</td>
+                <td>{_format_brand_model_cell_html(asset)}</td>
                 <td>{_escape(asset.get("serial") or asset.get("code"))}</td>
                 <td>{_escape(item.get("notes") or "Sin observacion")}</td>
             </tr>
@@ -1049,9 +1064,9 @@ def _build_reassignment_main_html(detail: dict[str, Any], type_definition: Any) 
             <table>
                 <thead>
                     <tr>
-                        <th style="width:34%;">Responsabilidad</th>
-                        <th style="width:33%;">Nombre</th>
-                        <th style="width:33%;">Cargo</th>
+                        <th style="width:18%;">Responsabilidad</th>
+                        <th style="width:47%;">Nombre</th>
+                        <th style="width:35%;">Cargo</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -1095,12 +1110,12 @@ def _build_reassignment_main_html(detail: dict[str, Any], type_definition: Any) 
             <table>
                 <thead>
                     <tr>
-                        <th style="width:7%;">#</th>
-                        <th style="width:15%;">Tipo</th>
-                        <th style="width:24%;">Activo</th>
-                        <th style="width:18%;">Marca / Modelo</th>
-                        <th style="width:16%;">Serie / Identificador</th>
-                        <th style="width:20%;">Observacion</th>
+                        <th style="width:5%;">#</th>
+                        <th style="width:16%;">Tipo</th>
+                        <th style="width:18%;">Activo</th>
+                        <th style="width:19%;">Marca / Modelo</th>
+                        <th style="width:20%;">Serie / Identificador</th>
+                        <th style="width:22%;">Observacion</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -1166,7 +1181,7 @@ def _build_reassignment_detail_html(detail: dict[str, Any], type_definition: Any
                 ("Codigo", _coerce_str(itop_detail.get("code")) or _coerce_str(asset.get("code"))),
                 ("Serie", _find_field_value(field_lookup, "Numero de serie", "Serie") or _coerce_str(asset.get("serial")) or _coerce_str(asset.get("code"))),
                 ("Marca / Modelo", _build_brand_model_value(field_lookup, asset)),
-                ("Clase CMDB", _coerce_str(itop_detail.get("className")) or _coerce_str(asset.get("className"))),
+                ("Clase CMDB", _strip_class_suffix(itop_detail.get("className")) or _strip_class_suffix(asset.get("className"))),
                 ("Estado", _coerce_str(itop_detail.get("status")) or _coerce_str(asset.get("status"))),
             ]
         specification_html = "".join(
@@ -1190,7 +1205,7 @@ def _build_reassignment_detail_html(detail: dict[str, Any], type_definition: Any
 
         blocks.append(
             f"""
-            <section class="section">
+            <section class="section section-keep-together">
                 <h2 class="section-title">{_escape(_build_asset_heading(asset))}</h2>
                 <div class="section-body">
                     <div class="block-space">
@@ -1241,7 +1256,7 @@ def _build_return_detail_html(detail: dict[str, Any], type_definition: Any) -> t
                 ("Codigo", _coerce_str(itop_detail.get("code")) or _coerce_str(asset.get("code"))),
                 ("Serie", _find_field_value(field_lookup, "Numero de serie", "Serie") or _coerce_str(asset.get("serial")) or _coerce_str(asset.get("code"))),
                 ("Marca / Modelo", _build_brand_model_value(field_lookup, asset)),
-                ("Clase CMDB", _coerce_str(itop_detail.get("className")) or _coerce_str(asset.get("className"))),
+                ("Clase CMDB", _strip_class_suffix(itop_detail.get("className")) or _strip_class_suffix(asset.get("className"))),
                 ("Estado", _coerce_str(itop_detail.get("status")) or _coerce_str(asset.get("status"))),
                 ("Asignado a", _coerce_str(asset.get("assignedUser"))),
             ]
@@ -1320,7 +1335,7 @@ def _build_return_detail_html(detail: dict[str, Any], type_definition: Any) -> t
 
         blocks.append(
             f"""
-            <section class="section">
+            <section class="section section-keep-together">
                 <h2 class="section-title">{_escape(_build_asset_heading(asset))}</h2>
                 <div class="section-body">
                     <div class="block-space">
@@ -1364,9 +1379,9 @@ def _build_delivery_main_html(detail: dict[str, Any], type_definition: Any) -> t
             f"""
             <tr>
                 <td>{index}</td>
-                <td>{_escape(asset.get("className"))}</td>
+                <td>{_escape(_format_asset_type_label(asset))}</td>
                 <td>{_escape(_build_asset_display_name(asset))}</td>
-                <td>{_escape(_join_non_empty([asset.get("brand"), asset.get("model")]))}</td>
+                <td>{_format_brand_model_cell_html(asset)}</td>
                 <td>{_escape(asset.get("serial") or asset.get("code"))}</td>
                 <td>1</td>
             </tr>
@@ -1388,9 +1403,9 @@ def _build_delivery_main_html(detail: dict[str, Any], type_definition: Any) -> t
             <table>
                 <thead>
                     <tr>
-                        <th style="width:34%;">Responsabilidad</th>
-                        <th style="width:33%;">Nombre</th>
-                        <th style="width:33%;">Cargo</th>
+                        <th style="width:18%;">Responsabilidad</th>
+                        <th style="width:47%;">Nombre</th>
+                        <th style="width:35%;">Cargo</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -1427,12 +1442,12 @@ def _build_delivery_main_html(detail: dict[str, Any], type_definition: Any) -> t
             <table>
                 <thead>
                     <tr>
-                        <th style="width:8%;">#</th>
-                        <th style="width:14%;">Tipo</th>
-                        <th style="width:29%;">Activo</th>
-                        <th style="width:21%;">Marca / Modelo</th>
-                        <th style="width:18%;">Serie / Identificador</th>
-                        <th style="width:10%;">Cantidad</th>
+                        <th style="width:5%;">#</th>
+                        <th style="width:16%;">Tipo</th>
+                        <th style="width:21%;">Activo</th>
+                        <th style="width:22%;">Marca / Modelo</th>
+                        <th style="width:22%;">Serie / Identificador</th>
+                        <th style="width:14%;">Cantidad</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -1488,7 +1503,7 @@ def _build_delivery_detail_html(detail: dict[str, Any], type_definition: Any) ->
                 ("Codigo", _coerce_str(itop_detail.get("code")) or _coerce_str(asset.get("code"))),
                 ("Serie", _find_field_value(field_lookup, "Numero de serie", "Serie") or _coerce_str(asset.get("serial")) or _coerce_str(asset.get("code"))),
                 ("Marca / Modelo", _build_brand_model_value(field_lookup, asset)),
-                ("Clase CMDB", _coerce_str(itop_detail.get("className")) or _coerce_str(asset.get("className"))),
+                ("Clase CMDB", _strip_class_suffix(itop_detail.get("className")) or _strip_class_suffix(asset.get("className"))),
                 ("Estado", _coerce_str(itop_detail.get("status")) or _coerce_str(asset.get("status"))),
                 ("Asignado a", _coerce_str(asset.get("assignedUser"))),
             ]
@@ -1539,7 +1554,7 @@ def _build_delivery_detail_html(detail: dict[str, Any], type_definition: Any) ->
 
         blocks.append(
             f"""
-            <section class="section">
+            <section class="section section-keep-together">
                 <h2 class="section-title">{_escape(_build_asset_heading(asset))}</h2>
                 <div class="section-body">
                     <div class="block-space">
