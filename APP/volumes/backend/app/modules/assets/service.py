@@ -4,6 +4,7 @@ import copy
 import hashlib
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from modules.cmdb_visibility import (
@@ -79,6 +80,17 @@ def _safe_int(value: Any) -> int:
         return int(str(value).strip())
     except (TypeError, ValueError):
         return 0
+
+
+def _build_asset_connector(runtime_token: str) -> iTopCMDBConnector:
+    itop_config = get_itop_runtime_config()
+    return iTopCMDBConnector(
+        base_url=itop_config["integrationUrl"],
+        token=runtime_token,
+        username="hub-session-user",
+        verify_ssl=itop_config["verifySsl"],
+        timeout=itop_config["timeoutSeconds"],
+    )
 
 
 def _build_asset_catalog_cache_key(
@@ -199,7 +211,11 @@ def _matches_asset_query(item, query: str) -> bool:
     return all(token in haystack for token in tokens)
 
 
-def _build_asset_row(item, enabled_labels: list[str], assigned_contacts: list[dict[str, str | int]] | None = None) -> dict[str, str | int | list[dict[str, str | int]]]:
+def _build_asset_row(
+    item,
+    enabled_labels: list[str],
+    assigned_contacts: list[dict[str, str | int]] | None = None,
+) -> dict[str, str | int | list[dict[str, str | int]]]:
     label = _resolve_asset_type_label(item, enabled_labels)
     asset_number = _normalize_space(item.get("asset_number"))
     serial_number = _normalize_space(item.get("serialnumber")) or _normalize_space(item.get("imei"))
@@ -255,16 +271,51 @@ def _build_contact_row(item) -> dict[str, str | int]:
 def _load_change_index(connector: iTopCMDBConnector, change_ids: list[int]) -> dict[int, dict[str, str]]:
     normalized_ids = sorted({change_id for change_id in change_ids if change_id > 0})
     change_index: dict[int, dict[str, str]] = {}
-    for change_id in normalized_ids:
-        change = connector.get("CMDBChange", change_id, output_fields="*").first()
-        if not change:
-            continue
-        change_index[change_id] = {
-            "changedAt": str(change.get("date") or "").strip(),
-            "changedBy": _normalize_space(change.get("userinfo")),
-            "origin": _normalize_space(change.get("origin")),
-        }
+    for chunk_start in range(0, len(normalized_ids), _USERS_BATCH_SIZE):
+        chunk = normalized_ids[chunk_start : chunk_start + _USERS_BATCH_SIZE]
+        where = " OR ".join(f"id = {change_id}" for change_id in chunk)
+        try:
+            changes = connector.oql(
+                f"SELECT CMDBChange WHERE {where}",
+                output_fields="id,date,userinfo,origin",
+            )
+        except Exception:
+            logger.debug("_load_change_index: batch query failed", exc_info=True)
+            changes = []
+
+        for change in changes:
+            change_id = _safe_int(change.id)
+            if change_id <= 0:
+                continue
+            change_index[change_id] = {
+                "changedAt": str(change.get("date") or "").strip(),
+                "changedBy": _normalize_space(change.get("userinfo")),
+                "origin": _normalize_space(change.get("origin")),
+            }
     return change_index
+
+
+def _load_objects_by_ids(
+    connector: iTopCMDBConnector,
+    class_name: str,
+    object_ids: list[int],
+    output_fields: str,
+) -> dict[int, Any]:
+    normalized_ids = sorted({object_id for object_id in object_ids if object_id > 0})
+    objects_by_id: dict[int, Any] = {}
+    for chunk_start in range(0, len(normalized_ids), _USERS_BATCH_SIZE):
+        chunk = normalized_ids[chunk_start : chunk_start + _USERS_BATCH_SIZE]
+        where = " OR ".join(f"id = {object_id}" for object_id in chunk)
+        try:
+            items = connector.oql(f"SELECT {class_name} WHERE {where}", output_fields=output_fields)
+        except Exception:
+            logger.debug("_load_objects_by_ids: batch query failed for %s", class_name, exc_info=True)
+            items = []
+        for item in items:
+            item_id = _safe_int(item.id)
+            if item_id > 0:
+                objects_by_id[item_id] = item
+    return objects_by_id
 
 
 def _extract_change_info(operation: Any, change_index: dict[int, dict[str, str]]) -> dict[str, str]:
@@ -314,17 +365,26 @@ def _build_contact_history_fallback(operation: Any, contact_id: int) -> dict[str
     }
 
 
-def _resolve_contact_from_history_operation(connector: iTopCMDBConnector, operation: Any) -> dict[str, str | int]:
+def _resolve_contact_from_history_operation(
+    connector: iTopCMDBConnector,
+    operation: Any,
+    *,
+    link_index: dict[int, Any] | None = None,
+    contact_index: dict[int, Any] | None = None,
+) -> dict[str, str | int]:
     item_class = _normalize_space(operation.get("item_class")).lower()
     item_id = _safe_int(operation.get("item_id"))
     contact_id = _safe_int(operation.get("contact_id"))
 
     if item_class not in {"contact", "person"} and item_id > 0:
-        link = connector.get(
-            "lnkContactToFunctionalCI",
-            item_id,
-            output_fields="id,contact_id,contact_id_friendlyname,functionalci_id",
-        ).first()
+        if link_index is None:
+            link = connector.get(
+                "lnkContactToFunctionalCI",
+                item_id,
+                output_fields="id,contact_id,contact_id_friendlyname,functionalci_id",
+            ).first()
+        else:
+            link = link_index.get(item_id)
         if link:
             contact_id = _safe_int(link.get("contact_id")) or contact_id
             if contact_id <= 0:
@@ -341,11 +401,14 @@ def _resolve_contact_from_history_operation(connector: iTopCMDBConnector, operat
         contact_id = item_id
 
     if contact_id > 0:
-        contact = connector.get(
-            "Contact",
-            contact_id,
-            output_fields="id,name,friendlyname,email,function,status,finalclass",
-        ).first()
+        if contact_index is None:
+            contact = connector.get(
+                "Contact",
+                contact_id,
+                output_fields="id,name,friendlyname,email,function,status,finalclass",
+            ).first()
+        else:
+            contact = contact_index.get(contact_id)
         if contact:
             return _build_contact_row(contact)
 
@@ -384,52 +447,69 @@ def _load_asset_change_operations(
 
     operations: list[Any] = []
     seen_ids: set[int] = set()
-    for candidate in candidate_classes:
-        safe_candidate = _escape_oql(candidate)
-        try:
-            response_items = connector.oql(
-                f"SELECT {operation_class} WHERE objclass = '{safe_candidate}' AND objkey = {asset_id}",
-                output_fields="*",
-            )
-        except Exception:
-            logger.debug(
-                "_load_asset_change_operations: direct query failed for %s/%s/%s",
-                operation_class,
-                candidate,
-                asset_id,
-                exc_info=True,
-            )
-            response_items = []
-        for operation in response_items:
-            operation_id = int(operation.id)
-            if operation_id in seen_ids:
-                continue
-            seen_ids.add(operation_id)
-            operations.append(operation)
+    class_filter = " OR ".join(
+        f"objclass = '{_escape_oql(candidate)}'"
+        for candidate in candidate_classes
+    )
+    try:
+        response_items = connector.oql(
+            f"SELECT CMDBChangeOp WHERE ({class_filter}) AND objkey = {asset_id}",
+            output_fields="*",
+        )
+    except Exception:
+        logger.debug(
+            "_load_asset_change_operations: base query failed for %s/%s",
+            operation_class,
+            asset_id,
+            exc_info=True,
+        )
+        response_items = []
 
-        try:
-            base_items = connector.oql(
-                f"SELECT CMDBChangeOp WHERE objclass = '{safe_candidate}' AND objkey = {asset_id}",
-                output_fields="*",
-            )
-        except Exception:
-            logger.debug(
-                "_load_asset_change_operations: base query failed for %s/%s",
-                candidate,
-                asset_id,
-                exc_info=True,
-            )
-            base_items = []
-
-        for operation in base_items:
-            operation_id = int(operation.id)
-            if operation_id in seen_ids:
-                continue
-            if _operation_finalclass(operation) != operation_class:
-                continue
-            seen_ids.add(operation_id)
-            operations.append(operation)
+    for operation in response_items:
+        operation_id = _safe_int(operation.id)
+        if operation_id <= 0 or operation_id in seen_ids:
+            continue
+        if _operation_finalclass(operation) != operation_class:
+            continue
+        seen_ids.add(operation_id)
+        operations.append(operation)
     return operations
+
+
+def _load_contact_history_indexes(
+    connector: iTopCMDBConnector,
+    operations: list[Any],
+) -> tuple[dict[int, Any], dict[int, Any]]:
+    link_ids: list[int] = []
+    contact_ids: list[int] = []
+
+    for operation in operations:
+        if not _is_contact_link_change(operation):
+            continue
+        item_class = _normalize_space(operation.get("item_class")).lower()
+        item_id = _safe_int(operation.get("item_id"))
+        contact_id = _safe_int(operation.get("contact_id"))
+        if item_class in {"contact", "person"} and item_id > 0:
+            contact_id = contact_id or item_id
+        elif item_id > 0:
+            link_ids.append(item_id)
+        if contact_id > 0:
+            contact_ids.append(contact_id)
+
+    link_index = _load_objects_by_ids(
+        connector,
+        "lnkContactToFunctionalCI",
+        link_ids,
+        "id,contact_id,contact_id_friendlyname,functionalci_id",
+    )
+    contact_ids.extend(_safe_int(link.get("contact_id")) for link in link_index.values())
+    contact_index = _load_objects_by_ids(
+        connector,
+        "Contact",
+        contact_ids,
+        "id,name,friendlyname,email,function,status,finalclass",
+    )
+    return link_index, contact_index
 
 
 def _load_asset_contact_history(
@@ -476,12 +556,18 @@ def _load_asset_contact_history(
         connector,
         [_safe_int(item.get("change") or item.get("change_id")) for item in link_ops],
     )
+    link_index, contact_index = _load_contact_history_indexes(connector, link_ops)
 
     for operation in link_ops:
         if not _is_contact_link_change(operation):
             continue
 
-        contact_row = _resolve_contact_from_history_operation(connector, operation)
+        contact_row = _resolve_contact_from_history_operation(
+            connector,
+            operation,
+            link_index=link_index,
+            contact_index=contact_index,
+        )
         change_info = _extract_change_info(operation, link_change_index)
         history_items.append(
             {
@@ -845,6 +931,29 @@ def _find_asset_by_id(connector: iTopCMDBConnector, asset_id: int, enabled_label
     return None
 
 
+def _load_asset_detail_item(runtime_token: str, asset_id: int, enabled_labels: list[str]):
+    connector = _build_asset_connector(runtime_token)
+    try:
+        return _find_asset_by_id(connector, asset_id, enabled_labels)
+    finally:
+        connector.close()
+
+
+def _load_asset_detail_contacts(runtime_token: str, asset_id: int) -> list[Any]:
+    connector = _build_asset_connector(runtime_token)
+    try:
+        return connector.oql(
+            (
+                "SELECT Contact AS c "
+                "JOIN lnkContactToFunctionalCI AS l ON l.contact_id = c.id "
+                f"WHERE l.functionalci_id = {asset_id}"
+            ),
+            output_fields="id,name,friendlyname,email,function,status,finalclass",
+        )
+    finally:
+        connector.close()
+
+
 def search_itop_assets(
     query: str,
     runtime_token: str,
@@ -923,11 +1032,19 @@ def search_itop_assets(
             )
         ]
 
-        assigned_users_by_asset = _load_asset_assigned_users(connector, [int(item.id) for item in filtered_items])
+        assigned_users_by_asset = _load_asset_assigned_users(
+            connector, [int(item.id) for item in filtered_items]
+        )
         rows = []
         for item in filtered_items:
             assigned_contacts = assigned_users_by_asset.get(int(item.id), [])
-            rows.append(_build_asset_row(item, enabled_labels, assigned_contacts))
+            rows.append(
+                _build_asset_row(
+                    item,
+                    enabled_labels,
+                    assigned_contacts,
+                )
+            )
         rows.sort(key=lambda row: (str(row["className"]).lower(), str(row["name"]).lower(), str(row["code"]).lower()))
         return rows[:limit]
     except ConnectionError as exc:
@@ -940,37 +1057,33 @@ def search_itop_assets(
         connector.close()
 
 
-def get_itop_asset_detail(asset_id: int, runtime_token: str) -> dict[str, object]:
+def get_itop_asset_detail(asset_id: int, runtime_token: str, *, include_history: bool = False) -> dict[str, object]:
     from modules.settings.service import get_settings_panel
-
-    itop_config = get_itop_runtime_config()
-    connector = iTopCMDBConnector(
-        base_url=itop_config["integrationUrl"],
-        token=runtime_token,
-        username="hub-session-user",
-        verify_ssl=itop_config["verifySsl"],
-        timeout=itop_config["timeoutSeconds"],
-    )
 
     try:
         cmdb_settings = get_settings_panel("cmdb")
         warranty_alert_days = int(cmdb_settings.get("warrantyAlertDays") or 30)
         enabled_labels = [str(item).strip() for item in cmdb_settings.get("enabledAssetTypes") or [] if str(item).strip()]
 
-        item = _find_asset_by_id(connector, asset_id, enabled_labels)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            item_future = executor.submit(_load_asset_detail_item, runtime_token, asset_id, enabled_labels)
+            contacts_future = executor.submit(_load_asset_detail_contacts, runtime_token, asset_id)
+            item = item_future.result()
+            contacts = contacts_future.result()
+
         if not item:
             raise ValueError("El activo solicitado no existe en iTop.")
 
-        contacts = connector.oql(
-            (
-                "SELECT Contact AS c "
-                "JOIN lnkContactToFunctionalCI AS l ON l.contact_id = c.id "
-                f"WHERE l.functionalci_id = {asset_id}"
-            ),
-            output_fields="id,name,friendlyname,email,function,status,finalclass",
-        )
         asset_class = str(item.itop_class or item.get("finalclass") or "FunctionalCI").strip() or "FunctionalCI"
-        history_items = _load_asset_contact_history(connector, asset_class, asset_id)
+        if include_history:
+            history_connector = _build_asset_connector(runtime_token)
+            try:
+                history_items = _load_asset_contact_history(history_connector, asset_class, asset_id)
+            finally:
+                history_connector.close()
+        else:
+            history_items = []
+        history_complete = bool(include_history and history_items)
         if not history_items and contacts:
             history_items = _build_current_contact_history(contacts)
     except ConnectionError as exc:
@@ -979,8 +1092,6 @@ def get_itop_asset_detail(asset_id: int, runtime_token: str) -> dict[str, object
             status_code=503,
             code="ITOP_UNAVAILABLE",
         ) from exc
-    finally:
-        connector.close()
 
     detail = _build_ci_detail(item, warranty_alert_days)
     return {
@@ -994,4 +1105,5 @@ def get_itop_asset_detail(asset_id: int, runtime_token: str) -> dict[str, object
             for contact in contacts
         ],
         "contactHistory": history_items,
+        "contactHistoryComplete": history_complete,
     }
