@@ -211,11 +211,12 @@ function getReasonDropdownOptionClassName(_, isActive) {
     : "border-transparent bg-transparent text-[var(--text-secondary)] hover:border-[var(--border-color)] hover:bg-[var(--bg-app)] hover:text-[var(--text-primary)]";
 }
 
-function Field({ label, children, helper }) {
+function Field({ label, children, helper, required = false }) {
   return (
     <div className="grid gap-1.5">
       <label className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
         {label}
+        {required ? <span className="text-red-500 ml-1" aria-hidden="true">*</span> : null}
       </label>
       {children}
       {helper && <p className="text-xs text-[var(--text-muted)]">{helper}</p>}
@@ -1406,7 +1407,7 @@ export function LabDocumentPage() {
       {/* Datos generales */}
       <SectionPanel eyebrow="Datos generales" title="Activo y motivo">
         <div className="grid gap-5 md:grid-cols-2 md:items-start">
-          <Field label="Activo de la CMDB" helper="Busca el equipo en iTop. Cada acta de laboratorio corresponde a un unico activo.">
+          <Field label="Activo de la CMDB" required helper="Busca el equipo en iTop. Cada acta de laboratorio corresponde a un unico activo.">
             {form.asset ? (
               <div className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-app)] px-4 py-4">
                 <div className="min-w-0">
@@ -1500,7 +1501,7 @@ export function LabDocumentPage() {
               />
             </Field>
 
-            <Field label="Acciones solicitadas" helper="Estas son las acciones que el agente deberá ejecutar durante la fase técnica.">
+            <Field label="Acciones solicitadas" required helper="Estas son las acciones que el agente deberá ejecutar durante la fase técnica.">
               <FilterDropdown
                 label="Acciones solicitadas"
                 selectedValues={form.requestedActions || []}
@@ -1571,7 +1572,7 @@ export function LabDocumentPage() {
           )}
 
           <div className="grid gap-5 md:grid-cols-2">
-            <Field label="Fecha de ingreso a laboratorio">
+            <Field label="Fecha de ingreso a laboratorio" required>
               <input
                 type="date"
                 value={form.entryDate}
@@ -1780,6 +1781,12 @@ export function LabDocumentPage() {
                           </div>
                         ))}
                       </div>
+                      {!isGlobalReadOnly && !processingLocked && checklist.answers.length ? (
+                        <p className="px-5 pb-4 text-xs text-[var(--text-muted)]">
+                          <span className="text-red-500 mr-1" aria-hidden="true">*</span>
+                          Todos los campos de este checklist son obligatorios.
+                        </p>
+                      ) : null}
                     </div>
                   ))}
                 </div>

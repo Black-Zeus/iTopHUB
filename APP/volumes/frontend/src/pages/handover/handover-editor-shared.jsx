@@ -216,10 +216,17 @@ export function MessageBanner({ tone = "default", children }) {
   );
 }
 
-export function Field({ label, children }) {
+export function RequiredMark() {
+  return <span className="text-red-500 ml-1" aria-hidden="true">*</span>;
+}
+
+export function Field({ label, required = false, children }) {
   return (
     <label className="grid gap-2">
-      <span className="text-sm font-semibold text-[var(--text-primary)]">{label}</span>
+      <span className="text-sm font-semibold text-[var(--text-primary)]">
+        {label}
+        {required ? <RequiredMark /> : null}
+      </span>
       {children}
     </label>
   );
@@ -608,7 +615,7 @@ function openGeneratedDocumentPreview(generatedDocument, documentId) {
   });
 }
 
-function EditorSectionPanel({ eyebrow, title, helper, isCollapsed, onToggle, children, className = "" }) {
+function EditorSectionPanel({ eyebrow, title, required = false, helper, isCollapsed, onToggle, children, className = "" }) {
   return (
     <Panel className={`bg-[var(--bg-app)] transition-[padding,box-shadow] duration-300 ease-out ${className}`}>
       <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
@@ -616,7 +623,10 @@ function EditorSectionPanel({ eyebrow, title, helper, isCollapsed, onToggle, chi
           <p className="mb-1 text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
             {eyebrow}
           </p>
-          <h3 className="text-base font-semibold text-[var(--text-primary)]">{title}</h3>
+          <h3 className="text-base font-semibold text-[var(--text-primary)]">
+            {title}
+            {required ? <RequiredMark /> : null}
+          </h3>
           {helper ? (
             <div
               className={`grid transition-[grid-template-rows,opacity,margin-top] duration-300 ease-out ${isCollapsed ? "overflow-hidden" : "overflow-visible"}`}
@@ -718,6 +728,7 @@ export function HandoverEditorSections({
   itopIntegrationUrl = "",
   reasonLabel = "Motivo de entrega",
   receiverSectionTitle = "Persona que recibe",
+  receiverRequired = false,
   receiverSectionHelper = "Busca en Personas de iTop, define una persona principal y, si hace falta, agrega participantes secundarios con un motivo claro.",
   receiverSearchLabel = "Buscar persona",
   primaryReceiverLabel = "Responsable principal",
@@ -730,6 +741,7 @@ export function HandoverEditorSections({
   topRightSection = null,
   receiverExtraContent = null,
   assetSectionTitle = "Activos incluidos",
+  assetSectionRequired = false,
   assetSelectionMode = "inline",
   assetSearchLabel = "Buscar activo",
   assetSearchPlaceholder = "Codigo, nombre o serie",
@@ -828,7 +840,10 @@ export function HandoverEditorSections({
                   <section className="rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-4">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
-                        <p className="text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Personas a desvincular</p>
+                        <p className="text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+                          Personas a desvincular
+                          <RequiredMark />
+                        </p>
                         <p className="mt-1 text-sm text-[var(--text-secondary)]">
                           Selecciona las relaciones que esta acta debe remover desde iTop.
                         </p>
@@ -954,7 +969,7 @@ export function HandoverEditorSections({
                                     ) : null}
                                   </div>
 
-                                  <Field label="Glosa de la imagen">
+                                  <Field label="Glosa de la imagen" required>
                                     {readOnly
                                       ? <ReadOnlyValue value={evidence.caption} placeholder="Sin glosa registrada" />
                                       : <textarea rows="3" value={evidence.caption || ""} onChange={(event) => updateItemEvidenceCaption(assetId, evidence.id, event.target.value)} className={TEXTAREA_CLASS_NAME} placeholder="Describe lo observado en la imagen" />
@@ -1031,6 +1046,12 @@ export function HandoverEditorSections({
                                 </div>
                               ))}
                             </div>
+                            {!readOnly && checklist.answers.length ? (
+                              <p className="mt-3 text-xs text-[var(--text-muted)]">
+                                <RequiredMark />
+                                Todos los campos de este checklist son obligatorios.
+                              </p>
+                            ) : null}
                           </div>
                         </div>
                       </section>
@@ -1185,7 +1206,7 @@ export function HandoverEditorSections({
               </div>
             ) : null}
             <div className="md:col-span-2">
-              <Field label={reasonLabel}>
+              <Field label={reasonLabel} required>
                 {readOnly
                   ? <ReadOnlyValue value={form.reason} placeholder="Sin motivo registrado" />
                   : <textarea rows="3" value={form.reason} onChange={(event) => setForm((current) => ({ ...current, reason: event.target.value }))} className={TEXTAREA_CLASS_NAME} placeholder="Indica por que se emite esta acta" />
@@ -1220,6 +1241,7 @@ export function HandoverEditorSections({
             <EditorSectionPanel
               eyebrow="Origen"
               title={sourceSectionTitle}
+              required={requiresSourceResponsible}
               helper={sourceSectionHelper}
               isCollapsed={Boolean(collapsedSections.source)}
               onToggle={() => toggleSection("source")}
@@ -1353,6 +1375,7 @@ export function HandoverEditorSections({
           {showReceiverSection ? <EditorSectionPanel
             eyebrow="Destino"
             title={receiverSectionTitle}
+            required={receiverRequired}
             helper={receiverSectionHelper}
             isCollapsed={collapsedSections.receiver}
             onToggle={() => toggleSection("receiver")}
@@ -1469,6 +1492,7 @@ export function HandoverEditorSections({
       <EditorSectionPanel
         eyebrow="Activos"
         title={assetSectionTitle}
+        required={assetSectionRequired}
         
         isCollapsed={collapsedSections.assets}
         onToggle={() => toggleSection("assets")}

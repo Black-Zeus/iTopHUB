@@ -23,6 +23,7 @@ import {
   createFormFromDetail,
   getAssetAssignmentRestriction,
   matchesTemplateCmdbClass,
+  RequiredMark,
 } from "./handover-editor-shared";
 import { getHandoverModuleConfig } from "./handover-module-config";
 import { buildNormalizationRequesterOptions } from "./normalization-requester-options";
@@ -45,7 +46,7 @@ function resolveOptionLabel(options = [], value = "", fallback = "") {
   return options.find((option) => String(option?.value || "").trim() === normalizedValue)?.label || fallback || normalizedValue;
 }
 
-function renderNormalizationDropdownSelection({ label, selectedOptions, placeholder }) {
+function renderNormalizationDropdownSelection({ label, selectedOptions, placeholder, required = false }) {
   const selectedOption = selectedOptions[0] || null;
   return (
     <span className="flex min-w-0 items-center gap-3">
@@ -57,6 +58,7 @@ function renderNormalizationDropdownSelection({ label, selectedOptions, placehol
       <span className="min-w-0 flex-1">
         <span className="block text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
           {label}
+          {required ? <RequiredMark /> : null}
         </span>
         <span className="mt-1 block truncate text-sm font-semibold text-[var(--text-primary)]">
           {selectedOption?.label || placeholder}
@@ -66,11 +68,12 @@ function renderNormalizationDropdownSelection({ label, selectedOptions, placehol
   );
 }
 
-function renderCatalogDropdownSelection({ label, selectedOptions, placeholder }) {
+function renderCatalogDropdownSelection({ label, selectedOptions, placeholder, required = false }) {
   return (
     <>
       <span className="block text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
         {label}
+        {required ? <RequiredMark /> : null}
       </span>
       <span className="mt-1 block truncate text-sm font-semibold text-[var(--text-primary)]">
         {selectedOptions[0]?.label || placeholder}
@@ -475,6 +478,7 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
                 label,
                 selectedOptions,
                 placeholder: "Selecciona un estado",
+                required: true,
               })}
               renderOptionDescription={(option) => option.description || "Selecciona un valor"}
               renderOptionLeading={renderCatalogDropdownOptionLeading}
@@ -532,6 +536,7 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
                 label,
                 selectedOptions,
                 placeholder: normalizationLocationOptions.length ? "Selecciona una locacion" : "No hay locaciones disponibles",
+                required: true,
               })}
               renderOptionDescription={(option) => option.description || "Selecciona un valor"}
               renderOptionLeading={renderCatalogDropdownOptionLeading}
@@ -1899,6 +1904,7 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
                         label,
                         selectedOptions,
                         placeholder: "Selecciona un modo de operacion",
+                        required: true,
                       })}
                       renderOptionDescription={(option) => option.dropdownDescription || "Selecciona esta operacion para continuar"}
                       renderOptionLeading={(option) => (
@@ -1990,6 +1996,7 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
               content: normalizationRequesterContent,
             } : null}
             receiverSectionTitle={normalizationReceiverSectionTitle}
+            receiverRequired={isReassignmentFlow || normalizationRequiresReceiver}
             receiverSectionHelper={normalizationReceiverSectionHelper}
             receiverSearchLabel={moduleConfig.receiverSearchLabel}
             primaryReceiverLabel={moduleConfig.primaryReceiverLabel}
@@ -1997,6 +2004,7 @@ export function HandoverDocumentPage({ moduleVariant = "delivery" }) {
             allowAdditionalReceivers={moduleConfig.allowAdditionalReceivers}
             addSecondaryLabel={moduleConfig.addSecondaryLabel}
             assetSectionTitle={moduleConfig.assetSectionTitle}
+            assetSectionRequired={isReassignmentFlow}
             assetSelectionMode={isNormalizationFlow ? normalizationAssetSelectionMode : moduleConfig.assetSelectionMode}
             assetRestrictionMode={effectiveAssetRestrictionMode}
             assetSearchLabel={moduleConfig.assetSearchLabel}
