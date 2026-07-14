@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, ClassVar, Optional
@@ -10,6 +12,40 @@ from typing import Any, Callable, ClassVar, Optional
 import requests
 
 logger = logging.getLogger(__name__)
+_ITOP_REQUEST_STATS: ContextVar[dict[str, Any] | None] = ContextVar("itop_request_stats", default=None)
+
+
+def reset_itop_request_stats() -> None:
+    _ITOP_REQUEST_STATS.set({"count": 0, "elapsed_ms": 0.0, "slow": 0, "operations": {}})
+
+
+def get_itop_request_stats() -> dict[str, Any]:
+    stats = _ITOP_REQUEST_STATS.get()
+    if not stats:
+        return {"count": 0, "elapsed_ms": 0.0, "slow": 0, "operations": {}}
+    return {
+        "count": int(stats.get("count") or 0),
+        "elapsed_ms": round(float(stats.get("elapsed_ms") or 0.0), 2),
+        "slow": int(stats.get("slow") or 0),
+        "operations": dict(stats.get("operations") or {}),
+    }
+
+
+def _record_itop_request(payload: dict[str, Any], elapsed_ms: float) -> None:
+    stats = _ITOP_REQUEST_STATS.get()
+    if stats is None:
+        return
+    operation = str(payload.get("operation") or "unknown")
+    itop_class = str(payload.get("class") or "")
+    key = f"{operation}:{itop_class}" if itop_class else operation
+    operations = stats.setdefault("operations", {})
+    operation_stats = operations.setdefault(key, {"count": 0, "elapsed_ms": 0.0})
+    operation_stats["count"] += 1
+    operation_stats["elapsed_ms"] = round(float(operation_stats.get("elapsed_ms") or 0.0) + elapsed_ms, 2)
+    stats["count"] = int(stats.get("count") or 0) + 1
+    stats["elapsed_ms"] = round(float(stats.get("elapsed_ms") or 0.0) + elapsed_ms, 2)
+    if elapsed_ms >= 800:
+        stats["slow"] = int(stats.get("slow") or 0) + 1
 
 
 class CIStatus(str, Enum):
@@ -215,6 +251,7 @@ class iTopCMDBConnector:
         self._verify = verify_ssl
         self._timeout = timeout
         self._session = requests.Session()
+        self._relation_link_cache: dict[tuple[str, str, int, tuple[int, ...], str], dict[int, list[iTopObject]]] = {}
 
     @classmethod
     def from_env(cls) -> "iTopCMDBConnector":
@@ -396,6 +433,7 @@ class iTopCMDBConnector:
         self.close()
 
     def _request(self, payload: dict[str, Any]) -> iTopResponse:
+        started_at = time.perf_counter()
         try:
             response = self._session.post(
                 self._url,
@@ -435,6 +473,16 @@ class iTopCMDBConnector:
                 result.code,
                 result.error_label,
                 result.message,
+            )
+        elapsed_ms = (time.perf_counter() - started_at) * 1000
+        _record_itop_request(payload, elapsed_ms)
+        if elapsed_ms >= 800:
+            logger.warning(
+                "[%s] Slow iTop call %.1fms operation=%s class=%s",
+                self._username,
+                elapsed_ms,
+                payload.get("operation"),
+                payload.get("class"),
             )
         return result
 
@@ -515,11 +563,10 @@ class iTopCMDBConnector:
             "class": str(itop_class.value if isinstance(itop_class, CIClass) else itop_class),
             "key": key,
             "stimulus": stimulus,
+            "fields": fields or {},
             "output_fields": output_fields,
             "comment": comment,
         }
-        if fields:
-            payload["fields"] = fields
         return self._request(payload)
 
     def get_related(
@@ -648,12 +695,15 @@ class iTopCMDBConnector:
             "contact_id": int(contact_id),
         }
         try:
-            return self.create(
+            response = self.create(
                 relation_class,
                 relation_fields,
                 output_fields=relation_output_fields,
                 comment=create_comment,
             )
+            if response.ok:
+                self._relation_link_cache.clear()
+            return response
         except TimeoutError:
             recovered_links = self._fetch_contact_relation_links(
                 relation_class,
@@ -686,6 +736,7 @@ class iTopCMDBConnector:
                     simulate=False,
                     comment="Duplicate contact relation removed via iTopCMDBConnector",
                 )
+                self._relation_link_cache.clear()
 
     def _deduplicate_relation_links(
         self,
@@ -719,8 +770,49 @@ class iTopCMDBConnector:
         contact_ids: list[int],
         output_fields: str,
     ) -> dict[int, list[iTopObject]]:
+        unique_contact_ids = tuple(sorted({int(contact_id) for contact_id in contact_ids if int(contact_id) > 0}))
+        if not unique_contact_ids:
+            return {}
+        cache_key = (relation_class, target_field, int(target_id), unique_contact_ids, output_fields)
+        if cache_key in self._relation_link_cache:
+            return {
+                contact_id: list(links)
+                for contact_id, links in self._relation_link_cache[cache_key].items()
+            }
+
+        contact_id_list = ",".join(str(contact_id) for contact_id in unique_contact_ids)
+        batch_query = (
+            f"SELECT {relation_class} "
+            f"WHERE {target_field} = {int(target_id)} AND contact_id IN ({contact_id_list})"
+        )
+        response = self.get(relation_class, batch_query, output_fields=output_fields)
+        if not response.ok and len(unique_contact_ids) > 1:
+            contact_conditions = " OR ".join(f"contact_id = {contact_id}" for contact_id in unique_contact_ids)
+            response = self.get(
+                relation_class,
+                (
+                    f"SELECT {relation_class} "
+                    f"WHERE {target_field} = {int(target_id)} AND ({contact_conditions})"
+                ),
+                output_fields=output_fields,
+            )
+        if response.ok:
+            existing_by_contact: dict[int, list[iTopObject]] = {}
+            for link in response.items():
+                try:
+                    contact_id = int(link.get("contact_id") or 0)
+                except (TypeError, ValueError):
+                    contact_id = 0
+                if contact_id in unique_contact_ids:
+                    existing_by_contact.setdefault(contact_id, []).append(link)
+            self._relation_link_cache[cache_key] = existing_by_contact
+            return {
+                contact_id: list(links)
+                for contact_id, links in existing_by_contact.items()
+            }
+
         existing_by_contact: dict[int, list[iTopObject]] = {}
-        for contact_id in contact_ids:
+        for contact_id in unique_contact_ids:
             existing_links = self.get(
                 relation_class,
                 (
@@ -731,6 +823,7 @@ class iTopCMDBConnector:
             ).items()
             if existing_links:
                 existing_by_contact[contact_id] = existing_links
+        self._relation_link_cache[cache_key] = existing_by_contact
         return existing_by_contact
 
     @staticmethod
@@ -851,11 +944,25 @@ class iTopCMDBConnector:
         )
 
     def unlink_contact_from_ci(self, ci_id: int, contact_id: int) -> iTopResponse:
-        relation_query = (
-            "SELECT lnkContactToFunctionalCI "
-            f"WHERE functionalci_id = {int(ci_id)} AND contact_id = {int(contact_id)}"
+        return self.unlink_contacts_from_ci(ci_id, [contact_id])
+
+    def unlink_contacts_from_ci(self, ci_id: int, contact_ids: list[int]) -> iTopResponse:
+        unique_ids = sorted({int(contact_id) for contact_id in contact_ids if int(contact_id) > 0})
+        if not unique_ids:
+            return iTopResponse(code=0, message="No contact links requested.", objects={}, raw={})
+
+        links_by_contact = self._fetch_contact_relation_links(
+            "lnkContactToFunctionalCI",
+            "functionalci_id",
+            int(ci_id),
+            unique_ids,
+            "id,functionalci_id,contact_id",
         )
-        relation_rows = self.get("lnkContactToFunctionalCI", relation_query, output_fields="id").items()
+        relation_rows = [
+            relation_row
+            for links in links_by_contact.values()
+            for relation_row in links
+        ]
         if not relation_rows:
             return iTopResponse(code=0, message="No contact link found.", objects={}, raw={})
 
@@ -868,6 +975,7 @@ class iTopCMDBConnector:
             )
             if not response.ok:
                 return response
+            self._relation_link_cache.clear()
 
         return iTopResponse(code=0, message="Contact link removed.", objects={}, raw={})
 

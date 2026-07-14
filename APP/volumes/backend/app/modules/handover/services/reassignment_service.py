@@ -118,13 +118,12 @@ class ReassignmentHandoverService(AssignedReceiverHandoverService):
                     "ticketLinked": False,
                 }
 
-                for contact_id in contact_ids_to_unlink:
-                    unlink_response = connector.unlink_contact_from_ci(asset_id, contact_id)
-                    if not unlink_response.ok:
-                        raise HTTPException(
-                            status_code=502,
-                            detail=f"No fue posible desvincular el EC {asset_id} del responsable anterior: {unlink_response.message}",
-                        )
+                unlink_response = connector.unlink_contacts_from_ci(asset_id, contact_ids_to_unlink)
+                if not unlink_response.ok:
+                    raise HTTPException(
+                        status_code=502,
+                        detail=f"No fue posible desvincular el EC {asset_id} del responsable anterior: {unlink_response.message}",
+                    )
                 asset_result["contactUnlinked"] = bool(contact_ids_to_unlink)
 
                 if destination_id not in assigned_contact_ids:

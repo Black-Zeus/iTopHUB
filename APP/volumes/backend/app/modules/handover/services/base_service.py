@@ -188,13 +188,12 @@ class BaseHandoverService:
                             status_code=422,
                             detail=f"El EC {asset_id} ya no esta asociado a una o mas personas seleccionadas para desvincular.",
                         )
-                    for contact_id in contact_ids_to_unlink:
-                        unlink_response = connector.unlink_contact_from_ci(asset_id, contact_id)
-                        if not unlink_response.ok:
-                            raise HTTPException(
-                                status_code=502,
-                                detail=f"No fue posible desvincular el EC {asset_id} de sus contactos actuales: {unlink_response.message}",
-                            )
+                    unlink_response = connector.unlink_contacts_from_ci(asset_id, contact_ids_to_unlink)
+                    if not unlink_response.ok:
+                        raise HTTPException(
+                            status_code=502,
+                            detail=f"No fue posible desvincular el EC {asset_id} de sus contactos actuales: {unlink_response.message}",
+                        )
                     asset_result["contactUnlinked"] = bool(contact_ids_to_unlink)
 
                     status_response = connector.update_ci_status(

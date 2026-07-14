@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hashlib
+import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from integrations.itop_cmdb_connector import iTopCMDBConnector
@@ -43,6 +46,34 @@ ITOP_ASSET_STATUS_LABELS = {
     "test": "En prueba",
     "inactive": "Inactivo",
 }
+
+_CATALOG_CACHE_TTL_SECONDS = 120
+_catalog_cache: dict[tuple[str, str], tuple[float, Any]] = {}
+
+
+def _cache_key(name: str, runtime_token: str) -> tuple[str, str]:
+    token_hash = hashlib.sha256(str(runtime_token or "").encode("utf-8")).hexdigest()[:16]
+    return name, token_hash
+
+
+def _get_cached_catalog(name: str, runtime_token: str) -> Any:
+    key = _cache_key(name, runtime_token)
+    cached = _catalog_cache.get(key)
+    if not cached:
+        return None
+    expires_at, value = cached
+    if expires_at <= time.monotonic():
+        _catalog_cache.pop(key, None)
+        return None
+    return value
+
+
+def _set_cached_catalog(name: str, runtime_token: str, value: Any) -> Any:
+    _catalog_cache[_cache_key(name, runtime_token)] = (
+        time.monotonic() + _CATALOG_CACHE_TTL_SECONDS,
+        value,
+    )
+    return value
 
 
 def _normalize_space(value: Any) -> str:
@@ -138,7 +169,45 @@ def _list_service_subcategories(connector: iTopCMDBConnector) -> list[dict[str, 
     return options
 
 
+def _load_catalog_with_connector(runtime_token: str, loader_name: str) -> list[dict[str, Any]]:
+    connector = _build_connector(runtime_token)
+    try:
+        if loader_name == "organizations":
+            return _list_active_organizations(connector)
+        if loader_name == "services":
+            return _list_services(connector)
+        if loader_name == "service_subcategories":
+            return _list_service_subcategories(connector)
+        return []
+    finally:
+        connector.close()
+
+
+def _load_requirement_catalog_parts(runtime_token: str) -> dict[str, list[dict[str, Any]]]:
+    loaders = {
+        "organizations": "organizations",
+        "services": "services",
+        "serviceSubcategories": "service_subcategories",
+    }
+    results: dict[str, list[dict[str, Any]]] = {}
+    with ThreadPoolExecutor(max_workers=len(loaders)) as executor:
+        futures = {
+            key: executor.submit(_load_catalog_with_connector, runtime_token, loader_name)
+            for key, loader_name in loaders.items()
+        }
+        for key, future in futures.items():
+            try:
+                results[key] = future.result()
+            except Exception:
+                results[key] = []
+    return results
+
+
 def list_itop_asset_status_options(runtime_token: str) -> list[dict[str, Any]]:
+    cached = _get_cached_catalog("asset-status-options", runtime_token)
+    if cached is not None:
+        return list(cached)
+
     connector = _build_connector(runtime_token)
     try:
         response = connector.get("PhysicalDevice", "SELECT PhysicalDevice", output_fields="id,status")
@@ -153,15 +222,19 @@ def list_itop_asset_status_options(runtime_token: str) -> list[dict[str, Any]]:
             if not status_values:
                 status_values = sorted(ITOP_ASSET_STATUS_LABELS.keys())
 
-        return [
+        return _set_cached_catalog("asset-status-options", runtime_token, [
             {"value": value, "label": ITOP_ASSET_STATUS_LABELS.get(value, value)}
             for value in status_values
-        ]
+        ])
     finally:
         connector.close()
 
 
 def list_itop_location_options(runtime_token: str) -> list[dict[str, Any]]:
+    cached = _get_cached_catalog("location-options", runtime_token)
+    if cached is not None:
+        return list(cached)
+
     connector = _build_connector(runtime_token)
     try:
         items = connector.list_locations(output_fields="id,name,friendlyname,org_id_friendlyname,city,country")
@@ -185,32 +258,24 @@ def list_itop_location_options(runtime_token: str) -> list[dict[str, Any]]:
                 options.append(option)
 
         options.sort(key=lambda item: item["label"].casefold())
-        return options
+        return _set_cached_catalog("location-options", runtime_token, options)
     finally:
         connector.close()
 
 
 def get_requirement_itop_catalog(runtime_token: str) -> dict[str, Any]:
-    connector = _build_connector(runtime_token)
-    organizations = _list_active_organizations(connector)
+    cached = _get_cached_catalog("requirement-catalog", runtime_token)
+    if cached is not None:
+        return dict(cached)
 
-    try:
-        services = _list_services(connector)
-    except Exception:
-        services = []
-
-    try:
-        service_subcategories = _list_service_subcategories(connector)
-    except Exception:
-        service_subcategories = []
-
-    return {
-        "organizations": organizations,
+    parts = _load_requirement_catalog_parts(runtime_token)
+    return _set_cached_catalog("requirement-catalog", runtime_token, {
+        "organizations": parts.get("organizations") or [],
         "origins": REQUIREMENT_ORIGIN_OPTIONS,
-        "services": services,
-        "serviceSubcategories": service_subcategories,
+        "services": parts.get("services") or [],
+        "serviceSubcategories": parts.get("serviceSubcategories") or [],
         "teams": [],
         "impacts": REQUIREMENT_IMPACT_OPTIONS,
         "urgencies": REQUIREMENT_URGENCY_OPTIONS,
         "priorities": REQUIREMENT_PRIORITY_OPTIONS,
-    }
+    })

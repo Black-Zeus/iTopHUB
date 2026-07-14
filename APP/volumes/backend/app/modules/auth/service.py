@@ -53,14 +53,19 @@ def _get_itop_auth_config(overrides: dict[str, Any] | None = None) -> dict[str, 
     return get_itop_runtime_config(overrides)
 
 
-def _validate_itop_credentials(username: str, password: str, overrides: dict[str, Any] | None = None) -> bool:
+def _authenticate_against_itop(
+    username: str,
+    password: str,
+    token: str | None,
+    overrides: dict[str, Any] | None = None,
+):
     itop_config = _get_itop_auth_config(overrides)
     try:
-        result = iTopCMDBConnector.authenticate(
+        return iTopCMDBConnector.authenticate(
             base_url=itop_config["integrationUrl"],
             username=username,
             password=password,
-            token_store=lambda _username: None,
+            token_store=lambda _username: token,
             verify_ssl=itop_config["verifySsl"],
             timeout=itop_config["timeoutSeconds"],
         )
@@ -70,8 +75,6 @@ def _validate_itop_credentials(username: str, password: str, overrides: dict[str
             status_code=503,
             code="ITOP_UNAVAILABLE",
         ) from exc
-
-    return result.authorized
 
 
 def _validate_personal_token(
@@ -209,7 +212,18 @@ def login_user(username: str, password: str) -> AuthenticatedSession:
     user_row = fetch_user_by_identity(identity)
     canonical_username = user_row["username"] if user_row else username.strip()
 
-    if not _validate_itop_credentials(canonical_username, password):
+    decrypted_token: str | None = None
+    token_decrypt_error: Exception | None = None
+    if user_row:
+        try:
+            decrypted_token = _decrypt_user_token(user_row)
+        except Exception as exc:
+            token_decrypt_error = exc
+
+    # Fase 1 (credenciales) y fase 3 (token) en una sola llamada a iTop en vez de dos.
+    result = _authenticate_against_itop(canonical_username, password, decrypted_token)
+
+    if not result.authorized:
         raise AuthenticationError(
             "Usuario o contrasena incorrectos en iTop.",
             status_code=401,
@@ -228,11 +242,9 @@ def login_user(username: str, password: str) -> AuthenticatedSession:
 
     runtime_token = None
     token_state = "missing"
-    try:
-        decrypted_token = _decrypt_user_token(user_row)
-    except Exception as exc:
+
+    if token_decrypt_error is not None:
         if user_row["is_admin"]:
-            decrypted_token = None
             token_state = "invalid"
         else:
             raise AuthenticationError(
@@ -240,24 +252,21 @@ def login_user(username: str, password: str) -> AuthenticatedSession:
                 "personal registrado no pudo ser descifrado. Contacte a su administrador.",
                 status_code=403,
                 code="ITOP_TOKEN_INVALID",
-            ) from exc
-
-    if decrypted_token:
-        try:
-            _validate_personal_token(user_row["username"], password, decrypted_token)
+            ) from token_decrypt_error
+    elif decrypted_token:
+        if result.has_token and result.token_valid:
             runtime_token = decrypted_token
             token_state = "valid"
             touch_revalidation(user_row["id"])
-        except AuthenticationError:
-            if user_row["is_admin"]:
-                token_state = "invalid"
-            else:
-                raise AuthenticationError(
-                    "Usuario autenticado en iTop, pero no autorizado para ingresar a iTop-Hub porque su token "
-                    "personal es invalido o ya no posee acceso REST. Contacte a su administrador.",
-                    status_code=403,
-                    code="ITOP_TOKEN_INVALID",
-                )
+        elif user_row["is_admin"]:
+            token_state = "invalid"
+        else:
+            raise AuthenticationError(
+                "Usuario autenticado en iTop, pero no autorizado para ingresar a iTop-Hub porque su token "
+                "personal es invalido o ya no posee acceso REST. Contacte a su administrador.",
+                status_code=403,
+                code="ITOP_TOKEN_INVALID",
+            )
     else:
         if not user_row["is_admin"]:
             raise AuthenticationError(
@@ -266,6 +275,9 @@ def login_user(username: str, password: str) -> AuthenticatedSession:
                 status_code=403,
                 code="ITOP_TOKEN_MISSING",
             )
+
+    if result.connector is not None:
+        result.connector.close()
 
     user = _build_user_payload(user_row, token_state)
     session_id, session_meta = start_session(user, runtime_token)
