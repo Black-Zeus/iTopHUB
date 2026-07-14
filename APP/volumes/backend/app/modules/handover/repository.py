@@ -84,6 +84,7 @@ def fetch_handover_document_rows(
             d.receiver_phone,
             d.receiver_role,
             d.receiver_status,
+            d.receiver_employee_number,
             d.additional_receivers,
             d.generated_documents,
             d.evidence_attachments,
@@ -124,6 +125,7 @@ def fetch_handover_document_rows(
             d.receiver_phone,
             d.receiver_role,
             d.receiver_status,
+            d.receiver_employee_number,
             d.additional_receivers,
             d.generated_documents,
             d.evidence_attachments,
@@ -164,6 +166,7 @@ def fetch_handover_document_row(document_id: int) -> dict[str, Any] | None:
             receiver_phone,
             receiver_role,
             receiver_status,
+            receiver_employee_number,
             additional_receivers,
             generated_documents,
             evidence_attachments,
@@ -208,6 +211,7 @@ def fetch_handover_document_row_by_signature_token(signature_token: str) -> dict
             receiver_phone,
             receiver_role,
             receiver_status,
+            receiver_employee_number,
             additional_receivers,
             generated_documents,
             evidence_attachments,
@@ -569,12 +573,13 @@ def save_handover_document(
             receiver_phone,
             receiver_role,
             receiver_status,
+            receiver_employee_number,
             additional_receivers,
             generated_documents,
             evidence_attachments,
             signature_workflow
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """
     update_document_query = """
         UPDATE hub_handover_documents
@@ -600,6 +605,7 @@ def save_handover_document(
             receiver_phone = %s,
             receiver_role = %s,
             receiver_status = %s,
+            receiver_employee_number = %s,
             additional_receivers = %s,
             generated_documents = %s,
             evidence_attachments = %s,
@@ -682,6 +688,7 @@ def save_handover_document(
                             document["receiver_phone"],
                             document["receiver_role"],
                             document["receiver_status"],
+                            document.get("receiver_employee_number"),
                             document["additional_receivers"],
                             document["generated_documents"],
                             document["evidence_attachments"],
@@ -714,6 +721,7 @@ def save_handover_document(
                             document["receiver_phone"],
                             document["receiver_role"],
                             document["receiver_status"],
+                            document.get("receiver_employee_number"),
                             document["additional_receivers"],
                             document["generated_documents"],
                             document["evidence_attachments"],

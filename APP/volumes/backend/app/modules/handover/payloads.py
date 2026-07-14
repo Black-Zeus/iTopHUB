@@ -69,6 +69,7 @@ def normalize_receiver(payload: dict[str, Any]) -> dict[str, Any]:
         "receiver_phone": coerce_str(payload.get("phone")),
         "receiver_role": coerce_str(payload.get("role")),
         "receiver_status": coerce_str(payload.get("status")),
+        "receiver_employee_number": coerce_str(payload.get("employeeNumber")) or None,
     }
 
 
@@ -186,6 +187,7 @@ def deserialize_additional_receivers(raw_value: Any) -> list[dict[str, Any]]:
                 "phone": coerce_str(item.get("phone")),
                 "role": coerce_str(item.get("role")),
                 "status": coerce_str(item.get("status")),
+                "employeeNumber": coerce_str(item.get("employeeNumber")),
                 "assignmentRole": SECONDARY_RECEIVER_ROLE_ALIASES.get(
                     coerce_str(item.get("assignmentRole")),
                     coerce_str(item.get("assignmentRole")),
@@ -430,6 +432,7 @@ def normalize_additional_receivers(payload: Any, primary_receiver_id: int) -> st
                 "phone": coerce_str(item.get("phone")),
                 "role": coerce_str(item.get("role")),
                 "status": coerce_str(item.get("status")),
+                "employeeNumber": coerce_str(item.get("employeeNumber")),
                 "assignmentRole": assignment_role,
             }
         )
@@ -532,6 +535,7 @@ def build_receiver_payload(receiver: dict[str, Any]) -> dict[str, Any]:
         "receiver_phone": coerce_str(receiver.get("phone")) or None,
         "receiver_role": coerce_str(receiver.get("role")) or None,
         "receiver_status": coerce_str(receiver.get("status")) or None,
+        "receiver_employee_number": coerce_str(receiver.get("employeeNumber")) or None,
     }
 
 

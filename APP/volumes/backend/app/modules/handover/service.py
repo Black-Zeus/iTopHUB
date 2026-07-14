@@ -1316,6 +1316,7 @@ def get_handover_document_detail(document_id: int) -> dict[str, Any]:
             "phone": document_row.get("receiver_phone") or "",
             "role": document_row.get("receiver_role") or "",
             "status": document_row.get("receiver_status") or "",
+            "employeeNumber": document_row.get("receiver_employee_number") or "",
         },
         "additionalReceivers": _deserialize_additional_receivers(document_row.get("additional_receivers")),
         "items": list(items_by_id.values()),
@@ -2208,6 +2209,13 @@ def _create_itop_handover_ticket(
 
 
 def _resolve_asset_itop_class(connector: iTopCMDBConnector, asset_id: int) -> str:
+    cache = getattr(connector, "_handover_asset_class_cache", None)
+    if cache is None:
+        cache = {}
+        setattr(connector, "_handover_asset_class_cache", cache)
+    if int(asset_id) in cache:
+        return cache[int(asset_id)]
+
     try:
         response = connector.get("FunctionalCI", asset_id, output_fields="id,finalclass,status")
     except Exception:
@@ -2216,6 +2224,7 @@ def _resolve_asset_itop_class(connector: iTopCMDBConnector, asset_id: int) -> st
     item = response.first() if response is not None else None
     resolved_class = _coerce_str(item.get("finalclass")) if item else ""
     if resolved_class and resolved_class != "FunctionalCI":
+        cache[int(asset_id)] = resolved_class
         return resolved_class
 
     try:
@@ -2230,9 +2239,12 @@ def _resolve_asset_itop_class(connector: iTopCMDBConnector, asset_id: int) -> st
     oql_item = oql_response.first() if oql_response is not None else None
     resolved_class = _coerce_str(oql_item.get("finalclass")) if oql_item else ""
     if resolved_class and resolved_class != "FunctionalCI":
+        cache[int(asset_id)] = resolved_class
         return resolved_class
 
-    return _coerce_str(item.itop_class if item else "") or "FunctionalCI"
+    fallback_class = _coerce_str(item.itop_class if item else "") or "FunctionalCI"
+    cache[int(asset_id)] = fallback_class
+    return fallback_class
 
 
 def _get_return_asset_target_status() -> str:
@@ -2300,7 +2312,7 @@ def _apply_itop_handover_assignment(
                 else:
                     asset_result["statusUpdateError"] = status_response.message
             elif type_definition.evidence_sync_mode == "return_to_inventory":
-                unlink_response = connector.unlink_contact_from_ci(asset_id, person_id)
+                unlink_response = connector.unlink_contacts_from_ci(asset_id, [person_id])
                 if not unlink_response.ok:
                     raise HTTPException(status_code=502, detail=f"No fue posible desvincular el EC {asset_id} del responsable: {unlink_response.message}")
                 asset_result["contactUnlinked"] = True
@@ -2340,6 +2352,14 @@ def _apply_itop_handover_assignment(
 
 
 def _resolve_itop_object_org_id(connector: iTopCMDBConnector, item_class: str, item_id: int) -> str:
+    cache = getattr(connector, "_handover_object_org_cache", None)
+    if cache is None:
+        cache = {}
+        setattr(connector, "_handover_object_org_cache", cache)
+    cache_key = (item_class, int(item_id))
+    if cache_key in cache:
+        return cache[cache_key]
+
     try:
         response = connector.get(item_class, item_id, output_fields="id,org_id")
     except Exception:
@@ -2348,7 +2368,9 @@ def _resolve_itop_object_org_id(connector: iTopCMDBConnector, item_class: str, i
     item = response.first()
     if item is None:
         return ""
-    return _normalize_ticket_id(item.get("org_id"))
+    org_id = _normalize_ticket_id(item.get("org_id"))
+    cache[cache_key] = org_id
+    return org_id
 
 
 def _build_itop_handover_document_files(
@@ -2658,54 +2680,57 @@ def _attach_handover_documents_to_itop_targets(
                     )
                 )
 
-        document_type_id = _resolve_itop_document_type_id(connector, type_definition)
-        if not document_type_id:
-            raise HTTPException(status_code=502, detail="No fue posible determinar el tipo de documento iTop para vincular documentos al EC.")
+        docs_settings = get_settings_panel("docs")
+        attach_documents_to_assets = bool(docs_settings.get("attachHandoverDocumentsToAssets", False))
+        if attach_documents_to_assets:
+            document_type_id = _resolve_itop_document_type_id(connector, type_definition)
+            if not document_type_id:
+                raise HTTPException(status_code=502, detail="No fue posible determinar el tipo de documento iTop para vincular documentos al EC.")
 
-        for item in current_detail.get("items") or []:
-            asset = item.get("asset") or {}
-            try:
-                asset_id = int(asset.get("id") or 0)
-            except (TypeError, ValueError):
-                asset_id = 0
-            if asset_id <= 0:
-                continue
+            for item in current_detail.get("items") or []:
+                asset = item.get("asset") or {}
+                try:
+                    asset_id = int(asset.get("id") or 0)
+                except (TypeError, ValueError):
+                    asset_id = 0
+                if asset_id <= 0:
+                    continue
 
-            asset_class = _resolve_asset_itop_class(connector, asset_id)
-            asset_org_id = _resolve_itop_object_org_id(connector, asset_class, asset_id)
-            if not asset_org_id:
-                raise HTTPException(status_code=502, detail=f"No fue posible determinar la organizacion del EC {asset_id} para adjuntar documentos.")
-            asset_attachments = []
-            asset_documents = []
-            for document in documents:
-                asset_attachments.append(
-                    _create_itop_attachment(
-                        connector,
-                        target_class=asset_class,
-                        target_id=asset_id,
-                        target_org_id=int(asset_org_id),
-                        document=document,
-                        comment=f"Adjunto sincronizado desde acta {document_number}".strip(),
+                asset_class = _resolve_asset_itop_class(connector, asset_id)
+                asset_org_id = _resolve_itop_object_org_id(connector, asset_class, asset_id)
+                if not asset_org_id:
+                    raise HTTPException(status_code=502, detail=f"No fue posible determinar la organizacion del EC {asset_id} para adjuntar documentos.")
+                asset_attachments = []
+                asset_documents = []
+                for document in documents:
+                    asset_attachments.append(
+                        _create_itop_attachment(
+                            connector,
+                            target_class=asset_class,
+                            target_id=asset_id,
+                            target_org_id=int(asset_org_id),
+                            document=document,
+                            comment=f"Adjunto sincronizado desde acta {document_number}".strip(),
+                        )
                     )
-                )
-                asset_documents.append(
-                    _create_itop_document_file(
-                        connector,
-                        target_id=asset_id,
-                        target_org_id=int(asset_org_id),
-                        document_type_id=int(document_type_id),
-                        document=document,
-                        document_number=document_number,
+                    asset_documents.append(
+                        _create_itop_document_file(
+                            connector,
+                            target_id=asset_id,
+                            target_org_id=int(asset_org_id),
+                            document_type_id=int(document_type_id),
+                            document=document,
+                            document_number=document_number,
+                        )
                     )
+                result["assets"].append(
+                    {
+                        "assetId": str(asset_id),
+                        "assetClass": asset_class,
+                        "attachments": asset_attachments,
+                        "documents": asset_documents,
+                    }
                 )
-            result["assets"].append(
-                {
-                    "assetId": str(asset_id),
-                    "assetClass": asset_class,
-                    "attachments": asset_attachments,
-                    "documents": asset_documents,
-                }
-            )
 
         # TODO pendiente UI no soporta adjunto: Person acepta Attachment via API,
         # pero la pantalla de iTop no expone documentos/adjuntos para personas.

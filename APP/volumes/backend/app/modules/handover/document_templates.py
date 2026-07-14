@@ -336,6 +336,8 @@ def _build_receiver_signature_box(detail: dict[str, Any], receiver: dict[str, An
 
     signed_name = _coerce_str(signed_by.get("name")) or _coerce_str(receiver.get("name"))
     signed_role = _coerce_str(signed_by.get("role")) or _coerce_str(receiver.get("role")) or "Sin cargo"
+    signed_employee_number = _coerce_str(signed_by.get("employeeNumber")) or _coerce_str(receiver.get("employeeNumber"))
+    employee_number_html = f'<div class="muted">{_escape(signed_employee_number)}</div>' if signed_employee_number else ""
     return f"""
         <div class="signature-box">
             {signature_image_html}
@@ -343,6 +345,7 @@ def _build_receiver_signature_box(detail: dict[str, Any], receiver: dict[str, An
                 <div><strong>{_escape(signed_name)}</strong></div>
                 <div class="muted">{_escape(signature_label)}</div>
                 <div class="muted">{_escape(signed_role)}</div>
+                {employee_number_html}
                 {signature_meta_html}
             </div>
         </div>
@@ -828,11 +831,29 @@ def _resolve_person_responsibility(person: dict[str, Any], fallback: str = "Resp
     return _coerce_str(person.get("assignmentRole")) or fallback
 
 
+def _format_role_cell_html(person: dict[str, Any], fallback: str = "") -> str:
+    """Celda de cargo/rol: agrega el RUT/numero de empleado en una segunda linea, sin etiqueta."""
+    role_html = _escape(person.get("role")) if _coerce_str(person.get("role")) else _escape(fallback)
+    employee_number = _coerce_str(person.get("employeeNumber"))
+    if not employee_number:
+        return role_html
+    return f"{role_html}<br/>{_escape(employee_number)}"
+
+
+def _format_name_cell_html(person: dict[str, Any], fallback: str = "") -> str:
+    """Celda de nombre: agrega el RUT/numero de empleado en una segunda linea, sin etiqueta."""
+    name_html = _escape(person.get("name")) if _coerce_str(person.get("name")) else _escape(fallback)
+    employee_number = _coerce_str(person.get("employeeNumber"))
+    if not employee_number:
+        return name_html
+    return f"{name_html}<br/>{_escape(employee_number)}"
+
+
 def _build_responsibility_row_html(responsibility: str, person: dict[str, Any]) -> str:
     return f"""
         <tr>
             <td>{_escape(responsibility)}</td>
-            <td>{_escape(person.get("name"))}</td>
+            <td>{_format_name_cell_html(person)}</td>
             <td>{_escape(person.get("role"))}</td>
         </tr>
     """
@@ -857,18 +878,11 @@ def _build_delivery_responsible_rows(detail: dict[str, Any], type_definition: An
     return rows
 
 
-def _build_reassignment_person_rows(person: dict[str, Any], *, responsibility: str) -> list[tuple[str, str]]:
-    return [
-        ("Responsabilidad", responsibility or "Sin dato"),
-        ("Nombre", _coerce_str(person.get("name")) or "Sin dato"),
-        ("Cargo", _coerce_str(person.get("role")) or "Sin dato"),
-    ]
-
-
 def _build_reassignment_person_block(title: str, person: dict[str, Any], *, responsibility: str) -> str:
-    rows_html = "".join(
-        f"<tr><td class=\"label-cell\">{_escape(label)}</td><td>{_escape(value)}</td></tr>"
-        for label, value in _build_reassignment_person_rows(person, responsibility=responsibility)
+    rows_html = (
+        f'<tr><td class="label-cell">Responsabilidad</td><td>{_escape(responsibility or "Sin dato")}</td></tr>'
+        f'<tr><td class="label-cell">Nombre</td><td>{_escape(_coerce_str(person.get("name")) or "Sin dato")}</td></tr>'
+        f'<tr><td class="label-cell">Cargo</td><td>{_format_role_cell_html(person, fallback="Sin dato")}</td></tr>'
     )
     return f"""
     <div class="block-space">
@@ -927,7 +941,7 @@ def _build_return_main_html(detail: dict[str, Any], type_definition: Any) -> tup
                     <tr>
                         <td>Responsable</td>
                         <td>{_escape(receiver.get("name"))}</td>
-                        <td>{_escape(receiver.get("role"))}</td>
+                        <td>{_format_role_cell_html(receiver)}</td>
                     </tr>
                 </tbody>
             </table>
@@ -1044,12 +1058,12 @@ def _build_reassignment_main_html(detail: dict[str, Any], type_definition: Any) 
                     <tr>
                         <td>Responsable origen</td>
                         <td>{_escape(source_person.get("name"))}</td>
-                        <td>{_escape(source_person.get("role"))}</td>
+                        <td>{_format_role_cell_html(source_person)}</td>
                     </tr>
                     <tr>
                         <td>Responsable destino</td>
                         <td>{_escape(destination_person.get("name"))}</td>
-                        <td>{_escape(destination_person.get("role"))}</td>
+                        <td>{_format_role_cell_html(destination_person)}</td>
                     </tr>
                 </tbody>
             </table>

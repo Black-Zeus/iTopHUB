@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from modules.cmdb_visibility import (
@@ -10,8 +11,49 @@ from modules.auth.service import AuthenticationError
 from integrations.itop_cmdb_connector import iTopCMDBConnector
 from integrations.itop_runtime import get_itop_runtime_config
 
+
+PERSON_RELATED_CI_OUTPUT_FIELDS = (
+    "id,name,friendlyname,finalclass"
+)
+
 def _escape_oql(value: str) -> str:
     return value.replace("\\", "\\\\").replace("'", "\\'")
+
+
+def _build_itop_connector(runtime_token: str) -> iTopCMDBConnector:
+    itop_config = get_itop_runtime_config()
+    return iTopCMDBConnector(
+        base_url=itop_config["integrationUrl"],
+        token=runtime_token,
+        username="hub-session-user",
+        verify_ssl=itop_config["verifySsl"],
+        timeout=itop_config["timeoutSeconds"],
+    )
+
+
+def _load_person_for_detail(runtime_token: str, person_id: int):
+    connector = _build_itop_connector(runtime_token)
+    try:
+        return connector.get_person(
+            person_id,
+            output_fields=(
+                "id,name,first_name,friendlyname,email,phone,function,status,employee_number,"
+                "org_id_friendlyname,location_id_friendlyname,manager_id_friendlyname"
+            ),
+        )
+    finally:
+        connector.close()
+
+
+def _load_related_cis_for_person_detail(runtime_token: str, person_id: int) -> list[Any]:
+    connector = _build_itop_connector(runtime_token)
+    try:
+        return connector.get_person_cis(
+            person_id,
+            output_fields=PERSON_RELATED_CI_OUTPUT_FIELDS,
+        )
+    finally:
+        connector.close()
 
 
 def _build_query_conditions(query: str) -> list[str]:
@@ -50,6 +92,7 @@ def _build_person_row(item) -> dict[str, str | int]:
         "phone": str(item.get("phone") or "").strip(),
         "role": str(item.get("function") or "").strip(),
         "status": status.capitalize(),
+        "employeeNumber": str(item.get("employee_number") or "").strip(),
     }
 
 
@@ -329,7 +372,7 @@ def search_itop_people(
     if conditions:
         oql = f"{oql} WHERE {' AND '.join(conditions)}"
 
-    output_fields = "id,name,first_name,friendlyname,email,phone,function,status"
+    output_fields = "id,name,first_name,friendlyname,email,phone,function,status,employee_number"
 
     try:
         items = connector.oql(
@@ -363,40 +406,26 @@ def search_itop_people(
 def get_itop_person_detail(person_id: int, runtime_token: str) -> dict[str, object]:
     from modules.settings.service import get_settings_panel
 
-    itop_config = get_itop_runtime_config()
-    connector = iTopCMDBConnector(
-        base_url=itop_config["integrationUrl"],
-        token=runtime_token,
-        username="hub-session-user",
-        verify_ssl=itop_config["verifySsl"],
-        timeout=itop_config["timeoutSeconds"],
-    )
-
     try:
         cmdb_settings = get_settings_panel("cmdb")
         warranty_alert_days = int(cmdb_settings.get("warrantyAlertDays") or 30)
         show_obsolete_assets = should_show_obsolete_assets(cmdb_settings)
         show_implementation_assets = should_show_implementation_assets(cmdb_settings)
 
-        person = connector.get_person(
-            person_id,
-            output_fields="id,name,first_name,friendlyname,email,phone,function,status,org_id_friendlyname,location_id_friendlyname,manager_id_friendlyname",
-        )
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            person_future = executor.submit(_load_person_for_detail, runtime_token, person_id)
+            related_cis_future = executor.submit(_load_related_cis_for_person_detail, runtime_token, person_id)
+            person = person_future.result()
+            related_cis = related_cis_future.result()
+
         if not person:
             raise ValueError("La persona solicitada no existe en iTop.")
 
-        related_cis = connector.get_person_cis(
-            person_id,
-            output_fields="id,name,friendlyname,finalclass",
-        )
         detailed_cis = []
         for ci in related_cis:
-            ci_class = str(ci.get("finalclass") or ci.itop_class or "FunctionalCI").strip() or "FunctionalCI"
-            detailed_item = connector.get_ci(ci_class, ci.id, output_fields="*")
-            visible_ci = detailed_item or ci
-            if not is_visible_ci_status(visible_ci.get("status"), show_obsolete_assets, show_implementation_assets):
+            if ci.get("status") and not is_visible_ci_status(ci.get("status"), show_obsolete_assets, show_implementation_assets):
                 continue
-            detailed_cis.append(_build_ci_detail(visible_ci, warranty_alert_days))
+            detailed_cis.append(_build_ci_detail(ci, warranty_alert_days))
         history_items: list[dict[str, str | int]] = []
         if detailed_cis:
             history_items = _build_current_ci_history(detailed_cis)
@@ -406,7 +435,5 @@ def get_itop_person_detail(person_id: int, runtime_token: str) -> dict[str, obje
             status_code=503,
             code="ITOP_UNAVAILABLE",
         ) from exc
-    finally:
-        connector.close()
 
     return _build_person_detail(person, detailed_cis, history_items)
