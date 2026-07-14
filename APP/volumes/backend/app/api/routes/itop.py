@@ -104,12 +104,16 @@ def itop_assets_catalog(
 
 
 @router.get("/assets/{asset_id}")
-def itop_asset_detail(asset_id: int, hub_session_id: str | None = Cookie(default=None)) -> dict[str, Any]:
+def itop_asset_detail(
+    asset_id: int,
+    include_history: bool = False,
+    hub_session_id: str | None = Cookie(default=None),
+) -> dict[str, Any]:
     session_id = ensure_session(hub_session_id)
     try:
         ensure_any_module_access(session_id, ("assets", "lab"))
         runtime_token = get_runtime_token(session_id)
-        return {"item": get_itop_asset_detail(asset_id, runtime_token)}
+        return {"item": get_itop_asset_detail(asset_id, runtime_token, include_history=include_history)}
     except AuthenticationError as exc:
         raise_auth_error(exc)
     except ValueError as exc:
