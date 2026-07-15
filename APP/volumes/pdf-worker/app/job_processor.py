@@ -74,6 +74,7 @@ def _load_handover_emit_dependencies() -> dict[str, Any]:
         "build_handover_storage_source": service.build_handover_storage_source,
         "fetch_handover_document_row": repository.fetch_handover_document_row,
         "save_handover_document": repository.save_handover_document,
+        "persist_handover_item_evidences": service._persist_handover_item_evidences,
         "enrich_handover_detail_for_pdf": service.enrich_handover_detail_for_pdf,
         "get_handover_document_detail": service.get_handover_document_detail,
         "logger": service.logger,
@@ -117,6 +118,7 @@ def process_handover_emit_job(job: dict[str, Any]) -> dict[str, Any]:
     build_handover_storage_source = dependencies["build_handover_storage_source"]
     fetch_handover_document_row = dependencies["fetch_handover_document_row"]
     save_handover_document = dependencies["save_handover_document"]
+    persist_handover_item_evidences = dependencies["persist_handover_item_evidences"]
     enrich_handover_detail_for_pdf = dependencies["enrich_handover_detail_for_pdf"]
     get_handover_document_detail = dependencies["get_handover_document_detail"]
     logger = dependencies["logger"]
@@ -220,6 +222,16 @@ def process_handover_emit_job(job: dict[str, Any]) -> dict[str, Any]:
         item_payloads = build_item_payloads_from_detail(current_detail.get("items") or [])
 
         save_handover_document(document_id, document_payload, item_payloads)
+        # save_handover_document() deletes and reinserts hub_handover_document_items,
+        # which cascade-deletes hub_handover_item_evidences (FK ON DELETE CASCADE).
+        # Re-link the per-asset evidence rows against the freshly recreated items,
+        # same as create/update_handover_document already do.
+        persist_handover_item_evidences(
+            document_id,
+            item_payloads,
+            previous_detail=current_detail,
+            handover_type=handover_type,
+        )
     except Exception:
         for path in created_files:
             try:
