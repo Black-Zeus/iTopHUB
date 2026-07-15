@@ -272,6 +272,11 @@ export async function fetchHandoverEvidenceBlob(documentId, storedName) {
 }
 
 
+export function buildHandoverItemEvidenceUrl(documentId, storedName) {
+  return `${API_BASE_URL}/v1/handover/documents/${documentId}/item-evidence/${encodeURIComponent(storedName)}`;
+}
+
+
 export async function fetchHandoverGeneratedPdfBlob(documentId, documentKind) {
   const response = await fetch(
     `${API_BASE_URL}/v1/handover/documents/${documentId}/pdf/${encodeURIComponent(documentKind)}`,

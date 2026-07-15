@@ -364,6 +364,37 @@ def handover_document_evidence_download(
     )
 
 
+@router.get("/documents/{document_id}/item-evidence/{stored_name}")
+def handover_document_item_evidence_download(
+    document_id: int,
+    stored_name: str,
+    hub_session_id: str | None = Cookie(default=None),
+) -> FileResponse:
+    session_id = ensure_session(hub_session_id)
+    try:
+        _ensure_handover_family_access(session_id)
+    except AuthenticationError as exc:
+        raise_auth_error(exc)
+
+    document = get_handover_document_detail(document_id)
+    file_path = resolve_existing_handover_storage_file(
+        "item_evidence",
+        document_id,
+        stored_name,
+        handover_type=document.get("handoverTypeCode") or document.get("handoverType"),
+        include_legacy=True,
+    )
+    if file_path is None:
+        raise HTTPException(status_code=404, detail="Imagen de evidencia no encontrada.")
+
+    media_type, _ = mimetypes.guess_type(file_path.name)
+    return FileResponse(
+        path=str(file_path),
+        filename=file_path.name,
+        media_type=media_type or "application/octet-stream",
+    )
+
+
 @router.get("/documents/{document_id}/pdf/{document_kind}")
 def handover_document_pdf_download(
     document_id: int,

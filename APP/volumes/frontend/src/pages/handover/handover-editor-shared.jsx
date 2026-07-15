@@ -3,7 +3,7 @@ import { CollapseToggleButton, Panel, PanelHeader } from "../../components/ui/ge
 import { Icon } from "../../components/ui/icon/Icon";
 import ModalManager from "../../components/ui/modal";
 import { Button } from "../../ui/Button";
-import { fetchHandoverEvidenceBlob, fetchHandoverGeneratedPdfBlob } from "../../services/handover-service";
+import { buildHandoverItemEvidenceUrl, fetchHandoverEvidenceBlob, fetchHandoverGeneratedPdfBlob } from "../../services/handover-service";
 import {
   buildHandoverDocumentLibraryEntries,
   getHandoverDocumentTypeLabel,
@@ -178,7 +178,7 @@ export function createFormFromDetail(detail, bootstrap) {
       ...item,
       evidences: (item.evidences || []).map((evidence) => ({
         ...evidence,
-        previewUrl: "",
+        previewUrl: evidence.storedName ? buildHandoverItemEvidenceUrl(detail.id, evidence.storedName) : "",
         file: null,
       })),
     })),
