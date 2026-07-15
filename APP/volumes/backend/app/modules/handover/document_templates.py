@@ -157,7 +157,7 @@ def _is_computer_asset(asset: dict[str, Any], itop_detail: dict[str, Any] | None
 def _build_brand_model_value(field_lookup: dict[str, str], asset: dict[str, Any]) -> str:
     brand = _find_field_value(field_lookup, "Marca") or _coerce_str(asset.get("brand"))
     model = _find_field_value(field_lookup, "Modelo") or _coerce_str(asset.get("model"))
-    return _join_non_empty([brand, model], " ")
+    return _join_non_empty([brand, model], " / ")
 
 
 def _build_footer_template(
@@ -763,25 +763,25 @@ def _build_base_html(
         }}
         .evidence-list {{
             display: grid;
-            gap: 14px;
+            gap: 12px;
+            grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
         }}
         .evidence-row {{
-            align-items: stretch;
             border: 1px solid var(--line);
             border-radius: 12px;
-            display: grid;
-            gap: 12px;
-            grid-template-columns: 400px minmax(0, 1fr);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
             overflow: hidden;
-            padding: 12px;
+            padding: 10px;
         }}
         .evidence-image {{
             background: #eef3f9;
             border: 1px solid var(--line);
             border-radius: 10px;
-            height: 300px;
+            height: 140px;
             object-fit: cover;
-            width: 400px;
+            width: 100%;
         }}
         .evidence-placeholder {{
             align-items: center;
@@ -790,17 +790,17 @@ def _build_base_html(
             border-radius: 10px;
             color: var(--muted);
             display: flex;
-            font-size: 11px;
-            height: 300px;
+            font-size: 10px;
+            height: 140px;
             justify-content: center;
-            padding: 18px;
+            padding: 10px;
             text-align: center;
-            width: 400px;
+            width: 100%;
         }}
         .evidence-caption {{
             display: flex;
             flex-direction: column;
-            gap: 8px;
+            gap: 4px;
             min-width: 0;
         }}
     </style>
@@ -896,8 +896,8 @@ def _build_delivery_responsible_rows(detail: dict[str, Any], type_definition: An
 def _build_reassignment_person_block(title: str, person: dict[str, Any], *, responsibility: str) -> str:
     rows_html = (
         f'<tr><td class="label-cell">Responsabilidad</td><td>{_escape(responsibility or "Sin dato")}</td></tr>'
-        f'<tr><td class="label-cell">Nombre</td><td>{_escape(_coerce_str(person.get("name")) or "Sin dato")}</td></tr>'
-        f'<tr><td class="label-cell">Cargo</td><td>{_format_role_cell_html(person, fallback="Sin dato")}</td></tr>'
+        f'<tr><td class="label-cell">Nombre</td><td>{_format_name_cell_html(person, fallback="Sin dato")}</td></tr>'
+        f'<tr><td class="label-cell">Cargo</td><td>{_escape(_coerce_str(person.get("role")) or "Sin dato")}</td></tr>'
     )
     return f"""
     <div class="block-space">
@@ -955,8 +955,8 @@ def _build_return_main_html(detail: dict[str, Any], type_definition: Any) -> tup
                 <tbody>
                     <tr>
                         <td>Responsable</td>
-                        <td>{_escape(receiver.get("name"))}</td>
-                        <td>{_format_role_cell_html(receiver)}</td>
+                        <td>{_format_name_cell_html(receiver)}</td>
+                        <td>{_escape(receiver.get("role"))}</td>
                     </tr>
                 </tbody>
             </table>
@@ -1072,13 +1072,13 @@ def _build_reassignment_main_html(detail: dict[str, Any], type_definition: Any) 
                 <tbody>
                     <tr>
                         <td>Responsable origen</td>
-                        <td>{_escape(source_person.get("name"))}</td>
-                        <td>{_format_role_cell_html(source_person)}</td>
+                        <td>{_format_name_cell_html(source_person)}</td>
+                        <td>{_escape(source_person.get("role"))}</td>
                     </tr>
                     <tr>
                         <td>Responsable destino</td>
-                        <td>{_escape(destination_person.get("name"))}</td>
-                        <td>{_format_role_cell_html(destination_person)}</td>
+                        <td>{_format_name_cell_html(destination_person)}</td>
+                        <td>{_escape(destination_person.get("role"))}</td>
                     </tr>
                 </tbody>
             </table>
